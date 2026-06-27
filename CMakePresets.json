@@ -1,0 +1,53 @@
+{
+    "version": 2,
+    "configurePresets": [
+        {
+            "name": "gxx-debug",
+            "displayName": "g++ Debug",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/gxx-debug",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Debug",
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        },
+        {
+            "name": "gxx-release",
+            "displayName": "g++ Release",
+            "generator": "Ninja",
+            "binaryDir": "${sourceDir}/out/build/gxx-release",
+            "cacheVariables": {
+                "CMAKE_BUILD_TYPE": "Release",
+                "CMAKE_CXX_COMPILER": "g++",
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+            }
+        }
+    ],
+    "buildPresets": [
+        {
+            "name": "gxx-debug",
+            "configurePreset": "gxx-debug"
+        },
+        {
+            "name": "gxx-release",
+            "configurePreset": "gxx-release"
+        }
+    ],
+    "testPresets": [
+        {
+            "name": "gxx-debug",
+            "configurePreset": "gxx-debug",
+            "output": {
+            "outputOnFailure": true
+            }
+        },
+        {
+            "name": "gxx-release",
+            "configurePreset": "gxx-release",
+            "output": {
+            "outputOnFailure": true
+            }
+        }
+    ]
+}
