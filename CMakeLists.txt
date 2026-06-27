@@ -9,6 +9,7 @@ project(
 
 add_library(dandb_core STATIC
     src/core/Core.cpp
+    src/core/Status.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -33,6 +34,8 @@ add_subdirectory(third_party/catch2)
 
 add_executable(dandb_tests
     tests/core/Smoke.cpp
+    tests/core/Result.cpp
+    tests/core/Status.cpp
 )
 
 target_link_libraries(dandb_tests
