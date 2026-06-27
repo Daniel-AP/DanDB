@@ -36,6 +36,10 @@ add_executable(dandb_tests
     tests/core/Smoke.cpp
     tests/core/Result.cpp
     tests/core/Status.cpp
+    tests/core/Constants.cpp
+    tests/catalog/TableId.cpp
+    tests/catalog/IndexId.cpp
+    tests/storage/PageId.cpp
 )
 
 target_link_libraries(dandb_tests
