@@ -44,12 +44,19 @@ add_executable(dandb_tests
     tests/catalog/TableId.cpp
     tests/catalog/IndexId.cpp
     tests/storage/PageId.cpp
+    tests/testutil/TempDir.cpp
+    tests/testutil/TempDirTests.cpp
 )
 
 target_link_libraries(dandb_tests
     PRIVATE
         dandb_core
         Catch2::Catch2WithMain
+)
+
+target_include_directories(dandb_tests
+    PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests"
 )
 
 target_compile_features(dandb_tests PRIVATE cxx_std_20)
