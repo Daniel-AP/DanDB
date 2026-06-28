@@ -27,6 +27,17 @@ When making changes:
 - If there are multiple valid approaches, explain the trade-offs before choosing one.
 - Add comments only when they help understanding; avoid obvious comments.
 
+## Project casing system
+
+Apply this casing system consistently across my code in this project. Do not enforce it inside third-party code.
+
+- Namespaces, paths, build targets, functions, methods, and local variables use `snake_case` or lowercase when there is only one word.
+- Types use `PascalCase`, including classes, structs, enums, and type aliases.
+- Enum values and named constructors/factory methods use `PascalCase`.
+- Private data members use trailing underscore, such as `code_` or `message_`.
+- Constants use `UPPER_SNAKE_CASE`, such as `PAGE_SIZE` or `INVALID_PAGE_ID`.
+- Keep public include paths lowercase except for file names that match `PascalCase` type names, such as `dandb/core/Status.h`.
+
 ## Learning-first rule
 
 Whenever possible, guide me as if I am learning:
