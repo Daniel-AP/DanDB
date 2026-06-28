@@ -57,7 +57,7 @@ TEST_CASE("write helpers store integers in little-endian byte order", "[core][en
 
 TEST_CASE("read helpers parse integers from little-endian byte order", "[core][endian]") {
     SECTION("u16") {
-        constexpr std::array bytes{
+        std::array bytes{
             std::byte{ 0x34 },
             std::byte{ 0x12 },
         };
@@ -69,7 +69,7 @@ TEST_CASE("read helpers parse integers from little-endian byte order", "[core][e
     }
 
     SECTION("u32") {
-        constexpr std::array bytes{
+        std::array bytes{
             std::byte{ 0x78 },
             std::byte{ 0x56 },
             std::byte{ 0x34 },
@@ -83,7 +83,7 @@ TEST_CASE("read helpers parse integers from little-endian byte order", "[core][e
     }
 
     SECTION("u64") {
-        constexpr std::array bytes{
+        std::array bytes{
             std::byte{ 0xEF },
             std::byte{ 0xCD },
             std::byte{ 0xAB },
