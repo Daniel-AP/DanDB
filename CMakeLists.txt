@@ -8,7 +8,6 @@ project(
 )
 
 add_library(dandb_core STATIC
-    src/core/Core.cpp
     src/core/Status.cpp
     src/core/Endian.cpp
     src/core/Checksum.cpp
@@ -35,7 +34,6 @@ enable_testing()
 add_subdirectory(third_party/catch2)
 
 add_executable(dandb_tests
-    tests/core/Smoke.cpp
     tests/core/Result.cpp
     tests/core/Status.cpp
     tests/core/Constants.cpp
