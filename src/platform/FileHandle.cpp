@@ -1,6 +1,7 @@
 #include <dandb/platform/FileHandle.h>
 
 #include <dandb/core/Status.h>
+#include <dandb/platform/FileFaultInjector.h>
 
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -195,6 +196,14 @@ namespace dandb::platform {
             return dandb::core::Status::Ok();
         }
 
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->before_write(offset, data.size());
+
+            if(!status.ok()) {
+                return status;
+            }
+        }
+
         HANDLE handle = static_cast<HANDLE>(handle_);
         std::size_t total_written = 0;
 
@@ -247,11 +256,27 @@ namespace dandb::platform {
             return dandb::core::Status::InvalidArgument("Cannot sync file: file handle is closed");
         }
 
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->before_sync();
+
+            if(!status.ok()) {
+                return status;
+            }
+        }
+
         BOOL ok = FlushFileBuffers(static_cast<HANDLE>(handle_));
 
         if(!ok) {
             const DWORD error = GetLastError();
             return status_from_windows_error("Cannot sync file", path_, error);
+        }
+
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->after_sync();
+
+            if(!status.ok()) {
+                return status;
+            }
         }
 
         return dandb::core::Status::Ok();
@@ -289,6 +314,14 @@ namespace dandb::platform {
             return dandb::core::Status::InvalidArgument("Cannot resize file: new size is too big");
         }
 
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->before_resize(new_size);
+
+            if(!status.ok()) {
+                return status;
+            }
+        }
+
         LARGE_INTEGER distance{};
         distance.QuadPart = static_cast<LONGLONG>(new_size);
 
@@ -303,10 +336,26 @@ namespace dandb::platform {
             return status_from_windows_error("Cannot resize file", path_, error);
         }
 
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->after_resize_file_pointer(new_size);
+
+            if(!status.ok()) {
+                return status;
+            }
+        }
+
         ok = SetEndOfFile(static_cast<HANDLE>(handle_));
         if(!ok) {
             const DWORD error = GetLastError();
             return status_from_windows_error("Cannot resize file", path_, error);
+        }
+
+        if(fault_injector_ != nullptr) {
+            auto status = fault_injector_->after_resize_end_of_file(new_size);
+
+            if(!status.ok()) {
+                return status;
+            }
         }
 
         return dandb::core::Status::Ok();
@@ -327,6 +376,10 @@ namespace dandb::platform {
 
         return dandb::core::Status::Ok();
 
+    }
+
+    void FileHandle::set_fault_injector(FileFaultInjector* fault_injector) {
+        fault_injector_ = fault_injector;
     }
 
 }

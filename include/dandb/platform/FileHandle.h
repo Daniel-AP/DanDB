@@ -10,6 +10,8 @@
 
 namespace dandb::platform {
 
+    class FileFaultInjector;
+
     class FileHandle {
         public:
             FileHandle(const FileHandle&) = delete;
@@ -29,11 +31,15 @@ namespace dandb::platform {
             [[nodiscard]] dandb::core::Result<std::uint64_t> size() const;
             [[nodiscard]] dandb::core::Status resize(std::uint64_t new_size);
             [[nodiscard]] dandb::core::Status close();
+
+            void set_fault_injector(FileFaultInjector* fault_injector);
         private:
             explicit FileHandle(std::filesystem::path path, void* handle);
 
             std::filesystem::path path_;
             void* handle_ = nullptr;
+
+            FileFaultInjector* fault_injector_ = nullptr;
     };
 
 }
