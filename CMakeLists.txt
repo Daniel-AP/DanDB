@@ -13,6 +13,7 @@ add_library(dandb_core STATIC
     src/core/Checksum.cpp
     src/platform/FileHandle.cpp
     src/platform/FileLock.cpp
+    src/platform/DatabasePath.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -46,6 +47,7 @@ add_executable(dandb_tests
     tests/storage/PageId.cpp
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
+    tests/platform/DatabasePath.cpp
     tests/platform/FileHandle.cpp
     tests/platform/FileLock.cpp
 )
