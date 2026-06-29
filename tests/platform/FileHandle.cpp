@@ -2,9 +2,11 @@
 
 #include <testutil/TempDir.h>
 #include <dandb/platform/FileHandle.h>
+#include <dandb/platform/FileFaultInjector.h>
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <limits>
@@ -400,4 +402,195 @@ TEST_CASE("FileHandle sync returns an error after close", "[platform][file_handl
 
     REQUIRE_FALSE(sync_status.ok());
     REQUIRE(sync_status.code() == dandb::core::StatusCode::InvalidArgument);
+}
+
+TEST_CASE("FileHandle sync returns an error when fault injection fails before sync", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_before_sync_failure.bin";
+
+    auto created = dandb::platform::FileHandle::create_new(path);
+    REQUIRE(created.ok());
+
+    class FailBeforeSync final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status before_sync() override {
+                return dandb::core::Status::IoError("injected before sync failure");
+            }
+    };
+
+    FailBeforeSync injector;
+    created.value().set_fault_injector(&injector);
+
+    const auto status = created.value().sync();
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+}
+
+TEST_CASE("FileHandle sync returns an error when fault injection fails after sync", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_after_sync_failure.bin";
+
+    auto created = dandb::platform::FileHandle::create_new(path);
+    REQUIRE(created.ok());
+
+    class FailAfterSync final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status after_sync() override {
+                return dandb::core::Status::IoError("injected after sync failure");
+            }
+    };
+
+    FailAfterSync injector;
+    created.value().set_fault_injector(&injector);
+
+    const auto status = created.value().sync();
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+}
+
+TEST_CASE("FileHandle no-fault injector leaves file operations unchanged", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "no_fault_injector.bin";
+
+    auto created = dandb::platform::FileHandle::create_new(path);
+    REQUIRE(created.ok());
+
+    dandb::platform::FileFaultInjector injector;
+    created.value().set_fault_injector(&injector);
+
+    const std::array data{
+        static_cast<std::byte>('d'),
+        static_cast<std::byte>('a'),
+        static_cast<std::byte>('t'),
+        static_cast<std::byte>('a')
+    };
+
+    const auto write_status = created.value().write_at(0, data);
+    REQUIRE(write_status.ok());
+
+    const auto sync_status = created.value().sync();
+    REQUIRE(sync_status.ok());
+
+    const auto resize_status = created.value().resize(2);
+    REQUIRE(resize_status.ok());
+
+    REQUIRE(std::filesystem::file_size(path) == 2);
+    REQUIRE(read_file_bytes(path) == "da");
+}
+
+TEST_CASE("FileHandle write_at returns an error when fault injection fails before write", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_write_failure.bin";
+
+    auto created = dandb::platform::FileHandle::create_new(path);
+    REQUIRE(created.ok());
+
+    class FailBeforeWrite final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status before_write(
+                std::uint64_t offset,
+                std::size_t byte_count
+            ) override {
+                return dandb::core::Status::IoError("injected write failure");
+            }
+    };
+
+    FailBeforeWrite injector;
+    created.value().set_fault_injector(&injector);
+
+    const std::array data{
+        static_cast<std::byte>('x')
+    };
+
+    const auto status = created.value().write_at(0, data);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+    REQUIRE(std::filesystem::file_size(path) == 0);
+}
+
+TEST_CASE("FileHandle resize returns an error when fault injection fails before resize", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_before_resize_failure.bin";
+    write_file_bytes(path, "abcdef");
+
+    auto opened = dandb::platform::FileHandle::open_existing(path);
+    REQUIRE(opened.ok());
+
+    class FailBeforeResize final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status before_resize(std::uint64_t new_size) override {
+                static_cast<void>(new_size);
+
+                return dandb::core::Status::IoError("injected before resize failure");
+            }
+    };
+
+    FailBeforeResize injector;
+    opened.value().set_fault_injector(&injector);
+
+    const auto status = opened.value().resize(3);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+    REQUIRE(std::filesystem::file_size(path) == 6);
+    REQUIRE(read_file_bytes(path) == "abcdef");
+}
+
+TEST_CASE("FileHandle resize returns an error when fault injection fails after moving the file pointer", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_after_resize_file_pointer_failure.bin";
+    write_file_bytes(path, "abcdef");
+
+    auto opened = dandb::platform::FileHandle::open_existing(path);
+    REQUIRE(opened.ok());
+
+    class FailAfterResizeFilePointer final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status after_resize_file_pointer(std::uint64_t new_size) override {
+                static_cast<void>(new_size);
+
+                return dandb::core::Status::IoError("injected after resize file pointer failure");
+            }
+    };
+
+    FailAfterResizeFilePointer injector;
+    opened.value().set_fault_injector(&injector);
+
+    const auto status = opened.value().resize(3);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+    REQUIRE(std::filesystem::file_size(path) == 6);
+    REQUIRE(read_file_bytes(path) == "abcdef");
+}
+
+TEST_CASE("FileHandle resize returns an error when fault injection fails after changing end of file", "[platform][file_handle][fault_injection]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "injected_after_resize_end_of_file_failure.bin";
+    write_file_bytes(path, "abcdef");
+
+    auto opened = dandb::platform::FileHandle::open_existing(path);
+    REQUIRE(opened.ok());
+
+    class FailAfterResizeEndOfFile final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status after_resize_end_of_file(std::uint64_t new_size) override {
+                static_cast<void>(new_size);
+
+                return dandb::core::Status::IoError("injected after resize end of file failure");
+            }
+    };
+
+    FailAfterResizeEndOfFile injector;
+    opened.value().set_fault_injector(&injector);
+
+    const auto status = opened.value().resize(3);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == dandb::core::StatusCode::IoError);
+    REQUIRE(std::filesystem::file_size(path) == 3);
+    REQUIRE(read_file_bytes(path) == "abc");
 }
