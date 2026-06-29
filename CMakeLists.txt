@@ -12,6 +12,7 @@ add_library(dandb_core STATIC
     src/core/Endian.cpp
     src/core/Checksum.cpp
     src/platform/FileHandle.cpp
+    src/platform/FileLock.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -46,6 +47,7 @@ add_executable(dandb_tests
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
     tests/platform/FileHandle.cpp
+    tests/platform/FileLock.cpp
 )
 
 target_link_libraries(dandb_tests

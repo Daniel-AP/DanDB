@@ -3,7 +3,9 @@
 #include <dandb/core/Status.h>
 
 #define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
 #include <Windows.h>
 
 #include <utility>
@@ -56,6 +58,7 @@ namespace {
 namespace dandb::platform {
 
     FileHandle::FileHandle(std::filesystem::path path, void* handle) : path_(std::move(path)), handle_(handle) {}
+    
     FileHandle::~FileHandle() { static_cast<void>(close()); }
 
     FileHandle::FileHandle(FileHandle&& other) noexcept : path_(std::move(other.path_)), handle_(other.handle_) {
