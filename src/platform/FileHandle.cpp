@@ -62,8 +62,9 @@ namespace dandb::platform {
     
     FileHandle::~FileHandle() { static_cast<void>(close()); }
 
-    FileHandle::FileHandle(FileHandle&& other) noexcept : path_(std::move(other.path_)), handle_(other.handle_) {
+    FileHandle::FileHandle(FileHandle&& other) noexcept : path_(std::move(other.path_)), handle_(other.handle_), fault_injector_(other.fault_injector_) {
         other.handle_ = nullptr;
+        other.fault_injector_ = nullptr;
     }
 
     FileHandle& FileHandle::operator=(FileHandle&& other) noexcept {
@@ -71,7 +72,9 @@ namespace dandb::platform {
             static_cast<void>(close());
             path_ = std::move(other.path_);
             handle_ = other.handle_;
+            fault_injector_ = other.fault_injector_;
             other.handle_ = nullptr;
+            other.fault_injector_ = nullptr;
         }
         return *this;
     }
