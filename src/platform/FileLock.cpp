@@ -82,7 +82,7 @@ namespace dandb::platform {
         return *this;
     }
 
-    dandb::core::Result<FileLock> FileLock::acquire_exclusive(const std::filesystem::path& path) {
+    core::Result<FileLock> FileLock::acquire_exclusive(const std::filesystem::path& path) {
 
         HANDLE handle = CreateFileW(
             path.c_str(),
@@ -131,9 +131,9 @@ namespace dandb::platform {
 
     }
 
-    dandb::core::Status FileLock::close() {
+    core::Status FileLock::close() {
 
-        if(handle_ == nullptr) return dandb::core::Status::Ok();
+        if(handle_ == nullptr) return core::Status::Ok();
 
         OVERLAPPED overlapped{};
         overlapped.Offset = static_cast<DWORD>(DATABASE_LOCK_OFFSET&0xFFFFFFFFULL);
@@ -159,7 +159,7 @@ namespace dandb::platform {
             return status_from_windows_error("Cannot close database file lock handle after releasing lock", path_, error);
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 

@@ -79,7 +79,7 @@ namespace dandb::platform {
         return *this;
     }
 
-    dandb::core::Result<FileHandle> FileHandle::create_new(const std::filesystem::path& path) {
+    core::Result<FileHandle> FileHandle::create_new(const std::filesystem::path& path) {
         
         HANDLE handle = CreateFileW(
             path.c_str(),
@@ -100,7 +100,7 @@ namespace dandb::platform {
 
     }
 
-    dandb::core::Result<FileHandle> FileHandle::open_existing(const std::filesystem::path& path) {
+    core::Result<FileHandle> FileHandle::open_existing(const std::filesystem::path& path) {
 
         HANDLE handle = CreateFileW(
             path.c_str(),
@@ -121,7 +121,7 @@ namespace dandb::platform {
 
     }
 
-    dandb::core::Result<FileHandle> FileHandle::open_or_create(const std::filesystem::path& path) {
+    core::Result<FileHandle> FileHandle::open_or_create(const std::filesystem::path& path) {
 
         HANDLE handle = CreateFileW(
             path.c_str(),
@@ -142,18 +142,18 @@ namespace dandb::platform {
 
     }
 
-    dandb::core::Status FileHandle::read_at(std::uint64_t offset, std::span<std::byte> out) {
+    core::Status FileHandle::read_at(std::uint64_t offset, std::span<std::byte> out) {
 
         if(handle_ == nullptr) {
-            return dandb::core::Status::InvalidArgument("Cannot read file '"+path_.string()+"': file handle is closed");
+            return core::Status::InvalidArgument("Cannot read file '"+path_.string()+"': file handle is closed");
         }
 
         if(out.empty()) {
-            return dandb::core::Status::Ok();
+            return core::Status::Ok();
         }
 
         if(out.size() > MAXDWORD) {
-            return dandb::core::Status::InvalidArgument("Cannot read file '"+path_.string()+"': requested size is too big");
+            return core::Status::InvalidArgument("Cannot read file '"+path_.string()+"': requested size is too big");
         }
 
         HANDLE handle = static_cast<HANDLE>(handle_);
@@ -177,7 +177,7 @@ namespace dandb::platform {
         }
 
         if(bytes_read != requested_size) {
-            return dandb::core::Status::IoError(
+            return core::Status::IoError(
                 "Cannot read file '" + path_.string() +
                 "' at offset " + std::to_string(offset) +
                 ": short read, requested " + std::to_string(requested_size) +
@@ -185,18 +185,18 @@ namespace dandb::platform {
             );
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 
-    dandb::core::Status FileHandle::write_at(std::uint64_t offset, std::span<const std::byte> data) {
+    core::Status FileHandle::write_at(std::uint64_t offset, std::span<const std::byte> data) {
 
         if(handle_ == nullptr) {
-            return dandb::core::Status::InvalidArgument("Cannot write file '"+path_.string()+"': file handle is closed");
+            return core::Status::InvalidArgument("Cannot write file '"+path_.string()+"': file handle is closed");
         }
 
         if(data.empty()) {
-            return dandb::core::Status::Ok();
+            return core::Status::Ok();
         }
 
         if(fault_injector_ != nullptr) {
@@ -239,7 +239,7 @@ namespace dandb::platform {
             }
 
             if(bytes_written == 0) {
-                return dandb::core::Status::IoError(
+                return core::Status::IoError(
                     "Cannot write file '" + path_.string() +
                     "' at offset " + std::to_string(current_offset) +
                     ": wrote 0 bytes"
@@ -249,14 +249,14 @@ namespace dandb::platform {
             total_written += bytes_written;
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 
-    dandb::core::Status FileHandle::sync() {
+    core::Status FileHandle::sync() {
 
         if(handle_ == nullptr) {
-            return dandb::core::Status::InvalidArgument("Cannot sync file: file handle is closed");
+            return core::Status::InvalidArgument("Cannot sync file: file handle is closed");
         }
 
         if(fault_injector_ != nullptr) {
@@ -282,14 +282,14 @@ namespace dandb::platform {
             }
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 
-    dandb::core::Result<std::uint64_t> FileHandle::size() const {
+    core::Result<std::uint64_t> FileHandle::size() const {
 
         if(handle_ == nullptr) {
-            return dandb::core::Status::InvalidArgument("Cannot get file size: file handle is closed");
+            return core::Status::InvalidArgument("Cannot get file size: file handle is closed");
         }
 
         LARGE_INTEGER file_size{};
@@ -307,14 +307,14 @@ namespace dandb::platform {
 
     }
 
-    dandb::core::Status FileHandle::resize(std::uint64_t new_size) {
+    core::Status FileHandle::resize(std::uint64_t new_size) {
 
         if(handle_ == nullptr) {
-            return dandb::core::Status::InvalidArgument("Cannot resize file: file handle is closed");
+            return core::Status::InvalidArgument("Cannot resize file: file handle is closed");
         }
 
         if(new_size > static_cast<std::uint64_t>(std::numeric_limits<LONGLONG>::max())) {
-            return dandb::core::Status::InvalidArgument("Cannot resize file: new size is too big");
+            return core::Status::InvalidArgument("Cannot resize file: new size is too big");
         }
 
         if(fault_injector_ != nullptr) {
@@ -361,13 +361,13 @@ namespace dandb::platform {
             }
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 
-    dandb::core::Status FileHandle::close() {
+    core::Status FileHandle::close() {
 
-        if(handle_ == nullptr) return dandb::core::Status::Ok();
+        if(handle_ == nullptr) return core::Status::Ok();
 
         BOOL ok = CloseHandle(static_cast<HANDLE>(handle_));
         handle_ = nullptr;
@@ -377,7 +377,7 @@ namespace dandb::platform {
             return status_from_windows_error("Cannot close file", path_, error);
         }
 
-        return dandb::core::Status::Ok();
+        return core::Status::Ok();
 
     }
 

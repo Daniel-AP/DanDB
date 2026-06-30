@@ -15,9 +15,9 @@ namespace dandb::platform {
             FileLock& operator=(FileLock&& other) noexcept;
             ~FileLock();
 
-            [[nodiscard]] static dandb::core::Result<FileLock> acquire_exclusive(const std::filesystem::path& path);
+            [[nodiscard]] static core::Result<FileLock> acquire_exclusive(const std::filesystem::path& path);
 
-            [[nodiscard]] dandb::core::Status close();
+            [[nodiscard]] core::Status close();
             bool is_locked() const;
             const std::filesystem::path& path() const;
 
