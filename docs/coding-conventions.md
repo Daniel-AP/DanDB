@@ -21,7 +21,8 @@ DanDB keeps its conventions small and explicit so future code stays easy to read
 
 - Namespaces, paths, build targets, functions, methods, and local variables use `snake_case`, or lowercase for one-word names.
 - Types use `PascalCase`, including classes, structs, enums, and type aliases.
-- Enum values and named constructors or factory methods use `PascalCase`.
+- Enum values use `PascalCase`.
+- Named constructors and factory methods are methods, so they use `snake_case`.
 - Private data members use a trailing underscore, such as `code_` or `message_`.
 - Constants use `UPPER_SNAKE_CASE`, such as `PAGE_SIZE` or `INVALID_PAGE_ID`.
 - Public header filenames should match the main public type or concept they expose, such as `Status.h`, `TableId.h`, or `Checksum.h`.

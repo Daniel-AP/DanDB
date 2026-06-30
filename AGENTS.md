@@ -27,13 +27,21 @@ When making changes:
 - If there are multiple valid approaches, explain the trade-offs before choosing one.
 - Add comments only when they help understanding; avoid obvious comments.
 
+## File format reference
+
+- Before changing code that reads from or writes to the main database file or WAL file, read `docs/file-format.txt`.
+- Treat `docs/file-format.txt` as the current byte-level serialization guide for database headers, pages, WAL records, rows, and keys.
+- If the implementation and `docs/file-format.txt` disagree, do not silently choose one. Explain the mismatch and update the code or document intentionally.
+- Keep `docs/file-format.txt` direct and byte-offset focused. Avoid long design discussion there.
+
 ## Project casing system
 
 Apply this casing system consistently across my code in this project. Do not enforce it inside third-party code.
 
 - Namespaces, paths, build targets, functions, methods, and local variables use `snake_case` or lowercase when there is only one word.
 - Types use `PascalCase`, including classes, structs, enums, and type aliases.
-- Enum values and named constructors/factory methods use `PascalCase`.
+- Enum values use `PascalCase`.
+- Named constructors and factory methods are methods, so they use `snake_case`.
 - Private data members use trailing underscore, such as `code_` or `message_`.
 - Constants use `UPPER_SNAKE_CASE`, such as `PAGE_SIZE` or `INVALID_PAGE_ID`.
 - Keep public include paths lowercase except for file names that match `PascalCase` type names, such as `dandb/core/Status.h`.
