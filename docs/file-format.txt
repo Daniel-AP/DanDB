@@ -1,0 +1,169 @@
+basics
+    all multi-byte metadata integers: little endian
+    all signed integers: two's complement
+    floating point values: 8 bytes, IEEE-754
+    padding bytes: 0x00
+    reserved bytes: 0x00
+    page size: 4096 bytes
+    invalid page id: 8 bytes, value 0xffffffffffffffff
+    invalid table id: 8 bytes, value 0xffffffffffffffff
+    invalid index id: 8 bytes, value 0xffffffffffffffff
+    first allocatable page id: 8 bytes, value 1
+
+main database file
+    page offset:
+        page id * 4096
+
+database header page
+    page id: 0
+    file offset: 0
+    page size: 4096 bytes
+    header size: 128 bytes
+
+    offset 0, 4 bytes: ASCII "DDB1"
+    offset 4, 4 bytes: database format version
+    offset 8, 4 bytes: page size
+    offset 12, 4 bytes: header size
+    offset 16, 8 bytes: database id
+    offset 24, 8 bytes: page count
+    offset 32, 8 bytes: catalog root page id
+    offset 40, 8 bytes: dandb_tables root page id
+    offset 48, 8 bytes: dandb_columns root page id
+    offset 56, 8 bytes: dandb_indexes root page id
+    offset 64, 8 bytes: dandb_index_columns root page id
+    offset 72, 48 bytes: reserved
+    offset 120, 8 bytes: header checksum
+    offset 128, 3968 bytes: unused
+
+B+ tree page header
+    page ids: 1 and above
+    page size: 4096 bytes
+    header size: 64 bytes
+
+    offset 0, 1 byte: page kind
+        value 1: internal page
+        value 2: leaf page
+    offset 1, 1 byte: flags
+        bit 0: root page
+        bits 1..7: unused
+    offset 2, 2 bytes: key count
+    offset 4, 2 bytes: header size
+    offset 6, 2 bytes: reserved
+    offset 8, 8 bytes: parent page id
+    offset 16, 8 bytes: next leaf page id
+    offset 24, 8 bytes: previous leaf page id
+    offset 32, 8 bytes: first child page id
+    offset 40, 2 bytes: key size
+    offset 42, 2 bytes: value size
+    offset 44, 20 bytes: reserved
+    offset 64: entry array
+
+B+ tree leaf entry
+    entry offset:
+        64 + entry index * entry size
+
+    entry size:
+        key size + value size
+
+    offset + 0, key size bytes: key bytes
+    offset + key size, value size bytes: value bytes
+
+B+ tree internal entry
+    first child page id:
+        B+ tree page header offset 32
+
+    entry offset:
+        64 + entry index * entry size
+
+    entry size:
+        key size + 8
+
+    offset + 0, key size bytes: separator key bytes
+    offset + key size, 8 bytes: right child page id
+
+WAL file
+    WAL path:
+        database path + ".wal"
+
+WAL header
+    file offset: 0
+    header size: 64 bytes
+
+    offset 0, 4 bytes: ASCII "DWAL"
+    offset 4, 4 bytes: WAL format version
+    offset 8, 4 bytes: page size
+    offset 12, 4 bytes: header size
+    offset 16, 8 bytes: database id
+    offset 24, 8 bytes: checksum seed
+    offset 32, 24 bytes: reserved
+    offset 56, 8 bytes: header checksum
+    offset 64: WAL records
+
+WAL page frame record
+    record type: 1
+    record size: 4136 bytes
+
+    offset 0, 4 bytes: record type
+    offset 4, 4 bytes: record size
+    offset 8, 8 bytes: transaction id
+    offset 16, 8 bytes: page id
+    offset 24, 4 bytes: page image size
+    offset 28, 4 bytes: reserved
+    offset 32, 4096 bytes: page image
+    offset 4128, 8 bytes: record checksum
+
+WAL commit record
+    record type: 2
+    record size: 32 bytes
+
+    offset 0, 4 bytes: record type
+    offset 4, 4 bytes: record size
+    offset 8, 8 bytes: transaction id
+    offset 16, 8 bytes: frame count
+    offset 24, 8 bytes: record checksum
+
+row bytes
+    null bitmap offset:
+        0
+
+    null bitmap size:
+        (column count + 7) / 8
+
+    column values offset:
+        null bitmap size
+
+    null bitmap byte:
+        byte index: column index / 8
+        bit index: column index % 8
+        bit value 0: not null
+        bit value 1: null
+
+logical value bytes
+    INT8:
+        1 byte: signed integer
+    INT16:
+        2 bytes: signed integer
+    INT32:
+        4 bytes: signed integer
+    INT64:
+        8 bytes: signed integer
+    DOUBLE:
+        8 bytes: floating point value
+    BOOL:
+        1 byte: 0x00 false, 0x01 true
+    STRING(N):
+        N bytes: UTF-8 bytes followed by 0x00 padding
+
+key bytes
+    INT8:
+        1 byte
+    INT16:
+        2 bytes
+    INT32:
+        4 bytes
+    INT64:
+        8 bytes
+    BOOL:
+        1 byte
+    STRING(N):
+        N bytes
