@@ -5,8 +5,28 @@
 #include <dandb/core/Bytes.h>
 
 #include <array>
+#include <cstdint>
+#include <cstddef>
 
 namespace dandb::storage {
+
+    DatabaseHeader::DatabaseHeader(
+        std::uint64_t database_id,
+        std::uint64_t page_count,
+        PageId catalog_root_page_id,
+        PageId system_tables_root_page_id,
+        PageId system_columns_root_page_id,
+        PageId system_indexes_root_page_id,
+        PageId system_index_columns_root_page_id
+    ) :
+        database_id_(database_id),
+        page_count_(page_count),
+        catalog_root_page_id_(catalog_root_page_id),
+        system_tables_root_page_id_(system_tables_root_page_id),
+        system_columns_root_page_id_(system_columns_root_page_id),
+        system_indexes_root_page_id_(system_indexes_root_page_id),
+        system_index_columns_root_page_id_(system_index_columns_root_page_id)
+    {}
 
     core::Result<DatabaseHeader> DatabaseHeader::decode(std::span<const std::byte> page) {
 
@@ -175,7 +195,7 @@ namespace dandb::storage {
         offset += sizeof(std::uint64_t);
         #pragma endregion
 
-        // Validate 
+        // Validate reserved bytes
         #pragma region
 
         if(!core::bytes_are_zero(page.subspan(offset, 48))) {
@@ -216,6 +236,176 @@ namespace dandb::storage {
             stored_system_indexes_root_page_id,
             stored_system_index_columns_root_page_id
         };
+
+    }
+
+    DatabaseHeader DatabaseHeader::create_new(std::uint64_t database_id) {
+
+        return DatabaseHeader{
+            database_id,
+            INITIAL_DATABASE_PAGE_COUNT,
+            INVALID_PAGE_ID,
+            INVALID_PAGE_ID,
+            INVALID_PAGE_ID,
+            INVALID_PAGE_ID,
+            INVALID_PAGE_ID
+        };
+
+    }
+
+    core::Status DatabaseHeader::encode_into(std::span<std::byte> page) const {
+
+        if(page.size() != core::PAGE_SIZE) {
+            return core::Status::InvalidArgument("Cannot encode database header: page size is invalid");
+        }
+
+        for(std::size_t i = 0; i < core::PAGE_SIZE; i++) {
+            page[i] = std::byte{ 0 };
+        }
+
+        std::size_t offset = 0;
+
+        // Encode magic bytes
+        #pragma region
+
+        for(std::size_t i = 0; i < DATABASE_MAGIC_BYTES.size(); i++) {
+            page[offset+i] = DATABASE_MAGIC_BYTES[i];
+        }
+
+        offset += DATABASE_MAGIC_BYTES.size();
+        #pragma endregion
+
+        // Encode database format version
+        #pragma region
+
+        auto status = core::write_u32_le(page, offset, DATABASE_FORMAT_VERSION);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint32_t);
+        #pragma endregion
+
+        // Encode page size
+        #pragma region
+
+        status = core::write_u32_le(page, offset, static_cast<std::uint32_t>(core::PAGE_SIZE));
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint32_t);
+        #pragma endregion
+
+        // Encode header size
+        #pragma region
+
+        status = core::write_u32_le(page, offset, DATABASE_HEADER_SIZE);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint32_t);
+        #pragma endregion
+
+        // Encode database id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, database_id_);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode page count
+        #pragma region
+
+        status = core::write_u64_le(page, offset, page_count_);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode catalog root page id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, catalog_root_page_id_.id);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode system tables root page id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, system_tables_root_page_id_.id);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode system columns root page id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, system_columns_root_page_id_.id);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode system indexes root page id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, system_indexes_root_page_id_.id);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Encode system index columns root page id
+        #pragma region
+
+        status = core::write_u64_le(page, offset, system_index_columns_root_page_id_.id);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        // Reserved bytes
+        offset += 48;
+
+        // Encode checksum
+        #pragma region
+
+        const auto current_checksum = core::checksum(page.first(DATABASE_HEADER_SIZE-sizeof(std::uint64_t)));
+
+        status = core::write_u64_le(page, offset, current_checksum);
+        if(!status.ok()) {
+            return status;
+        }
+
+        offset += sizeof(std::uint64_t);
+        #pragma endregion
+
+        if(offset != DATABASE_HEADER_SIZE) {
+            return core::Status::InternalError("Database header encode ended at an unexpected offset");
+        }
+
+        return core::Status::Ok();
 
     }
 

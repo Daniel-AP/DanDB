@@ -20,6 +20,7 @@ namespace dandb::storage {
 
     inline constexpr std::uint32_t DATABASE_FORMAT_VERSION = 1;
     inline constexpr std::uint32_t DATABASE_HEADER_SIZE = 128;
+    inline constexpr std::uint64_t INITIAL_DATABASE_PAGE_COUNT = 1;
 
     class DatabaseHeader {
         public:
