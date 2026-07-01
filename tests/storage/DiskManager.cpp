@@ -1,0 +1,165 @@
+#include <catch_amalgamated.hpp>
+
+#include <testutil/TempDir.h>
+#include <dandb/core/Constants.h>
+#include <dandb/core/Status.h>
+#include <dandb/storage/DatabaseHeader.h>
+#include <dandb/storage/DiskManager.h>
+#include <dandb/storage/PageId.h>
+
+#include <array>
+#include <cstddef>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
+
+using dandb::core::PAGE_SIZE;
+using dandb::core::StatusCode;
+using dandb::storage::DatabaseHeader;
+using dandb::storage::DiskManager;
+using dandb::storage::HEADER_PAGE_ID;
+using dandb::storage::INITIAL_DATABASE_PAGE_COUNT;
+using dandb::storage::INVALID_PAGE_ID;
+using dandb::storage::PageId;
+
+namespace {
+
+    using PageBytes = std::array<std::byte, PAGE_SIZE>;
+
+    constexpr std::uint64_t DATABASE_ID = 0x0102030405060708ULL;
+
+    void write_file_page(const std::filesystem::path& path, const PageBytes& page) {
+        std::ofstream file(path, std::ios::binary);
+
+        REQUIRE(file.is_open());
+
+        file.write(reinterpret_cast<const char*>(page.data()), static_cast<std::streamsize>(page.size()));
+
+        REQUIRE(file.good());
+    }
+
+}
+
+TEST_CASE("DiskManager creates a database file and reopens its header", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "created.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    auto created = DiskManager::create_new(path, initial_header);
+
+    REQUIRE(created.ok());
+    REQUIRE(std::filesystem::file_size(path) == PAGE_SIZE);
+
+    auto created_size = created.value().size();
+    REQUIRE(created_size.ok());
+    REQUIRE(created_size.value() == PAGE_SIZE);
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE(opened.ok());
+
+    auto reopened_header = opened.value().read_header();
+
+    REQUIRE(reopened_header.ok());
+    REQUIRE(reopened_header.value().database_id() == DATABASE_ID);
+    REQUIRE(reopened_header.value().page_count() == INITIAL_DATABASE_PAGE_COUNT);
+    REQUIRE(reopened_header.value().catalog_root_page_id() == INVALID_PAGE_ID);
+    REQUIRE(reopened_header.value().system_tables_root_page_id() == INVALID_PAGE_ID);
+    REQUIRE(reopened_header.value().system_columns_root_page_id() == INVALID_PAGE_ID);
+    REQUIRE(reopened_header.value().system_indexes_root_page_id() == INVALID_PAGE_ID);
+    REQUIRE(reopened_header.value().system_index_columns_root_page_id() == INVALID_PAGE_ID);
+}
+
+TEST_CASE("DiskManager open_existing fails for an empty file", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "empty.ddb";
+
+    {
+        std::ofstream file(path, std::ios::binary);
+        REQUIRE(file.is_open());
+    }
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE_FALSE(opened.ok());
+    REQUIRE(opened.status().code() == StatusCode::IoError);
+}
+
+TEST_CASE("DiskManager open_existing fails for a bad header", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "bad_header.ddb";
+
+    PageBytes bad_header_page{};
+    bad_header_page[0] = std::byte{ 'X' };
+    write_file_page(path, bad_header_page);
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE_FALSE(opened.ok());
+    REQUIRE(opened.status().code() == StatusCode::Corruption);
+}
+
+TEST_CASE("DiskManager writes and reads a non-header page", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "pages.ddb";
+    auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+    initial_header.set_page_count(2);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+    REQUIRE(std::filesystem::file_size(path) == PAGE_SIZE * 2);
+
+    PageBytes page_bytes{};
+    page_bytes[0] = std::byte{ 0x12 };
+    page_bytes[PAGE_SIZE - 1] = std::byte{ 0x34 };
+
+    const auto write_status = created.value().write_page(PageId{ 1 }, page_bytes);
+
+    REQUIRE(write_status.ok());
+
+    auto read_page = created.value().read_page(PageId{ 1 });
+
+    REQUIRE(read_page.ok());
+    REQUIRE(read_page.value().id() == PageId{ 1 });
+    REQUIRE(read_page.value().data()[0] == std::byte{ 0x12 });
+    REQUIRE(read_page.value().data()[PAGE_SIZE - 1] == std::byte{ 0x34 });
+}
+
+TEST_CASE("DiskManager keeps page zero reserved for header methods", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "header_page.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+
+    PageBytes page_bytes{};
+
+    auto read_page = created.value().read_page(HEADER_PAGE_ID);
+    const auto write_status = created.value().write_page(HEADER_PAGE_ID, page_bytes);
+
+    REQUIRE_FALSE(read_page.ok());
+    REQUIRE(read_page.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(write_status.ok());
+    REQUIRE(write_status.code() == StatusCode::InvalidArgument);
+}
+
+TEST_CASE("DiskManager rejects page access outside the file", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "outside_file.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+
+    PageBytes page_bytes{};
+
+    auto read_page = created.value().read_page(PageId{ 1 });
+    const auto write_status = created.value().write_page(PageId{ 1 }, page_bytes);
+
+    REQUIRE_FALSE(read_page.ok());
+    REQUIRE(read_page.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(write_status.ok());
+    REQUIRE(write_status.code() == StatusCode::InvalidArgument);
+    REQUIRE(std::filesystem::file_size(path) == PAGE_SIZE);
+}
