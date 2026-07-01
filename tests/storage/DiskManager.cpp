@@ -70,6 +70,60 @@ TEST_CASE("DiskManager creates a database file and reopens its header", "[storag
     REQUIRE(reopened_header.value().system_index_columns_root_page_id() == INVALID_PAGE_ID);
 }
 
+TEST_CASE("DiskManager persists an updated database header page count", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "updated_page_count.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+
+    auto header_result = created.value().read_header();
+    REQUIRE(header_result.ok());
+
+    auto header = header_result.value();
+    header.set_page_count(2);
+
+    const auto write_status = created.value().write_header(header);
+    REQUIRE(write_status.ok());
+
+    auto opened = DiskManager::open_existing(path);
+    REQUIRE(opened.ok());
+
+    auto reopened_header = opened.value().read_header();
+    REQUIRE(reopened_header.ok());
+    REQUIRE(reopened_header.value().database_id() == DATABASE_ID);
+    REQUIRE(reopened_header.value().page_count() == 2);
+}
+
+TEST_CASE("DiskManager persists an updated database header catalog root page id", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "updated_catalog_root.ddb";
+    auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+    initial_header.set_page_count(2);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+
+    auto header_result = created.value().read_header();
+    REQUIRE(header_result.ok());
+
+    auto header = header_result.value();
+    header.set_catalog_root_page_id(PageId{ 1 });
+
+    const auto write_status = created.value().write_header(header);
+    REQUIRE(write_status.ok());
+
+    auto opened = DiskManager::open_existing(path);
+    REQUIRE(opened.ok());
+
+    auto reopened_header = opened.value().read_header();
+    REQUIRE(reopened_header.ok());
+    REQUIRE(reopened_header.value().database_id() == DATABASE_ID);
+    REQUIRE(reopened_header.value().page_count() == 2);
+    REQUIRE(reopened_header.value().catalog_root_page_id() == PageId{ 1 });
+}
+
 TEST_CASE("DiskManager open_existing fails for an empty file", "[storage][disk-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.path() / "empty.ddb";
