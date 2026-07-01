@@ -1,7 +1,9 @@
 #include <catch_amalgamated.hpp>
 
 #include <testutil/TempDir.h>
+#include <dandb/core/Checksum.h>
 #include <dandb/core/Constants.h>
+#include <dandb/core/Endian.h>
 #include <dandb/core/Status.h>
 #include <dandb/storage/DatabaseHeader.h>
 #include <dandb/storage/DiskManager.h>
@@ -12,9 +14,15 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <span>
 
 using dandb::core::PAGE_SIZE;
 using dandb::core::StatusCode;
+using dandb::core::checksum;
+using dandb::core::write_u32_le;
+using dandb::core::write_u64_le;
+using dandb::storage::DATABASE_FORMAT_VERSION;
+using dandb::storage::DATABASE_HEADER_SIZE;
 using dandb::storage::DatabaseHeader;
 using dandb::storage::DiskManager;
 using dandb::storage::HEADER_PAGE_ID;
@@ -27,6 +35,24 @@ namespace {
     using PageBytes = std::array<std::byte, PAGE_SIZE>;
 
     constexpr std::uint64_t DATABASE_ID = 0x0102030405060708ULL;
+    constexpr std::size_t DATABASE_HEADER_CHECKSUM_OFFSET = 120;
+
+    PageBytes encode_header_page(const DatabaseHeader& header) {
+        PageBytes page{};
+
+        const auto status = header.encode_into(page);
+
+        REQUIRE(status.ok());
+        return page;
+    }
+
+    void rewrite_header_checksum(PageBytes& page) {
+        const auto current_checksum = checksum(
+            std::span<const std::byte>(page).first(DATABASE_HEADER_SIZE - sizeof(std::uint64_t))
+        );
+
+        REQUIRE(write_u64_le(page, DATABASE_HEADER_CHECKSUM_OFFSET, current_checksum).ok());
+    }
 
     void write_file_page(const std::filesystem::path& path, const PageBytes& page) {
         std::ofstream file(path, std::ios::binary);
@@ -151,6 +177,64 @@ TEST_CASE("DiskManager open_existing fails for a bad header", "[storage][disk-ma
 
     REQUIRE_FALSE(opened.ok());
     REQUIRE(opened.status().code() == StatusCode::Corruption);
+}
+
+TEST_CASE("DiskManager open_existing rejects manually corrupted database header fields", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "corrupt_header_field.ddb";
+    auto header_page = encode_header_page(DatabaseHeader::create_new(DATABASE_ID));
+
+    SECTION("magic") {
+        header_page[0] = std::byte{ 'X' };
+        rewrite_header_checksum(header_page);
+    }
+
+    SECTION("version") {
+        REQUIRE(write_u32_le(header_page, 4, DATABASE_FORMAT_VERSION + 1).ok());
+        rewrite_header_checksum(header_page);
+    }
+
+    SECTION("page size") {
+        REQUIRE(write_u32_le(header_page, 8, static_cast<std::uint32_t>(PAGE_SIZE * 2)).ok());
+        rewrite_header_checksum(header_page);
+    }
+
+    SECTION("checksum") {
+        header_page[16] = std::byte{ 0xFF };
+    }
+
+    write_file_page(path, header_page);
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE_FALSE(opened.ok());
+    REQUIRE(opened.status().code() == StatusCode::Corruption);
+    REQUIRE_FALSE(opened.status().message().empty());
+}
+
+TEST_CASE("DiskManager open_existing rejects a file whose size is not a whole number of pages", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "partial_page.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    auto created = DiskManager::create_new(path, initial_header);
+    REQUIRE(created.ok());
+
+    {
+        std::ofstream file(path, std::ios::binary | std::ios::app);
+        REQUIRE(file.is_open());
+
+        const char extra_byte = '\0';
+        file.write(&extra_byte, 1);
+
+        REQUIRE(file.good());
+    }
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE_FALSE(opened.ok());
+    REQUIRE(opened.status().code() == StatusCode::Corruption);
+    REQUIRE_FALSE(opened.status().message().empty());
 }
 
 TEST_CASE("DiskManager writes and reads a non-header page", "[storage][disk-manager]") {
