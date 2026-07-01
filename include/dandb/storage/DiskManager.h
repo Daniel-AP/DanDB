@@ -22,7 +22,7 @@ namespace dandb::storage {
             DiskManager(DiskManager&&) noexcept = default;
             DiskManager& operator=(DiskManager&&) noexcept = default;
 
-            [[nodiscard]] static core::Result<DiskManager> create(std::filesystem::path path, const DatabaseHeader& db_header);
+            [[nodiscard]] static core::Result<DiskManager> create_new(std::filesystem::path path, const DatabaseHeader& db_header);
             [[nodiscard]] static core::Result<DiskManager> open_existing(std::filesystem::path path);
 
             [[nodiscard]] core::Result<DatabaseHeader> read_header();
