@@ -8,6 +8,14 @@
 #include <cstdint>
 #include <cstddef>
 
+namespace {
+
+    bool root_page_id_is_valid(dandb::storage::PageId page_id, std::uint64_t page_count) {
+        return page_id == dandb::storage::INVALID_PAGE_ID || (page_id.id >= dandb::storage::FIRST_ALLOCATABLE_PAGE_ID.id && page_id.id < page_count);
+    }
+
+}
+
 namespace dandb::storage {
 
     DatabaseHeader::DatabaseHeader(
@@ -141,6 +149,11 @@ namespace dandb::storage {
         const auto stored_catalog_root_page_id = PageId{ stored_catalog_root_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
+
+        if(!root_page_id_is_valid(stored_catalog_root_page_id, stored_page_count)) {
+            return core::Status::Corruption("Cannot decode database header: catalog root page id is outside database page range");
+        }
+
         #pragma endregion
 
         // Decode system tables root page id
@@ -154,6 +167,11 @@ namespace dandb::storage {
         const auto stored_system_tables_root_page_id = PageId{ stored_system_tables_root_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
+
+        if(!root_page_id_is_valid(stored_system_tables_root_page_id, stored_page_count)) {
+            return core::Status::Corruption("Cannot decode database header: system tables root page id is outside database page range");
+        }
+
         #pragma endregion
         
         // Decode system columns root page id
@@ -167,6 +185,11 @@ namespace dandb::storage {
         const auto stored_system_columns_root_page_id = PageId{ stored_system_columns_root_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
+
+        if(!root_page_id_is_valid(stored_system_columns_root_page_id, stored_page_count)) {
+            return core::Status::Corruption("Cannot decode database header: system columns root page id is outside database page range");
+        }
+
         #pragma endregion
 
         // Decode system indexes root page id
@@ -180,6 +203,11 @@ namespace dandb::storage {
         const auto stored_system_indexes_root_page_id = PageId{ stored_system_indexes_root_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
+
+        if(!root_page_id_is_valid(stored_system_indexes_root_page_id, stored_page_count)) {
+            return core::Status::Corruption("Cannot decode database header: system indexes root page id is outside database page range");
+        }
+
         #pragma endregion
 
         // Decode system index columns root page id
@@ -193,6 +221,11 @@ namespace dandb::storage {
         const auto stored_system_index_columns_root_page_id = PageId{ stored_system_index_columns_root_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
+
+        if(!root_page_id_is_valid(stored_system_index_columns_root_page_id, stored_page_count)) {
+            return core::Status::Corruption("Cannot decode database header: system index columns root page id is outside database page range");
+        }
+
         #pragma endregion
 
         // Validate reserved bytes
@@ -257,6 +290,10 @@ namespace dandb::storage {
 
         if(page.size() != core::PAGE_SIZE) {
             return core::Status::InvalidArgument("Cannot encode database header: page size is invalid");
+        }
+
+        if(page_count_ == 0) {
+            return core::Status::InvalidArgument("Cannot encode database header: page count cannot be zero");
         }
 
         for(std::size_t i = 0; i < core::PAGE_SIZE; i++) {
@@ -333,6 +370,10 @@ namespace dandb::storage {
         // Encode catalog root page id
         #pragma region
 
+        if(!root_page_id_is_valid(catalog_root_page_id_, page_count_)) {
+            return core::Status::InvalidArgument("Cannot encode database header: catalog root page id is outside database page range");
+        }
+
         status = core::write_u64_le(page, offset, catalog_root_page_id_.id);
         if(!status.ok()) {
             return status;
@@ -343,6 +384,10 @@ namespace dandb::storage {
 
         // Encode system tables root page id
         #pragma region
+
+        if(!root_page_id_is_valid(system_tables_root_page_id_, page_count_)) {
+            return core::Status::InvalidArgument("Cannot encode database header: system tables root page id is outside database page range");
+        }
 
         status = core::write_u64_le(page, offset, system_tables_root_page_id_.id);
         if(!status.ok()) {
@@ -355,6 +400,10 @@ namespace dandb::storage {
         // Encode system columns root page id
         #pragma region
 
+        if(!root_page_id_is_valid(system_columns_root_page_id_, page_count_)) {
+            return core::Status::InvalidArgument("Cannot encode database header: system columns root page id is outside database page range");
+        }
+
         status = core::write_u64_le(page, offset, system_columns_root_page_id_.id);
         if(!status.ok()) {
             return status;
@@ -366,6 +415,10 @@ namespace dandb::storage {
         // Encode system indexes root page id
         #pragma region
 
+        if(!root_page_id_is_valid(system_indexes_root_page_id_, page_count_)) {
+            return core::Status::InvalidArgument("Cannot encode database header: system indexes root page id is outside database page range");
+        }
+
         status = core::write_u64_le(page, offset, system_indexes_root_page_id_.id);
         if(!status.ok()) {
             return status;
@@ -376,6 +429,10 @@ namespace dandb::storage {
 
         // Encode system index columns root page id
         #pragma region
+
+        if(!root_page_id_is_valid(system_index_columns_root_page_id_, page_count_)) {
+            return core::Status::InvalidArgument("Cannot encode database header: system index columns root page id is outside database page range");
+        }
 
         status = core::write_u64_le(page, offset, system_index_columns_root_page_id_.id);
         if(!status.ok()) {
@@ -407,6 +464,58 @@ namespace dandb::storage {
 
         return core::Status::Ok();
 
+    }
+
+    std::uint64_t DatabaseHeader::database_id() const {
+        return database_id_;
+    }
+
+    std::uint64_t DatabaseHeader::page_count() const {
+        return page_count_;
+    }
+
+    PageId DatabaseHeader::catalog_root_page_id() const {
+        return catalog_root_page_id_;
+    }
+
+    PageId DatabaseHeader::system_tables_root_page_id() const {
+        return system_tables_root_page_id_;
+    }
+
+    PageId DatabaseHeader::system_columns_root_page_id() const {
+        return system_columns_root_page_id_;
+    }
+
+    PageId DatabaseHeader::system_indexes_root_page_id() const {
+        return system_indexes_root_page_id_;
+    }
+
+    PageId DatabaseHeader::system_index_columns_root_page_id() const {
+        return system_index_columns_root_page_id_;
+    }
+
+    void DatabaseHeader::set_page_count(std::uint64_t page_count) {
+        page_count_ = page_count;
+    }
+
+    void DatabaseHeader::set_catalog_root_page_id(PageId page_id) {
+        catalog_root_page_id_ = page_id;
+    }
+
+    void DatabaseHeader::set_system_tables_root_page_id(PageId page_id) {
+        system_tables_root_page_id_ = page_id;
+    }
+
+    void DatabaseHeader::set_system_columns_root_page_id(PageId page_id) {
+        system_columns_root_page_id_ = page_id;
+    }
+
+    void DatabaseHeader::set_system_indexes_root_page_id(PageId page_id) {
+        system_indexes_root_page_id_ = page_id;
+    }
+
+    void DatabaseHeader::set_system_index_columns_root_page_id(PageId page_id) {
+        system_index_columns_root_page_id_ = page_id;
     }
 
 }
