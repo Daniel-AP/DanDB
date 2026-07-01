@@ -7,6 +7,7 @@
 #include <utility>
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <limits>
 
 namespace dandb::storage {
@@ -52,6 +53,17 @@ namespace dandb::storage {
         }
 
         platform::FileHandle file_handle = std::move(file_handle_result.value());
+
+        auto file_size_result = file_handle.size();
+        if(!file_size_result.ok()) {
+            return file_size_result.status();
+        }
+
+        std::uint64_t file_size = file_size_result.value();
+        if(file_size%core::PAGE_SIZE != 0) {
+            return core::Status::Corruption("Cannot open existing database file: file size doesn't hold a whole number of pages");
+        }
+
         DiskManager disk_manager(std::move(file_handle));
 
         auto read_header_result = disk_manager.read_header();
