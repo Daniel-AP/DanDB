@@ -20,6 +20,7 @@ add_library(dandb_core STATIC
     src/storage/DiskManager.cpp
     src/wal/WalHeader.cpp
     src/wal/WalPageFrame.cpp
+    src/wal/WalCommitRecord.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -61,6 +62,7 @@ add_executable(dandb_tests
     tests/storage/DiskManager.cpp
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
+    tests/wal/WalCommitRecord.cpp
 )
 
 target_link_libraries(dandb_tests
