@@ -18,6 +18,7 @@ add_library(dandb_core STATIC
     src/core/Bytes.cpp
     src/storage/Page.cpp
     src/storage/DiskManager.cpp
+    src/wal/WalHeader.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -57,6 +58,7 @@ add_executable(dandb_tests
     tests/storage/DatabaseHeader.cpp
     tests/storage/Page.cpp
     tests/storage/DiskManager.cpp
+    tests/wal/WalHeader.cpp
 )
 
 target_link_libraries(dandb_tests

@@ -4,6 +4,8 @@ basics
     floating point values: 8 bytes, IEEE-754
     padding bytes: 0x00
     reserved bytes: 0x00
+    checksum algorithm: FNV-1a 64-bit
+    checksum default seed: 0xcbf29ce484222325
     page size: 4096 bytes
     invalid page id: 8 bytes, value 0xffffffffffffffff
     invalid table id: 8 bytes, value 0xffffffffffffffff
@@ -94,9 +96,9 @@ WAL header
     offset 8, 4 bytes: page size
     offset 12, 4 bytes: header size
     offset 16, 8 bytes: database id
-    offset 24, 8 bytes: checksum seed
-    offset 32, 24 bytes: reserved
+    offset 24, 32 bytes: reserved
     offset 56, 8 bytes: header checksum
+        checksum covers offsets 0 through 55 using the default checksum seed
     offset 64: WAL records
 
 WAL page frame record
