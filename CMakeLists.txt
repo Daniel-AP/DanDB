@@ -14,6 +14,8 @@ add_library(dandb_core STATIC
     src/platform/FileHandle.cpp
     src/platform/FileLock.cpp
     src/platform/DatabasePath.cpp
+    src/storage/DatabaseHeader.cpp
+    src/core/Bytes.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -50,6 +52,7 @@ add_executable(dandb_tests
     tests/platform/DatabasePath.cpp
     tests/platform/FileHandle.cpp
     tests/platform/FileLock.cpp
+    tests/storage/DatabaseHeader.cpp
 )
 
 target_link_libraries(dandb_tests
