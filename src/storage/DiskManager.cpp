@@ -70,6 +70,12 @@ namespace dandb::storage {
         if(!read_header_result.ok()) {
             return read_header_result.status();
         }
+
+        const auto header = read_header_result.value();
+        const std::uint64_t file_page_count = file_size/core::PAGE_SIZE;
+        if(header.page_count() != file_page_count) {
+            return core::Status::Corruption("Cannot open existing database file: header page count does not match file size");
+        }
         
         return disk_manager;
 
