@@ -62,6 +62,7 @@ add_executable(dandb_tests
     tests/storage/DatabaseHeader.cpp
     tests/storage/Page.cpp
     tests/storage/DiskManager.cpp
+    tests/buffer/BufferFrame.cpp
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
     tests/wal/WalCommitRecord.cpp

@@ -10,7 +10,7 @@ namespace dandb::storage {
 
     class Page {
         public:
-            Page(PageId id = INVALID_PAGE_ID);
+            explicit Page(PageId id = INVALID_PAGE_ID);
 
             PageId id() const;
             void set_id(PageId new_id);
