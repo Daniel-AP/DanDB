@@ -21,6 +21,7 @@ add_library(dandb_core STATIC
     src/wal/WalHeader.cpp
     src/wal/WalPageFrame.cpp
     src/wal/WalCommitRecord.cpp
+    src/wal/WalManager.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -63,6 +64,7 @@ add_executable(dandb_tests
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
     tests/wal/WalCommitRecord.cpp
+    tests/wal/WalManager.cpp
 )
 
 target_link_libraries(dandb_tests
