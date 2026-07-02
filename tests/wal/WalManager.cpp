@@ -3,18 +3,22 @@
 #include <testutil/TempDir.h>
 #include <dandb/core/Constants.h>
 #include <dandb/core/Status.h>
+#include <dandb/platform/FileFaultInjector.h>
 #include <dandb/storage/Page.h>
 #include <dandb/storage/PageId.h>
 #include <dandb/wal/WalCommitRecord.h>
 #include <dandb/wal/WalHeader.h>
 #include <dandb/wal/WalManager.h>
 #include <dandb/wal/WalPageFrame.h>
+#include <dandb/wal/WalScanner.h>
 
 #include <array>
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <string>
+#include <vector>
 
 using dandb::core::PAGE_SIZE;
 using dandb::core::StatusCode;
@@ -105,6 +109,40 @@ namespace {
         return page;
     }
 
+    class RecordingFaultInjector final : public dandb::platform::FileFaultInjector {
+        public:
+            std::vector<std::string> events;
+            bool fail_sync = false;
+
+            dandb::core::Status before_write(
+                std::uint64_t offset,
+                std::size_t byte_count
+            ) override {
+                if(offset == WAL_HEADER_SIZE && byte_count == WAL_PAGE_FRAME_RECORD_SIZE) {
+                    events.push_back("write_page_frame");
+                } else if(
+                    offset == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE &&
+                    byte_count == WAL_COMMIT_RECORD_SIZE
+                ) {
+                    events.push_back("write_commit");
+                } else {
+                    events.push_back("write");
+                }
+
+                return dandb::core::Status::Ok();
+            }
+
+            dandb::core::Status before_sync() override {
+                events.push_back("sync");
+
+                if(fail_sync) {
+                    return dandb::core::Status::IoError("injected sync failure");
+                }
+
+                return dandb::core::Status::Ok();
+            }
+    };
+
 }
 
 TEST_CASE("WalManager open_or_create creates a missing WAL with a valid header", "[wal][wal-manager]") {
@@ -137,8 +175,9 @@ TEST_CASE("WalManager open_or_create reopens an existing WAL without truncating 
         auto created = WalManager::open_or_create(path, DATABASE_ID);
         REQUIRE(created.ok());
 
-        const auto append_status = created.value().append_commit(TRANSACTION_ID, FRAME_COUNT);
-        REQUIRE(append_status.ok());
+        const std::array<Page, 0> pages{};
+        const auto commit_status = created.value().commit_transaction(TRANSACTION_ID, pages);
+        REQUIRE(commit_status.ok());
     }
 
     auto reopened = WalManager::open_or_create(path, DATABASE_ID);
@@ -188,22 +227,22 @@ TEST_CASE("WalManager open_or_create rejects a corrupt WAL header", "[wal][wal-m
     REQUIRE(opened.status().code() == StatusCode::Corruption);
 }
 
-TEST_CASE("WalManager append_page_frame writes a frame after the header", "[wal][wal-manager]") {
+TEST_CASE("WalManager commit_transaction writes page frames after the header", "[wal][wal-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
-    const auto page = make_page();
+    const std::array pages{ make_page() };
 
     auto opened = WalManager::open_or_create(path, DATABASE_ID);
     REQUIRE(opened.ok());
 
-    const auto append_status = opened.value().append_page_frame(TRANSACTION_ID, page);
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
 
-    REQUIRE(append_status.ok());
+    REQUIRE(commit_status.ok());
 
     auto size = opened.value().size();
     REQUIRE(size.ok());
-    REQUIRE(size.value() == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE);
-    REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE);
+    REQUIRE(size.value() == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
+    REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
 
     const auto frame_bytes = read_file_bytes_at<WAL_PAGE_FRAME_RECORD_SIZE>(path, WAL_HEADER_SIZE);
     const auto frame = WalPageFrame::decode(frame_bytes);
@@ -211,37 +250,34 @@ TEST_CASE("WalManager append_page_frame writes a frame after the header", "[wal]
     REQUIRE(frame.ok());
     REQUIRE(frame.value().transaction_id() == TRANSACTION_ID);
     REQUIRE(frame.value().page_id() == PAGE_ID);
-    REQUIRE(frame.value().page_image() == page.data());
+    REQUIRE(frame.value().page_image() == pages[0].data());
 }
 
-TEST_CASE("WalManager append_page_frame rejects an invalid page id", "[wal][wal-manager]") {
+TEST_CASE("WalManager commit_transaction rejects an invalid page id", "[wal][wal-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
-    const Page page;
+    const std::array pages{ Page{} };
 
     auto opened = WalManager::open_or_create(path, DATABASE_ID);
     REQUIRE(opened.ok());
 
-    const auto append_status = opened.value().append_page_frame(TRANSACTION_ID, page);
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
 
-    REQUIRE_FALSE(append_status.ok());
-    REQUIRE(append_status.code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(commit_status.ok());
+    REQUIRE(commit_status.code() == StatusCode::InvalidArgument);
     REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE);
 }
 
-TEST_CASE("WalManager append_commit writes a commit after existing frames", "[wal][wal-manager]") {
+TEST_CASE("WalManager commit_transaction writes a commit after page frames", "[wal][wal-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
-    const auto page = make_page();
+    const std::array pages{ make_page() };
 
     auto opened = WalManager::open_or_create(path, DATABASE_ID);
     REQUIRE(opened.ok());
 
-    const auto append_frame_status = opened.value().append_page_frame(TRANSACTION_ID, page);
-    REQUIRE(append_frame_status.ok());
-
-    const auto append_commit_status = opened.value().append_commit(TRANSACTION_ID, FRAME_COUNT);
-    REQUIRE(append_commit_status.ok());
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+    REQUIRE(commit_status.ok());
 
     constexpr std::uint64_t commit_offset = WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE;
     constexpr std::uint64_t expected_size = commit_offset + WAL_COMMIT_RECORD_SIZE;
@@ -259,17 +295,99 @@ TEST_CASE("WalManager append_commit writes a commit after existing frames", "[wa
     REQUIRE(commit.value().frame_count() == FRAME_COUNT);
 }
 
-TEST_CASE("WalManager sync succeeds for an open WAL", "[wal][wal-manager]") {
+TEST_CASE("WalManager commit_transaction writes a zero-frame commit", "[wal][wal-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
+    const std::array<Page, 0> pages{};
 
     auto opened = WalManager::open_or_create(path, DATABASE_ID);
     REQUIRE(opened.ok());
 
-    const auto append_status = opened.value().append_commit(TRANSACTION_ID, 0);
-    REQUIRE(append_status.ok());
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
 
-    const auto sync_status = opened.value().sync();
+    REQUIRE(commit_status.ok());
 
-    REQUIRE(sync_status.ok());
+    auto size = opened.value().size();
+    REQUIRE(size.ok());
+    REQUIRE(size.value() == WAL_HEADER_SIZE + WAL_COMMIT_RECORD_SIZE);
+
+    const auto commit_bytes = read_file_bytes_at<WAL_COMMIT_RECORD_SIZE>(path, WAL_HEADER_SIZE);
+    const auto commit = WalCommitRecord::decode(commit_bytes);
+
+    REQUIRE(commit.ok());
+    REQUIRE(commit.value().transaction_id() == TRANSACTION_ID);
+    REQUIRE(commit.value().frame_count() == 0);
+}
+
+TEST_CASE("WalManager commit_transaction syncs after writing frames and commit record", "[wal][wal-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    auto opened = WalManager::open_or_create(path, DATABASE_ID);
+    REQUIRE(opened.ok());
+
+    RecordingFaultInjector injector;
+    opened.value().set_fault_injector(&injector);
+
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+
+    REQUIRE(commit_status.ok());
+
+    const std::vector<std::string> expected_events{
+        "write_page_frame",
+        "write_commit",
+        "sync"
+    };
+    REQUIRE(injector.events == expected_events);
+}
+
+TEST_CASE("WalManager commit_transaction returns injected sync failure", "[wal][wal-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    auto opened = WalManager::open_or_create(path, DATABASE_ID);
+    REQUIRE(opened.ok());
+
+    RecordingFaultInjector injector;
+    injector.fail_sync = true;
+    opened.value().set_fault_injector(&injector);
+
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+
+    REQUIRE_FALSE(commit_status.ok());
+    REQUIRE(commit_status.code() == StatusCode::IoError);
+
+    const std::vector<std::string> expected_events{
+        "write_page_frame",
+        "write_commit",
+        "sync"
+    };
+    REQUIRE(injector.events == expected_events);
+}
+
+TEST_CASE("WalManager commit_transaction leaves scanable WAL bytes when sync fails", "[wal][wal-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    auto opened = WalManager::open_or_create(path, DATABASE_ID);
+    REQUIRE(opened.ok());
+
+    RecordingFaultInjector injector;
+    injector.fail_sync = true;
+    opened.value().set_fault_injector(&injector);
+
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+
+    REQUIRE_FALSE(commit_status.ok());
+    REQUIRE(commit_status.code() == StatusCode::IoError);
+
+    auto scan_result = dandb::wal::WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan_result.ok());
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.at(PAGE_ID) == WAL_HEADER_SIZE);
+    REQUIRE(scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
+    REQUIRE_FALSE(scan_result.value().ignored_trailing_bytes);
 }
