@@ -155,7 +155,34 @@ namespace dandb::wal {
     }
 
     core::Status WalManager::reset() {
-        return core::Status::Ok();
+        
+        std::array<std::byte, WAL_HEADER_SIZE> wal_header_bytes{};
+        WalHeader wal_header = WalHeader::create_new(database_id_);
+
+        auto encode_wal_header_status = wal_header.encode_into(wal_header_bytes);
+        if(!encode_wal_header_status.ok()) {
+            return encode_wal_header_status;
+        }
+        
+        auto file_resize_status = file_handle_.resize(WAL_HEADER_SIZE);
+        if(!file_resize_status.ok()) {
+            auto file_size_result = file_handle_.size();
+            if(file_size_result.ok() && file_size_result.value() == WAL_HEADER_SIZE) {
+                append_offset_ = WAL_HEADER_SIZE;
+            }
+
+            return file_resize_status;
+        }
+
+        append_offset_ = WAL_HEADER_SIZE;
+
+        auto file_write_wal_header_status = file_handle_.write_at(0, wal_header_bytes);
+        if(!file_write_wal_header_status.ok()) {
+            return file_write_wal_header_status;
+        }
+
+        return file_handle_.sync();
+
     }
 
     core::Result<std::uint64_t> WalManager::size() const {
