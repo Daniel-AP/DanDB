@@ -7,6 +7,7 @@
 #include <dandb/core/Status.h>
 #include <dandb/storage/DatabaseHeader.h>
 #include <dandb/storage/DiskManager.h>
+#include <dandb/storage/Page.h>
 #include <dandb/storage/PageId.h>
 
 #include <array>
@@ -28,6 +29,7 @@ using dandb::storage::DiskManager;
 using dandb::storage::HEADER_PAGE_ID;
 using dandb::storage::INITIAL_DATABASE_PAGE_COUNT;
 using dandb::storage::INVALID_PAGE_ID;
+using dandb::storage::Page;
 using dandb::storage::PageId;
 
 namespace {
@@ -272,11 +274,11 @@ TEST_CASE("DiskManager writes and reads a non-header page", "[storage][disk-mana
     REQUIRE(created.ok());
     REQUIRE(std::filesystem::file_size(path) == PAGE_SIZE * 2);
 
-    PageBytes page_bytes{};
-    page_bytes[0] = std::byte{ 0x12 };
-    page_bytes[PAGE_SIZE - 1] = std::byte{ 0x34 };
+    Page page(PageId{ 1 });
+    page.data()[0] = std::byte{ 0x12 };
+    page.data()[PAGE_SIZE - 1] = std::byte{ 0x34 };
 
-    const auto write_status = created.value().write_page(PageId{ 1 }, page_bytes);
+    const auto write_status = created.value().write_page(page);
 
     REQUIRE(write_status.ok());
 
@@ -296,10 +298,10 @@ TEST_CASE("DiskManager keeps page zero reserved for header methods", "[storage][
     auto created = DiskManager::create_new(path, initial_header);
     REQUIRE(created.ok());
 
-    PageBytes page_bytes{};
+    Page page(HEADER_PAGE_ID);
 
     auto read_page = created.value().read_page(HEADER_PAGE_ID);
-    const auto write_status = created.value().write_page(HEADER_PAGE_ID, page_bytes);
+    const auto write_status = created.value().write_page(page);
 
     REQUIRE_FALSE(read_page.ok());
     REQUIRE(read_page.status().code() == StatusCode::InvalidArgument);
@@ -315,10 +317,10 @@ TEST_CASE("DiskManager rejects page access outside the file", "[storage][disk-ma
     auto created = DiskManager::create_new(path, initial_header);
     REQUIRE(created.ok());
 
-    PageBytes page_bytes{};
+    Page page(PageId{ 1 });
 
     auto read_page = created.value().read_page(PageId{ 1 });
-    const auto write_status = created.value().write_page(PageId{ 1 }, page_bytes);
+    const auto write_status = created.value().write_page(page);
 
     REQUIRE_FALSE(read_page.ok());
     REQUIRE(read_page.status().code() == StatusCode::InvalidArgument);

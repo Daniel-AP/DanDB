@@ -152,7 +152,9 @@ namespace dandb::storage {
 
     }
     
-    core::Status DiskManager::write_page(PageId page_id, const std::array<std::byte, core::PAGE_SIZE>& bytes) {
+    core::Status DiskManager::write_page(const Page& page) {
+
+        const PageId page_id = page.id();
 
         if(!page_id.is_valid()) {
             return core::Status::InvalidArgument("Cannot write page: page id is invalid");
@@ -179,7 +181,7 @@ namespace dandb::storage {
             return core::Status::InvalidArgument("Cannot write page: page is outside the file");
         }
 
-        return file_handle_.write_at(offset, bytes);
+        return file_handle_.write_at(offset, page.data());
 
     }
 

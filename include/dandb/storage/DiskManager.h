@@ -28,7 +28,7 @@ namespace dandb::storage {
             [[nodiscard]] core::Result<DatabaseHeader> read_header();
             [[nodiscard]] core::Status write_header(const DatabaseHeader& db_header);
             [[nodiscard]] core::Result<Page> read_page(PageId page_id);
-            [[nodiscard]] core::Status write_page(PageId page_id, const std::array<std::byte, core::PAGE_SIZE>& bytes);
+            [[nodiscard]] core::Status write_page(const Page& page);
 
             [[nodiscard]] core::Status sync();
             [[nodiscard]] core::Result<std::uint64_t> size() const;
