@@ -391,3 +391,61 @@ TEST_CASE("WalManager commit_transaction leaves scanable WAL bytes when sync fai
     REQUIRE(scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
     REQUIRE_FALSE(scan_result.value().ignored_trailing_bytes);
 }
+
+TEST_CASE("WalManager reset produces a valid empty WAL after appended records", "[wal][wal-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    auto opened = WalManager::open_or_create(path, DATABASE_ID);
+    REQUIRE(opened.ok());
+
+    const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+    REQUIRE(commit_status.ok());
+
+    const auto reset_status = opened.value().reset();
+
+    REQUIRE(reset_status.ok());
+    REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE);
+
+    const auto header_bytes = read_file_bytes_at<WAL_HEADER_SIZE>(path, 0);
+    const auto header = WalHeader::decode(header_bytes);
+
+    REQUIRE(header.ok());
+    REQUIRE(header.value().database_id() == DATABASE_ID);
+
+    auto scan_result = dandb::wal::WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan_result.ok());
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.empty());
+    REQUIRE(scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE);
+    REQUIRE_FALSE(scan_result.value().ignored_trailing_bytes);
+}
+
+TEST_CASE("WalManager can append records after reset", "[wal][wal-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    auto opened = WalManager::open_or_create(path, DATABASE_ID);
+    REQUIRE(opened.ok());
+
+    const auto first_commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+    REQUIRE(first_commit_status.ok());
+
+    const auto reset_status = opened.value().reset();
+    REQUIRE(reset_status.ok());
+
+    const auto second_commit_status = opened.value().commit_transaction(TRANSACTION_ID + 1, pages);
+
+    REQUIRE(second_commit_status.ok());
+    REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
+
+    auto scan_result = dandb::wal::WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan_result.ok());
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.size() == 1);
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.at(PAGE_ID) == WAL_HEADER_SIZE);
+    REQUIRE(scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE);
+    REQUIRE_FALSE(scan_result.value().ignored_trailing_bytes);
+}
