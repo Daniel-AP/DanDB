@@ -78,6 +78,24 @@ namespace dandb::wal {
 
     }
 
+    core::Status WalManager::commit_transaction(std::uint64_t transaction_id, std::span<const storage::Page> pages) {
+
+        for(const auto& page: pages) {
+            const auto status = append_page_frame(transaction_id, page);
+            if(!status.ok()) {
+                return status;
+            }
+        }
+
+        const auto append_commit_status = append_commit(transaction_id, pages.size());
+        if(!append_commit_status.ok()) {
+            return append_commit_status;
+        }
+
+        return sync();
+
+    }
+
     core::Status WalManager::append_page_frame(std::uint64_t transaction_id, const storage::Page& page) {
 
         if(!page.id().is_valid()) {
@@ -146,6 +164,10 @@ namespace dandb::wal {
 
     std::uint64_t WalManager::database_id() const {
         return database_id_;
+    }
+
+    void WalManager::set_fault_injector(platform::FileFaultInjector* fault_injector) {
+        file_handle_.set_fault_injector(fault_injector);
     }
 
 }
