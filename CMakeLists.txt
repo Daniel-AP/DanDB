@@ -25,6 +25,7 @@ add_library(dandb_core STATIC
     src/wal/WalScanner.cpp
     src/buffer/LRUReplacer.cpp
     src/buffer/PageGuard.cpp
+    src/buffer/BufferPoolManager.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -66,6 +67,7 @@ add_executable(dandb_tests
     tests/storage/DiskManager.cpp
     tests/buffer/BufferFrame.cpp
     tests/buffer/LRUReplacer.cpp
+    tests/buffer/BufferPoolManager.cpp
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
     tests/wal/WalCommitRecord.cpp

@@ -8,7 +8,6 @@ namespace dandb::buffer {
 
     class PageGuard {
         public:
-            PageGuard(BufferPoolManager* bpm, storage::Page* page);
             ~PageGuard();
 
             PageGuard(const PageGuard&) = delete;
@@ -22,6 +21,10 @@ namespace dandb::buffer {
             bool is_dirty() const;
 
         private:
+            friend class BufferPoolManager;
+
+            PageGuard(BufferPoolManager* bpm, storage::Page* page);
+
             void release();
 
             BufferPoolManager* bpm_;
