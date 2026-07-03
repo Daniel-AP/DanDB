@@ -1,20 +1,20 @@
-#include <dandb/buffer/PageGuard.h>
+#include <dandb/buffer/PagePin.h>
 
 #include <dandb/buffer/BufferPoolManager.h>
 #include <dandb/storage/Page.h>
 
 namespace dandb::buffer {
 
-    PageGuard::PageGuard(BufferPoolManager* bpm, storage::Page* page) :
+    PagePin::PagePin(BufferPoolManager* bpm, storage::Page* page) :
         bpm_(bpm),
         page_(page)
     {}
 
-    PageGuard::~PageGuard() {
+    PagePin::~PagePin() {
         release();
     }
 
-    PageGuard::PageGuard(PageGuard&& other) noexcept :
+    PagePin::PagePin(PagePin&& other) noexcept :
         bpm_(other.bpm_),
         page_(other.page_),
         is_dirty_(other.is_dirty_),
@@ -26,7 +26,7 @@ namespace dandb::buffer {
         other.owns_pin_ = false;
     }
 
-    PageGuard& PageGuard::operator=(PageGuard&& other) noexcept {
+    PagePin& PagePin::operator=(PagePin&& other) noexcept {
 
         if(this != &other) {
             release();
@@ -46,23 +46,23 @@ namespace dandb::buffer {
 
     }
 
-    storage::Page* PageGuard::page() {
+    storage::Page* PagePin::page() {
         return page_;
     }
 
-    const storage::Page* PageGuard::page() const {
+    const storage::Page* PagePin::page() const {
         return page_;
     }
 
-    void PageGuard::mark_dirty() {
+    void PagePin::mark_dirty() {
         is_dirty_ = true;
     }
 
-    bool PageGuard::is_dirty() const {
+    bool PagePin::is_dirty() const {
         return is_dirty_;
     }
 
-    void PageGuard::release() {
+    void PagePin::release() {
         if(owns_pin_) {
             static_cast<void>(bpm_->unpin_page(page_->id(), is_dirty_));
             owns_pin_ = false;

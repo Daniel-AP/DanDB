@@ -1,7 +1,7 @@
 #include <catch_amalgamated.hpp>
 
 #include <dandb/buffer/BufferPoolManager.h>
-#include <dandb/buffer/PageGuard.h>
+#include <dandb/buffer/PagePin.h>
 #include <dandb/core/Status.h>
 #include <dandb/storage/Page.h>
 #include <dandb/storage/PageId.h>
@@ -11,7 +11,7 @@
 #include <utility>
 
 using dandb::buffer::BufferPoolManager;
-using dandb::buffer::PageGuard;
+using dandb::buffer::PagePin;
 using dandb::core::StatusCode;
 using dandb::storage::INVALID_PAGE_ID;
 using dandb::storage::Page;
@@ -82,7 +82,7 @@ TEST_CASE("BufferPoolManager rejects caching the same page twice", "[buffer][buf
     REQUIRE(duplicate.status().code() == StatusCode::AlreadyExists);
 }
 
-TEST_CASE("PageGuard releases a clean page so the frame can be reused", "[buffer][buffer-pool-manager]") {
+TEST_CASE("PagePin releases a clean page so the frame can be reused", "[buffer][buffer-pool-manager]") {
     BufferPoolManager buffer_pool{ 1 };
 
     {
@@ -146,15 +146,15 @@ TEST_CASE("BufferPoolManager does not evict a dirty page", "[buffer][buffer-pool
     REQUIRE(original.value().page()->data()[0] == std::byte{ 0x11 });
 }
 
-TEST_CASE("Moving a PageGuard transfers the pin", "[buffer][buffer-pool-manager]") {
+TEST_CASE("Moving a PagePin transfers the pin", "[buffer][buffer-pool-manager]") {
     BufferPoolManager buffer_pool{ 1 };
 
     {
         auto cached = buffer_pool.cache_page(make_page(1, std::byte{ 0x11 }));
         REQUIRE(cached.ok());
 
-        PageGuard guard = std::move(cached.value());
-        PageGuard moved_guard = std::move(guard);
+        PagePin guard = std::move(cached.value());
+        PagePin moved_guard = std::move(guard);
 
         const auto replacement = buffer_pool.cache_page(make_page(2, std::byte{ 0x22 }));
 
@@ -171,7 +171,7 @@ TEST_CASE("Moving a PageGuard transfers the pin", "[buffer][buffer-pool-manager]
     REQUIRE(replacement_after_release.value().page()->id() == PageId{ 2 });
 }
 
-TEST_CASE("Moving a dirty PageGuard preserves dirty state", "[buffer][buffer-pool-manager]") {
+TEST_CASE("Moving a dirty PagePin preserves dirty state", "[buffer][buffer-pool-manager]") {
     BufferPoolManager buffer_pool{ 1 };
 
     {
@@ -179,7 +179,7 @@ TEST_CASE("Moving a dirty PageGuard preserves dirty state", "[buffer][buffer-poo
         REQUIRE(cached.ok());
         cached.value().mark_dirty();
 
-        PageGuard moved_guard = std::move(cached.value());
+        PagePin moved_guard = std::move(cached.value());
         REQUIRE(moved_guard.is_dirty());
     }
 

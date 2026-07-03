@@ -6,14 +6,14 @@ namespace dandb::buffer {
 
     class BufferPoolManager;
 
-    class PageGuard {
+    class PagePin {
         public:
-            ~PageGuard();
+            ~PagePin();
 
-            PageGuard(const PageGuard&) = delete;
-            PageGuard& operator=(const PageGuard&) = delete;
-            PageGuard(PageGuard&& other) noexcept;
-            PageGuard& operator=(PageGuard&& other) noexcept;
+            PagePin(const PagePin&) = delete;
+            PagePin& operator=(const PagePin&) = delete;
+            PagePin(PagePin&& other) noexcept;
+            PagePin& operator=(PagePin&& other) noexcept;
 
             storage::Page* page();
             const storage::Page* page() const;
@@ -23,7 +23,7 @@ namespace dandb::buffer {
         private:
             friend class BufferPoolManager;
 
-            PageGuard(BufferPoolManager* bpm, storage::Page* page);
+            PagePin(BufferPoolManager* bpm, storage::Page* page);
 
             void release();
 

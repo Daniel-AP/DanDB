@@ -67,7 +67,7 @@ namespace dandb::buffer {
 
     }
 
-    core::Result<PageGuard> BufferPoolManager::get_page(storage::PageId page_id) {
+    core::Result<PagePin> BufferPoolManager::get_page(storage::PageId page_id) {
 
         if(page_id == storage::INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot get page: invalid page id");
@@ -86,14 +86,14 @@ namespace dandb::buffer {
 
         storage::Page& page = frames_[it->second].page();
 
-        return PageGuard{
+        return PagePin{
             this,
             &page
         };
 
     }
 
-    core::Result<PageGuard> BufferPoolManager::cache_page(const storage::Page& page) {
+    core::Result<PagePin> BufferPoolManager::cache_page(const storage::Page& page) {
 
         if(page.id() == storage::INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot cache page: invalid page id");
@@ -127,7 +127,7 @@ namespace dandb::buffer {
 
         page_frames_[buffer_page.id()] = victim_frame_id;
 
-        return PageGuard{
+        return PagePin{
             this,
             &buffer_page
         };

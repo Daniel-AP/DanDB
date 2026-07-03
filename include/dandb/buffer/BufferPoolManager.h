@@ -2,7 +2,7 @@
 
 #include <dandb/buffer/BufferFrame.h>
 #include <dandb/buffer/LRUReplacer.h>
-#include <dandb/buffer/PageGuard.h>
+#include <dandb/buffer/PagePin.h>
 #include <dandb/storage/PageId.h>
 #include <dandb/storage/Page.h>
 #include <dandb/core/Status.h>
@@ -20,14 +20,14 @@ namespace dandb::buffer {
 
             BufferPoolManager(const BufferPoolManager&) = delete;
             BufferPoolManager& operator=(const BufferPoolManager&) = delete;
-            BufferPoolManager(BufferPoolManager&&) = delete;
-            BufferPoolManager& operator=(BufferPoolManager&&) = delete;
+            BufferPoolManager(BufferPoolManager&&) noexcept = default;
+            BufferPoolManager& operator=(BufferPoolManager&&) noexcept = default;
 
-            core::Result<PageGuard> get_page(storage::PageId page_id);
-            core::Result<PageGuard> cache_page(const storage::Page& page);
+            core::Result<PagePin> get_page(storage::PageId page_id);
+            core::Result<PagePin> cache_page(const storage::Page& page);
 
         private:
-            friend class PageGuard;
+            friend class PagePin;
 
             core::Status pin_page(storage::PageId page_id);
             core::Status unpin_page(storage::PageId page_id, bool is_dirty);

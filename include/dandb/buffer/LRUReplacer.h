@@ -15,8 +15,8 @@ namespace dandb::buffer {
 
             LRUReplacer(const LRUReplacer&) = delete;
             LRUReplacer& operator=(const LRUReplacer&) = delete;
-            LRUReplacer(LRUReplacer&&) = delete;
-            LRUReplacer& operator=(LRUReplacer&&) = delete;
+            LRUReplacer(LRUReplacer&&) noexcept = default;
+            LRUReplacer& operator=(LRUReplacer&&) noexcept = default;
 
             core::Result<std::size_t> victim();
 
