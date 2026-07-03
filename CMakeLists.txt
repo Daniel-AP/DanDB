@@ -24,6 +24,7 @@ add_library(dandb_core STATIC
     src/wal/WalManager.cpp
     src/wal/WalScanner.cpp
     src/buffer/LRUReplacer.cpp
+    src/buffer/PageGuard.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
