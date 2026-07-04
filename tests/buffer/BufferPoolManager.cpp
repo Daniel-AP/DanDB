@@ -168,6 +168,34 @@ TEST_CASE("BufferPoolManager discards an unpinned page and reuses its frame", "[
     REQUIRE(replacement.value().page()->data()[0] == std::byte{ 0x22 });
 }
 
+TEST_CASE("BufferPoolManager restores only unpinned cached pages", "[buffer][buffer-pool-manager]") {
+    BufferPoolManager buffer_pool{ 2 };
+    const Page original_page = make_page(1, std::byte{ 0x11 });
+    const Page replacement_page = make_page(1, std::byte{ 0x22 });
+
+    {
+        auto cached = buffer_pool.cache_page(replacement_page);
+        REQUIRE(cached.ok());
+    }
+
+    REQUIRE(buffer_pool.restore_page(original_page).ok());
+
+    {
+        auto restored = buffer_pool.get_page(PageId{ 1 });
+        REQUIRE(restored.ok());
+        REQUIRE(restored.value().page() != nullptr);
+        REQUIRE(restored.value().page()->data()[0] == std::byte{ 0x11 });
+    }
+
+    auto pinned = buffer_pool.cache_page(make_page(2, std::byte{ 0x33 }));
+    REQUIRE(pinned.ok());
+
+    const auto pinned_restore = buffer_pool.restore_page(make_page(2, std::byte{ 0x44 }));
+    REQUIRE_FALSE(pinned_restore.ok());
+    REQUIRE(pinned_restore.code() == StatusCode::InternalError);
+    REQUIRE(pinned.value().page()->data()[0] == std::byte{ 0x33 });
+}
+
 TEST_CASE("Moving a PagePin transfers the pin", "[buffer][buffer-pool-manager]") {
     BufferPoolManager buffer_pool{ 1 };
 

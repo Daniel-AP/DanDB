@@ -26,6 +26,7 @@ namespace dandb::buffer {
             core::Result<PagePin> get_page(storage::PageId page_id);
             core::Result<PagePin> cache_page(const storage::Page& page);
             core::Status discard_page(storage::PageId page_id);
+            core::Status restore_page(const storage::Page& page);
 
         private:
             friend class PagePin;

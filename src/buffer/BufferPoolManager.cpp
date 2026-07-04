@@ -166,4 +166,28 @@ namespace dandb::buffer {
 
     }
 
+    core::Status BufferPoolManager::restore_page(const storage::Page& page) {
+
+        if(page.id() == storage::INVALID_PAGE_ID) {
+            return core::Status::InvalidArgument("Cannot restore page: invalid page id");
+        }
+
+        auto it = page_frames_.find(page.id());
+
+        if(it == page_frames_.end()) {
+            return core::Status::NotFound("Cannot restore page: page is not cached");
+        }
+
+        BufferFrame& buffer_frame = frames_[it->second];
+
+        if(buffer_frame.is_pinned()) {
+            return core::Status::InternalError("Cannot restore page: page is pinned");
+        }
+
+        buffer_frame.page() = page;
+
+        return core::Status::Ok();
+
+    }
+
 }
