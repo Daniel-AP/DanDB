@@ -31,6 +31,7 @@ namespace dandb::storage {
             [[nodiscard]] core::Status write_page(const Page& page);
 
             [[nodiscard]] core::Status sync();
+            [[nodiscard]] core::Status close();
             [[nodiscard]] core::Result<std::uint64_t> size() const;
         private:
             explicit DiskManager(platform::FileHandle file_handle);

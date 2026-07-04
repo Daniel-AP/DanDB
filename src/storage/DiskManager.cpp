@@ -189,6 +189,10 @@ namespace dandb::storage {
         return file_handle_.sync();
     }
 
+    core::Status DiskManager::close() {
+        return file_handle_.close();
+    }
+
     core::Result<std::uint64_t> DiskManager::size() const {
         return file_handle_.size();
     }
