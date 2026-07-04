@@ -185,7 +185,7 @@ namespace dandb::storage {
 
     }
 
-    core::Status DiskManager::resize_to_page_count(std::size_t page_count) {
+    core::Status DiskManager::resize_to_page_count(std::uint64_t page_count) {
 
         if(page_count < INITIAL_DATABASE_PAGE_COUNT) {
             return core::Status::InvalidArgument("Cannot resize database file: page count must include the header page");

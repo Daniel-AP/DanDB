@@ -5,6 +5,7 @@
 #include <dandb/wal/WalPageFrame.h>
 #include <dandb/wal/WalScanner.h>
 #include <dandb/core/Constants.h>
+#include <dandb/buffer/PagePin.h>
 
 #include <array>
 #include <cstdint>
@@ -448,7 +449,48 @@ namespace dandb::storage {
     }
 
     core::Status Pager::checkpoint() {
-        return core::Status::InternalError("Cannot checkpoint database: checkpoint is not implemented yet");
+        
+        if(transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot checkpoint: a transaction is active");
+        }
+
+        auto resize_status = disk_manager_.resize_to_page_count(db_header_.page_count());
+        if(!resize_status.ok()) {
+            return resize_status;
+        }
+
+        for(const auto& [page_id, page]: recovered_pages_) {
+            auto write_status = disk_manager_.write_page(page);
+            if(!write_status.ok()) {
+                return write_status;
+            } 
+        }
+
+        auto write_header_status = disk_manager_.write_header(db_header_);
+        if(!write_header_status.ok()) {
+            return write_header_status;
+        }
+
+        auto sync_status = disk_manager_.sync();
+        if(!sync_status.ok()) {
+            return sync_status;
+        }
+
+        for(const auto& [page_id, page]: recovered_pages_) {
+            auto clear_dirty_page_status = bpm_.clear_dirty(page_id);
+            if(clear_dirty_page_status.ok() || clear_dirty_page_status.code() == core::StatusCode::NotFound) continue;
+            return clear_dirty_page_status;
+        }
+
+        auto wal_reset_status = wal_manager_.reset();
+        if(!wal_reset_status.ok()) {
+            return wal_reset_status;
+        }
+
+        recovered_pages_.clear();
+
+        return core::Status::Ok();
+
     }
 
     core::Status Pager::mark_dirty(PageId page_id) {
