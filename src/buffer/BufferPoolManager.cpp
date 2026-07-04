@@ -134,4 +134,36 @@ namespace dandb::buffer {
 
     }
 
+    core::Status BufferPoolManager::discard_page(storage::PageId page_id) {
+
+        if(page_id == storage::INVALID_PAGE_ID) {
+            return core::Status::InvalidArgument("Cannot discard page: invalid page id");
+        }
+
+        auto it = page_frames_.find(page_id);
+
+        if(it == page_frames_.end()) {
+            return core::Status::NotFound("Cannot discard page: page is not cached");
+        }
+
+        std::size_t frame_id = it->second;
+        BufferFrame& buffer_frame = frames_[frame_id];
+
+        if(buffer_frame.is_pinned()) {
+            return core::Status::InternalError("Cannot discard page: page is pinned");
+        }
+
+        auto mark_non_evictable_status = lru_.mark_non_evictable(frame_id);
+        if(!mark_non_evictable_status.ok()) {
+            return mark_non_evictable_status;
+        }
+
+        page_frames_.erase(it);
+        buffer_frame.reset();
+        free_frame_ids_.push_back(frame_id);
+
+        return core::Status::Ok();
+
+    }
+
 }

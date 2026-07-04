@@ -146,6 +146,28 @@ TEST_CASE("BufferPoolManager does not evict a dirty page", "[buffer][buffer-pool
     REQUIRE(original.value().page()->data()[0] == std::byte{ 0x11 });
 }
 
+TEST_CASE("BufferPoolManager discards an unpinned page and reuses its frame", "[buffer][buffer-pool-manager]") {
+    BufferPoolManager buffer_pool{ 1 };
+
+    {
+        auto cached = buffer_pool.cache_page(make_page(1, std::byte{ 0x11 }));
+        REQUIRE(cached.ok());
+        cached.value().mark_dirty();
+    }
+
+    REQUIRE(buffer_pool.discard_page(PageId{ 1 }).ok());
+
+    const auto discarded = buffer_pool.get_page(PageId{ 1 });
+    REQUIRE_FALSE(discarded.ok());
+    REQUIRE(discarded.status().code() == StatusCode::NotFound);
+
+    auto replacement = buffer_pool.cache_page(make_page(2, std::byte{ 0x22 }));
+    REQUIRE(replacement.ok());
+    REQUIRE(replacement.value().page() != nullptr);
+    REQUIRE(replacement.value().page()->id() == PageId{ 2 });
+    REQUIRE(replacement.value().page()->data()[0] == std::byte{ 0x22 });
+}
+
 TEST_CASE("Moving a PagePin transfers the pin", "[buffer][buffer-pool-manager]") {
     BufferPoolManager buffer_pool{ 1 };
 
