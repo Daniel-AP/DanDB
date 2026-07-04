@@ -10,6 +10,10 @@ namespace dandb::transaction {
         return status == TransactionStatus::Failed;
     }
 
+    bool TransactionState::is_unresolved() const {
+        return status == TransactionStatus::Unresolved;
+    }
+
     void TransactionState::clear() {
         status = TransactionStatus::Inactive;
         transaction_id = 0;

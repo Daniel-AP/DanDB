@@ -12,7 +12,8 @@ namespace dandb::transaction {
     enum class TransactionStatus {
         Inactive,
         Active,
-        Failed
+        Failed,
+        Unresolved
     };
 
     struct TransactionState {
@@ -24,6 +25,7 @@ namespace dandb::transaction {
 
         bool in_transaction() const;
         bool is_failed() const;
+        bool is_unresolved() const;
         void clear();
     };
 
