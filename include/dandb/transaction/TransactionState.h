@@ -19,6 +19,7 @@ namespace dandb::transaction {
         TransactionStatus status = TransactionStatus::Inactive;
         std::uint64_t transaction_id = 0;
         std::unordered_set<storage::PageId> dirty_page_ids;
+        std::unordered_set<storage::PageId> new_page_ids;
         std::unordered_map<storage::PageId, storage::Page> original_pages;
 
         bool in_transaction() const;

@@ -15,6 +15,7 @@ namespace dandb::transaction {
         transaction_id = 0;
         dirty_page_ids.clear();
         original_pages.clear();
+        new_page_ids.clear();
     }
 
 }
