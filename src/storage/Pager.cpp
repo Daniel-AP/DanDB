@@ -236,7 +236,37 @@ namespace dandb::storage {
     }
 
     core::Result<PageHandle> Pager::new_page() {
-        return core::Status::InternalError("Cannot allocate new page: page allocation is not implemented yet");
+        if(closed_) {
+            return core::Status::InvalidArgument("Cannot allocate new page: pager is closed");
+        }
+
+        const PageId page_id{ db_header_.page_count() };
+        Page page(page_id);
+
+        auto bpm_cache_page_result = bpm_.cache_page(page);
+        if(!bpm_cache_page_result.ok()) {
+            return bpm_cache_page_result.status();
+        }
+
+        db_header_.set_page_count(db_header_.page_count()+1);
+
+        auto mark_header_dirty_status = mark_dirty(HEADER_PAGE_ID);
+        if(!mark_header_dirty_status.ok()) {
+            return mark_header_dirty_status;
+        }
+
+        auto mark_page_dirty_status = mark_dirty(page_id);
+        if(!mark_page_dirty_status.ok()) {
+            return mark_page_dirty_status;
+        }
+
+        buffer::PagePin page_pin = std::move(bpm_cache_page_result.value());
+        page_pin.mark_dirty();
+
+        return PageHandle{
+            this,
+            std::move(page_pin)
+        };
     }
 
     core::Status Pager::begin_transaction() {
@@ -261,7 +291,7 @@ namespace dandb::storage {
             return core::Status::InvalidArgument("Cannot mark page dirty: pager is closed");
         }
 
-        if(page_id == INVALID_PAGE_ID || page_id == HEADER_PAGE_ID) {
+        if(page_id == INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot mark page dirty: invalid page id");
         }
 
