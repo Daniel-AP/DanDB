@@ -1,6 +1,7 @@
 #pragma once
 
 #include <dandb/buffer/PagePin.h>
+#include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
 #include <dandb/storage/Page.h>
 
@@ -15,8 +16,8 @@ namespace dandb::storage {
             PageHandle(PageHandle&&) noexcept = default;
             PageHandle& operator=(PageHandle&&) noexcept = default;
 
-            Page* page();
             const Page* page() const;
+            core::Result<Page*> mutable_page();
             core::Status mark_dirty();
             bool is_dirty() const;
 

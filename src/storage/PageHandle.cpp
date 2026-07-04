@@ -11,17 +11,24 @@ namespace dandb::storage {
         page_pin_(std::move(page_pin))
     {}
 
-    Page* PageHandle::page() {
-        return page_pin_.page();
-    }
-
     const Page* PageHandle::page() const {
         return page_pin_.page();
     }
 
+    core::Result<Page*> PageHandle::mutable_page() {
+
+        auto status = mark_dirty();
+        if(!status.ok()) {
+            return status;
+        }
+
+        return page_pin_.page();
+
+    }
+
     core::Status PageHandle::mark_dirty() {
 
-        Page* current_page = page();
+        Page* current_page = page_pin_.page();
         if(current_page == nullptr) {
             return core::Status::InternalError("Cannot mark page dirty: page handle does not reference a page");
         }

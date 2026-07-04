@@ -303,8 +303,9 @@ TEST_CASE("Pager commit makes dirty page data visible after reopen", "[storage][
             REQUIRE(allocated.ok());
             REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-            allocated.value().page()->data() = expected_page.data();
-            REQUIRE(allocated.value().mark_dirty().ok());
+            auto mutable_page = allocated.value().mutable_page();
+            REQUIRE(mutable_page.ok());
+            mutable_page.value()->data() = expected_page.data();
         }
 
         REQUIRE(pager.commit_transaction().ok());
@@ -335,8 +336,9 @@ TEST_CASE("Pager rejects marking a page dirty without an active transaction", "[
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = committed_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = committed_page.data();
     }
 
     REQUIRE(pager.commit_transaction().ok());
@@ -370,8 +372,9 @@ TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pa
             REQUIRE(allocated.ok());
             REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-            allocated.value().page()->data() = committed_page.data();
-            REQUIRE(allocated.value().mark_dirty().ok());
+            auto mutable_page = allocated.value().mutable_page();
+            REQUIRE(mutable_page.ok());
+            mutable_page.value()->data() = committed_page.data();
         }
 
         REQUIRE(pager.commit_transaction().ok());
@@ -389,8 +392,9 @@ TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pa
             auto page = pager.get_page(PAGE_ID);
             REQUIRE(page.ok());
 
-            page.value().page()->data() = uncommitted_page.data();
-            REQUIRE(page.value().mark_dirty().ok());
+            auto mutable_page = page.value().mutable_page();
+            REQUIRE(mutable_page.ok());
+            mutable_page.value()->data() = uncommitted_page.data();
         }
 
         REQUIRE(pager.close().ok());
@@ -423,8 +427,9 @@ TEST_CASE("Pager commit sync failure leaves transaction unresolved", "[storage][
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = expected_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = expected_page.data();
     }
 
     const auto failed_commit = pager.commit_transaction();
@@ -474,8 +479,9 @@ TEST_CASE("Pager rollback restores modified existing page data", "[storage][page
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = committed_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = committed_page.data();
     }
 
     REQUIRE(pager.commit_transaction().ok());
@@ -485,8 +491,9 @@ TEST_CASE("Pager rollback restores modified existing page data", "[storage][page
         auto page = pager.get_page(PAGE_ID);
         REQUIRE(page.ok());
 
-        REQUIRE(page.value().mark_dirty().ok());
-        page.value().page()->data() = uncommitted_page.data();
+        auto mutable_page = page.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = uncommitted_page.data();
     }
 
     REQUIRE(pager.rollback_transaction().ok());
@@ -515,8 +522,9 @@ TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = committed_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = committed_page.data();
     }
 
     REQUIRE(pager.commit_transaction().ok());
@@ -526,8 +534,9 @@ TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
         auto page = pager.get_page(PAGE_ID);
         REQUIRE(page.ok());
 
-        REQUIRE(page.value().mark_dirty().ok());
-        page.value().page()->data() = uncommitted_page.data();
+        auto mutable_page = page.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = uncommitted_page.data();
     }
 
     REQUIRE(pager.rollback_transaction().ok());
@@ -604,8 +613,9 @@ TEST_CASE("Pager checkpoint persists committed pages to the main database and re
             REQUIRE(allocated.ok());
             REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-            allocated.value().page()->data() = expected_page.data();
-            REQUIRE(allocated.value().mark_dirty().ok());
+            auto mutable_page = allocated.value().mutable_page();
+            REQUIRE(mutable_page.ok());
+            mutable_page.value()->data() = expected_page.data();
         }
 
         REQUIRE(pager.commit_transaction().ok());
@@ -664,8 +674,9 @@ TEST_CASE("Pager commit makes cached committed pages evictable before checkpoint
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = expected_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = expected_page.data();
     }
 
     REQUIRE(pager.commit_transaction().ok());
@@ -697,8 +708,9 @@ TEST_CASE("Pager checkpoint keeps WAL when main database sync fails", "[storage]
         REQUIRE(allocated.ok());
         REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-        allocated.value().page()->data() = expected_page.data();
-        REQUIRE(allocated.value().mark_dirty().ok());
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = expected_page.data();
     }
 
     REQUIRE(pager.commit_transaction().ok());
