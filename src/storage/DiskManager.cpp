@@ -185,6 +185,35 @@ namespace dandb::storage {
 
     }
 
+    core::Status DiskManager::resize_to_page_count(std::size_t page_count) {
+
+        if(page_count < INITIAL_DATABASE_PAGE_COUNT) {
+            return core::Status::InvalidArgument("Cannot resize database file: page count must include the header page");
+        }
+
+        if(page_count > std::numeric_limits<std::uint64_t>::max()/core::PAGE_SIZE) {
+            return core::Status::InvalidArgument("Cannot resize database file: page count is too large to calculate file size");
+        }
+
+        const std::uint64_t target_size = page_count*core::PAGE_SIZE;
+
+        auto current_size = size();
+        if(!current_size.ok()) {
+            return current_size.status();
+        }
+
+        if(current_size.value() > target_size) {
+            return core::Status::InternalError("Cannot resize database file: resizing would shrink the database file");
+        }
+
+        if(current_size.value() == target_size) {
+            return core::Status::Ok();
+        }
+
+        return file_handle_.resize(target_size);
+
+    }
+
     core::Status DiskManager::sync() {
         return file_handle_.sync();
     }
