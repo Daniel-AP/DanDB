@@ -18,13 +18,16 @@ add_library(dandb_core STATIC
     src/core/Bytes.cpp
     src/storage/Page.cpp
     src/storage/DiskManager.cpp
+    src/storage/PageHandle.cpp
+    src/storage/Pager.cpp
+    src/transaction/TransactionState.cpp
     src/wal/WalHeader.cpp
     src/wal/WalPageFrame.cpp
     src/wal/WalCommitRecord.cpp
     src/wal/WalManager.cpp
     src/wal/WalScanner.cpp
     src/buffer/LRUReplacer.cpp
-    src/buffer/PageGuard.cpp
+    src/buffer/PagePin.cpp
     src/buffer/BufferPoolManager.cpp
 )
 
@@ -65,6 +68,7 @@ add_executable(dandb_tests
     tests/storage/DatabaseHeader.cpp
     tests/storage/Page.cpp
     tests/storage/DiskManager.cpp
+    tests/storage/Pager.cpp
     tests/buffer/BufferFrame.cpp
     tests/buffer/LRUReplacer.cpp
     tests/buffer/BufferPoolManager.cpp
