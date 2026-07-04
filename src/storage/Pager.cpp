@@ -236,8 +236,13 @@ namespace dandb::storage {
     }
 
     core::Result<PageHandle> Pager::new_page() {
+
         if(closed_) {
             return core::Status::InvalidArgument("Cannot allocate new page: pager is closed");
+        }
+
+        if(transaction_state_.is_failed()) {
+            return core::Status::TransactionError("Cannot allocate new page: transaction is failed");
         }
 
         const PageId page_id{ db_header_.page_count() };
@@ -267,18 +272,89 @@ namespace dandb::storage {
             this,
             std::move(page_pin)
         };
+
     }
 
     core::Status Pager::begin_transaction() {
-        return core::Status::InternalError("Cannot begin transaction: transaction state is not implemented yet");
+
+        if(closed_) {
+            return core::Status::InvalidArgument("Cannot begin transaction: pager is closed");
+        }
+
+        if(transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot begin transaction: transaction is already active");
+        }
+
+        transaction_state_.status = transaction::TransactionStatus::Active;
+        transaction_state_.transaction_id = next_transaction_id_;
+        next_transaction_id_++;
+
+        return core::Status::Ok();
+
     }
 
     core::Status Pager::commit_transaction() {
-        return core::Status::InternalError("Cannot commit transaction: transaction commit is not implemented yet");
+
+        if(closed_) {
+            return core::Status::InvalidArgument("Cannot commit transaction: pager is closed");
+        }
+
+        if(!transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot commit transaction: no transaction is active");
+        }
+
+        if(transaction_state_.is_failed()) {
+            return core::Status::TransactionError("Cannot commit transaction: transaction is failed");
+        }
+
+        if(!transaction_state_.dirty_page_ids.empty()) {
+            return core::Status::InternalError("Cannot commit transaction: WAL commit is not implemented yet");
+        }
+
+        transaction_state_.clear();
+
+        return core::Status::Ok();
+
     }
 
     core::Status Pager::rollback_transaction() {
-        return core::Status::InternalError("Cannot rollback transaction: transaction rollback is not implemented yet");
+
+        if(closed_) {
+            return core::Status::InvalidArgument("Cannot rollback transaction: pager is closed");
+        }
+
+        if(!transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot rollback transaction: no transaction is active");
+        }
+
+        if(!transaction_state_.dirty_page_ids.empty() || !transaction_state_.original_pages.empty()) {
+            return core::Status::InternalError("Cannot rollback transaction: dirty page rollback is not implemented yet");
+        }
+
+        transaction_state_.clear();
+
+        return core::Status::Ok();
+
+    }
+
+    bool Pager::in_transaction() const {
+        return transaction_state_.in_transaction();
+    }
+
+    core::Status Pager::mark_transaction_failed() {
+
+        if(closed_) {
+            return core::Status::InvalidArgument("Cannot mark transaction failed: pager is closed");
+        }
+
+        if(!transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot mark transaction failed: no transaction is active");
+        }
+
+        transaction_state_.status = transaction::TransactionStatus::Failed;
+        
+        return core::Status::Ok();
+
     }
 
     core::Status Pager::checkpoint() {
@@ -293,6 +369,14 @@ namespace dandb::storage {
 
         if(page_id == INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot mark page dirty: invalid page id");
+        }
+
+        if(transaction_state_.is_failed()) {
+            return core::Status::TransactionError("Cannot mark page dirty: transaction is failed");
+        }
+
+        if(transaction_state_.in_transaction()) {
+            transaction_state_.dirty_page_ids.insert(page_id);
         }
 
         return core::Status::Ok();

@@ -10,9 +10,11 @@
 #include <dandb/storage/Page.h>
 #include <dandb/storage/DatabaseHeader.h>
 #include <dandb/platform/DatabasePath.h>
+#include <dandb/transaction/TransactionState.h>
 
 #include <filesystem>
 #include <cstddef>
+#include <cstdint>
 #include <unordered_map>
 
 namespace dandb::storage {
@@ -33,6 +35,8 @@ namespace dandb::storage {
             core::Status begin_transaction();
             core::Status commit_transaction();
             core::Status rollback_transaction();
+            bool in_transaction() const;
+            core::Status mark_transaction_failed();
 
             core::Status checkpoint();
             core::Status close();
@@ -57,6 +61,8 @@ namespace dandb::storage {
             platform::DatabasePath path_;
             DatabaseHeader db_header_;
             std::unordered_map<PageId, Page> recovered_pages_;
+            transaction::TransactionState transaction_state_;
+            std::uint64_t next_transaction_id_ = 1;
             bool closed_ = false;
     };
 
