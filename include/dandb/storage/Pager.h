@@ -17,6 +17,10 @@
 #include <cstdint>
 #include <unordered_map>
 
+namespace dandb::platform {
+    class FileFaultInjector;
+}
+
 namespace dandb::storage {
 
     class Pager {
@@ -40,6 +44,7 @@ namespace dandb::storage {
 
             core::Status checkpoint();
             core::Status close();
+            void set_wal_fault_injector(platform::FileFaultInjector* fault_injector);
 
         private:
             friend class PageHandle;
@@ -54,6 +59,7 @@ namespace dandb::storage {
             );
 
             core::Status mark_dirty(PageId page_id);
+            core::Result<Page> dirty_page_snapshot(PageId page_id);
 
             DiskManager disk_manager_;
             wal::WalManager wal_manager_;

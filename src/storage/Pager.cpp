@@ -10,6 +10,7 @@
 #include <limits>
 #include <random>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -155,7 +156,17 @@ namespace dandb::storage {
 
                 Page recovered_page(wal_page_frame.page_id());
                 recovered_page.data() = wal_page_frame.page_image();
-                recovered_pages[recovered_page.id()] = recovered_page;
+
+                if(recovered_page.id() == HEADER_PAGE_ID) {
+                    auto recovered_header_result = DatabaseHeader::decode(recovered_page.data());
+                    if(!recovered_header_result.ok()) {
+                        return recovered_header_result.status();
+                    }
+
+                    db_header = std::move(recovered_header_result.value());
+                } else {
+                    recovered_pages[recovered_page.id()] = recovered_page;
+                }
 
             }
 
@@ -307,8 +318,29 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot commit transaction: transaction is failed");
         }
 
-        if(!transaction_state_.dirty_page_ids.empty()) {
-            return core::Status::InternalError("Cannot commit transaction: WAL commit is not implemented yet");
+        std::size_t dirty_pages_amount = transaction_state_.dirty_page_ids.size();
+        std::vector<Page> dirty_pages;
+        dirty_pages.reserve(dirty_pages_amount);
+
+        for(const auto& dirty_page_id: transaction_state_.dirty_page_ids) {
+
+            auto bpm_get_dirty_page_result = dirty_page_snapshot(dirty_page_id);
+            if(!bpm_get_dirty_page_result.ok()) {
+                return bpm_get_dirty_page_result.status();
+            }
+
+            dirty_pages.push_back(bpm_get_dirty_page_result.value());
+
+        }
+
+        auto wal_commit_status = wal_manager_.commit_transaction(transaction_state_.transaction_id, dirty_pages);
+        if(!wal_commit_status.ok()) {
+            return wal_commit_status;
+        }
+
+        for(const auto& dirty_page: dirty_pages) {
+            if(dirty_page.id() == HEADER_PAGE_ID) continue; 
+            recovered_pages_[dirty_page.id()] = dirty_page;
         }
 
         transaction_state_.clear();
@@ -383,6 +415,26 @@ namespace dandb::storage {
 
     }
 
+    core::Result<Page> Pager::dirty_page_snapshot(PageId page_id) {
+
+        if(page_id == HEADER_PAGE_ID) {
+            Page header_page(HEADER_PAGE_ID);
+            auto status = db_header_.encode_into(header_page.data());
+            if(!status.ok()) {
+                return status;
+            }
+            return header_page;
+        }
+
+        auto page_result = bpm_.get_page(page_id);
+        if(!page_result.ok()) {
+            return page_result.status();
+        }
+
+        return *page_result.value().page();
+
+    }
+
     core::Status Pager::close() {
 
         if(closed_) {
@@ -403,6 +455,10 @@ namespace dandb::storage {
         closed_ = true;
         return core::Status::Ok();
         
+    }
+
+    void Pager::set_wal_fault_injector(platform::FileFaultInjector* fault_injector) {
+        wal_manager_.set_fault_injector(fault_injector);
     }
 
 }
