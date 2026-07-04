@@ -25,6 +25,7 @@ namespace dandb::buffer {
 
             core::Result<PagePin> get_page(storage::PageId page_id);
             core::Result<PagePin> cache_page(const storage::Page& page);
+            core::Status clear_dirty(storage::PageId page_id);
             core::Status can_discard_page(storage::PageId page_id);
             core::Status discard_page(storage::PageId page_id);
             core::Status can_restore_page(const storage::Page& page);

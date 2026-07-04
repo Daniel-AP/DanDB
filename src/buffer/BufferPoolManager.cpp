@@ -134,6 +134,28 @@ namespace dandb::buffer {
 
     }
 
+    core::Status BufferPoolManager::clear_dirty(storage::PageId page_id) {
+
+        if(page_id == storage::INVALID_PAGE_ID) {
+            return core::Status::InvalidArgument("Cannot mark clean page: invalid page id");
+        }
+
+        auto it = page_frames_.find(page_id);
+
+        if(it == page_frames_.end()) {
+            return core::Status::NotFound("Cannot mark clean page: page is not cached");
+        }
+
+        frames_[it->second].clear_dirty();
+        
+        if(!frames_[it->second].is_pinned()) {
+            return lru_.mark_evictable(it->second); 
+        }
+
+        return core::Status::Ok();
+
+    }
+
     core::Status BufferPoolManager::can_discard_page(storage::PageId page_id) {
 
         if(page_id == storage::INVALID_PAGE_ID) {
