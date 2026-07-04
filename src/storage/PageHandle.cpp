@@ -20,6 +20,7 @@ namespace dandb::storage {
     }
 
     core::Status PageHandle::mark_dirty() {
+
         Page* current_page = page();
         if(current_page == nullptr) {
             return core::Status::InternalError("Cannot mark page dirty: page handle does not reference a page");
@@ -32,6 +33,7 @@ namespace dandb::storage {
 
         page_pin_.mark_dirty();
         return core::Status::Ok();
+
     }
 
     bool PageHandle::is_dirty() const {

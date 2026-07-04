@@ -340,6 +340,91 @@ TEST_CASE("Pager commit returns sync failure and keeps transaction active", "[st
     REQUIRE(opened.value().close().ok());
 }
 
+TEST_CASE("Pager rollback restores modified existing page data", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page committed_page = make_page(PAGE_ID, 15);
+    const Page uncommitted_page = make_page(PAGE_ID, 16);
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        allocated.value().page()->data() = committed_page.data();
+        REQUIRE(allocated.value().mark_dirty().ok());
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto page = pager.get_page(PAGE_ID);
+        REQUIRE(page.ok());
+
+        REQUIRE(page.value().mark_dirty().ok());
+        page.value().page()->data() = uncommitted_page.data();
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE_FALSE(pager.in_transaction());
+
+    auto restored = pager.get_page(PAGE_ID);
+    REQUIRE(restored.ok());
+    REQUIRE(restored.value().page()->data() == committed_page.data());
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Pager rollback restores page count after page allocation", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE_FALSE(pager.in_transaction());
+
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto allocated_after_rollback = pager.new_page();
+    REQUIRE(allocated_after_rollback.ok());
+    REQUIRE(allocated_after_rollback.value().page()->id() == PAGE_ID);
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Pager rollback clears failed transaction state", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+    REQUIRE(pager.mark_transaction_failed().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE_FALSE(pager.in_transaction());
+    REQUIRE(pager.begin_transaction().ok());
+
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Pager rejects zero buffer pool capacity before touching storage", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
