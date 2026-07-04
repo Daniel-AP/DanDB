@@ -258,6 +258,10 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot allocate new page: transaction is failed");
         }
 
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot allocate new page: transaction is unresolved");
+        }
+
         const PageId page_id{ db_header_.page_count() };
         Page page(page_id);
 
@@ -318,6 +322,10 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot commit transaction: transaction is failed");
         }
 
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot commit transaction: transaction is unresolved");
+        }
+
         std::size_t dirty_pages_amount = transaction_state_.dirty_page_ids.size();
         std::vector<Page> dirty_pages;
         dirty_pages.reserve(dirty_pages_amount);
@@ -335,6 +343,7 @@ namespace dandb::storage {
 
         auto wal_commit_status = wal_manager_.commit_transaction(transaction_state_.transaction_id, dirty_pages);
         if(!wal_commit_status.ok()) {
+            transaction_state_.status = transaction::TransactionStatus::Unresolved;
             return wal_commit_status;
         }
 
@@ -357,6 +366,10 @@ namespace dandb::storage {
 
         if(!transaction_state_.in_transaction()) {
             return core::Status::TransactionError("Cannot rollback transaction: no transaction is active");
+        }
+
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot rollback transaction: transaction is unresolved");
         }
 
         for(const auto& [page_id, original_page]: transaction_state_.original_pages) {
@@ -442,6 +455,10 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot mark transaction failed: no transaction is active");
         }
 
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot mark transaction failed: transaction is unresolved");
+        }
+
         transaction_state_.status = transaction::TransactionStatus::Failed;
         
         return core::Status::Ok();
@@ -505,6 +522,10 @@ namespace dandb::storage {
 
         if(transaction_state_.is_failed()) {
             return core::Status::TransactionError("Cannot mark page dirty: transaction is failed");
+        }
+
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot mark page dirty: transaction is unresolved");
         }
 
         if(!transaction_state_.in_transaction()) {

@@ -302,7 +302,7 @@ TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pa
     REQUIRE(reopened.value().close().ok());
 }
 
-TEST_CASE("Pager commit returns sync failure and keeps transaction active", "[storage][pager]") {
+TEST_CASE("Pager commit sync failure leaves transaction unresolved", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 14);
 
@@ -330,8 +330,20 @@ TEST_CASE("Pager commit returns sync failure and keeps transaction active", "[st
     REQUIRE(pager.in_transaction());
 
     injector.fail_sync = false;
-    REQUIRE(pager.commit_transaction().ok());
-    REQUIRE_FALSE(pager.in_transaction());
+
+    const auto retry_commit = pager.commit_transaction();
+    REQUIRE_FALSE(retry_commit.ok());
+    REQUIRE(retry_commit.code() == StatusCode::TransactionError);
+
+    const auto rollback_status = pager.rollback_transaction();
+    REQUIRE_FALSE(rollback_status.ok());
+    REQUIRE(rollback_status.code() == StatusCode::TransactionError);
+
+    const auto new_page_result = pager.new_page();
+    REQUIRE_FALSE(new_page_result.ok());
+    REQUIRE(new_page_result.status().code() == StatusCode::TransactionError);
+
+    REQUIRE(pager.in_transaction());
     REQUIRE(pager.close().ok());
 
     auto opened = Pager::open(temp_dir.database_path(), 2);
