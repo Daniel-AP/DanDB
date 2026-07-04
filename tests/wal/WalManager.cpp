@@ -80,6 +80,23 @@ namespace {
         REQUIRE(file.good());
     }
 
+    template<std::size_t Size>
+    void append_file_bytes(
+        const std::filesystem::path& path,
+        const std::array<std::byte, Size>& bytes
+    ) {
+        std::ofstream file(path, std::ios::binary | std::ios::app);
+
+        REQUIRE(file.is_open());
+
+        file.write(
+            reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size())
+        );
+
+        REQUIRE(file.good());
+    }
+
     void write_valid_wal_header(
         const std::filesystem::path& path,
         std::uint64_t database_id
@@ -189,6 +206,56 @@ TEST_CASE("WalManager open_or_create reopens an existing WAL without truncating 
     REQUIRE(size.ok());
     REQUIRE(size.value() == WAL_HEADER_SIZE + WAL_COMMIT_RECORD_SIZE);
     REQUIRE(std::filesystem::file_size(path) == WAL_HEADER_SIZE + WAL_COMMIT_RECORD_SIZE);
+}
+
+TEST_CASE("WalManager open_or_create truncates ignored tail bytes before appending", "[wal][wal-manager]") {
+    constexpr std::uint64_t FIRST_FRAME_OFFSET = WAL_HEADER_SIZE;
+    constexpr std::uint64_t FIRST_COMMIT_OFFSET = FIRST_FRAME_OFFSET + WAL_PAGE_FRAME_RECORD_SIZE;
+    constexpr std::uint64_t VALID_END_OFFSET = FIRST_COMMIT_OFFSET + WAL_COMMIT_RECORD_SIZE;
+    constexpr std::uint64_t SECOND_FRAME_OFFSET = VALID_END_OFFSET;
+    constexpr std::uint64_t EXPECTED_END_OFFSET = SECOND_FRAME_OFFSET + WAL_PAGE_FRAME_RECORD_SIZE + WAL_COMMIT_RECORD_SIZE;
+
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    const std::array pages{ make_page() };
+
+    {
+        auto opened = WalManager::open_or_create(path, DATABASE_ID);
+        REQUIRE(opened.ok());
+
+        const auto commit_status = opened.value().commit_transaction(TRANSACTION_ID, pages);
+        REQUIRE(commit_status.ok());
+    }
+
+    REQUIRE(std::filesystem::file_size(path) == VALID_END_OFFSET);
+
+    const std::array incomplete_page_frame_tail{
+        std::byte{ 0x01 },
+        std::byte{ 0x00 },
+        std::byte{ 0x00 },
+        std::byte{ 0x00 }
+    };
+    append_file_bytes(path, incomplete_page_frame_tail);
+
+    REQUIRE(std::filesystem::file_size(path) == VALID_END_OFFSET + incomplete_page_frame_tail.size());
+
+    {
+        auto reopened = WalManager::open_or_create(path, DATABASE_ID);
+        REQUIRE(reopened.ok());
+        REQUIRE(std::filesystem::file_size(path) == VALID_END_OFFSET);
+
+        const auto commit_status = reopened.value().commit_transaction(TRANSACTION_ID + 1, pages);
+        REQUIRE(commit_status.ok());
+    }
+
+    auto scan_result = dandb::wal::WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan_result.ok());
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.size() == 1);
+    REQUIRE(scan_result.value().latest_committed_frame_offsets.at(PAGE_ID) == SECOND_FRAME_OFFSET);
+    REQUIRE(scan_result.value().valid_wal_end_offset == EXPECTED_END_OFFSET);
+    REQUIRE_FALSE(scan_result.value().ignored_trailing_bytes);
+    REQUIRE(std::filesystem::file_size(path) == EXPECTED_END_OFFSET);
 }
 
 TEST_CASE("WalManager open_or_create rejects a WAL for a different database", "[wal][wal-manager]") {

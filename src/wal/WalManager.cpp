@@ -4,6 +4,7 @@
 #include <dandb/wal/WalHeader.h>
 #include <dandb/wal/WalPageFrame.h>
 #include <dandb/wal/WalCommitRecord.h>
+#include <dandb/wal/WalScanner.h>
 
 #include <utility>
 #include <array>
@@ -72,7 +73,26 @@ namespace dandb::wal {
                 return core::Status::Corruption("Cannot open WAL file: database id does not match");
             }
 
-            return WalManager{std::move(file_handle), file_size, expected_database_id};
+            auto scan_result = WalScanner::scan(path, expected_database_id);
+            if(!scan_result.ok()) {
+                return scan_result.status();
+            }
+
+            const auto append_offset = scan_result.value().valid_wal_end_offset;
+
+            if(scan_result.value().ignored_trailing_bytes) {
+                auto resize_status = file_handle.resize(append_offset);
+                if(!resize_status.ok()) {
+                    return resize_status;
+                }
+
+                auto sync_status = file_handle.sync();
+                if(!sync_status.ok()) {
+                    return sync_status;
+                }
+            }
+
+            return WalManager{ std::move(file_handle), append_offset, expected_database_id };
 
         }
 
