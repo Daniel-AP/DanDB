@@ -9,7 +9,9 @@
 #include <dandb/storage/PageHandle.h>
 #include <dandb/storage/PageId.h>
 #include <dandb/storage/Pager.h>
+#include <dandb/wal/WalHeader.h>
 #include <dandb/wal/WalManager.h>
+#include <dandb/wal/WalScanner.h>
 #include <testutil/TempDir.h>
 
 #include <array>
@@ -28,6 +30,7 @@ using dandb::storage::Page;
 using dandb::storage::PageHandle;
 using dandb::storage::PageId;
 using dandb::storage::Pager;
+using dandb::wal::WAL_HEADER_SIZE;
 using dandb::wal::WalManager;
 
 namespace {
@@ -61,7 +64,7 @@ namespace {
 
             dandb::core::Status before_sync() override {
                 if(fail_sync) {
-                    return dandb::core::Status::IoError("injected WAL sync failure");
+                    return dandb::core::Status::IoError("injected sync failure");
                 }
 
                 return dandb::core::Status::Ok();
@@ -423,6 +426,143 @@ TEST_CASE("Pager rollback clears failed transaction state", "[storage][pager]") 
     REQUIRE(pager.begin_transaction().ok());
 
     REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Pager checkpoint persists committed pages to the main database and resets WAL", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page expected_page = make_page(PAGE_ID, 17);
+    std::uint64_t database_id = 0;
+
+    {
+        auto created = Pager::create(temp_dir.database_path(), 2);
+        REQUIRE(created.ok());
+
+        Pager& pager = created.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        {
+            auto allocated = pager.new_page();
+            REQUIRE(allocated.ok());
+            REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+            allocated.value().page()->data() = expected_page.data();
+            REQUIRE(allocated.value().mark_dirty().ok());
+        }
+
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.checkpoint().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto disk_manager_result = DiskManager::open_existing(temp_dir.database_path());
+    REQUIRE(disk_manager_result.ok());
+
+    auto header_result = disk_manager_result.value().read_header();
+    REQUIRE(header_result.ok());
+    REQUIRE(header_result.value().page_count() == 2);
+    database_id = header_result.value().database_id();
+
+    auto disk_page = disk_manager_result.value().read_page(PAGE_ID);
+    REQUIRE(disk_page.ok());
+    REQUIRE(disk_page.value().data() == expected_page.data());
+
+    auto wal_scan_result = dandb::wal::WalScanner::scan(temp_dir.wal_path(), database_id);
+    REQUIRE(wal_scan_result.ok());
+    REQUIRE(wal_scan_result.value().latest_committed_frame_offsets.empty());
+    REQUIRE(wal_scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE);
+}
+
+TEST_CASE("Pager checkpoint rejects active transactions", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    const auto checkpoint_status = pager.checkpoint();
+
+    REQUIRE_FALSE(checkpoint_status.ok());
+    REQUIRE(checkpoint_status.code() == StatusCode::TransactionError);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Pager checkpoint makes cached committed pages evictable", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page expected_page = make_page(PAGE_ID, 18);
+
+    auto created = Pager::create(temp_dir.database_path(), 1);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        allocated.value().page()->data() = expected_page.data();
+        REQUIRE(allocated.value().mark_dirty().ok());
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+    REQUIRE(pager.checkpoint().ok());
+
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated_after_checkpoint = pager.new_page();
+        REQUIRE(allocated_after_checkpoint.ok());
+        REQUIRE(allocated_after_checkpoint.value().page()->id() == PageId{ 2 });
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Pager checkpoint keeps WAL when main database sync fails", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page expected_page = make_page(PAGE_ID, 19);
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        allocated.value().page()->data() = expected_page.data();
+        REQUIRE(allocated.value().mark_dirty().ok());
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+
+    auto disk_manager_result = DiskManager::open_existing(temp_dir.database_path());
+    REQUIRE(disk_manager_result.ok());
+
+    auto header_result = disk_manager_result.value().read_header();
+    REQUIRE(header_result.ok());
+    const std::uint64_t database_id = header_result.value().database_id();
+
+    SyncFailureInjector injector;
+    pager.set_disk_fault_injector(&injector);
+
+    const auto checkpoint_status = pager.checkpoint();
+
+    REQUIRE_FALSE(checkpoint_status.ok());
+    REQUIRE(checkpoint_status.code() == StatusCode::IoError);
+
+    auto wal_scan_result = dandb::wal::WalScanner::scan(temp_dir.wal_path(), database_id);
+    REQUIRE(wal_scan_result.ok());
+    REQUIRE(wal_scan_result.value().latest_committed_frame_offsets.find(PAGE_ID) != wal_scan_result.value().latest_committed_frame_offsets.end());
 }
 
 TEST_CASE("Pager rejects zero buffer pool capacity before touching storage", "[storage][pager]") {
