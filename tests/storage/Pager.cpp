@@ -355,6 +355,36 @@ TEST_CASE("Pager rejects marking a page dirty without an active transaction", "[
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("Pager commit rejects dirty pinned pages", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page expected_page = make_page(PAGE_ID, 21);
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = expected_page.data();
+
+        const auto commit_status = pager.commit_transaction();
+        REQUIRE_FALSE(commit_status.ok());
+        REQUIRE(commit_status.code() == StatusCode::TransactionError);
+        REQUIRE(pager.in_transaction());
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE_FALSE(pager.in_transaction());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
     const Page committed_page = make_page(PAGE_ID, 12);
