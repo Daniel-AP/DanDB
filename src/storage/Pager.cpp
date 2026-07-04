@@ -4,6 +4,7 @@
 #include <dandb/platform/FileHandle.h>
 #include <dandb/wal/WalPageFrame.h>
 #include <dandb/wal/WalScanner.h>
+#include <dandb/core/Constants.h>
 
 #include <array>
 #include <cstdint>
@@ -264,19 +265,17 @@ namespace dandb::storage {
             return bpm_cache_page_result.status();
         }
 
-        db_header_.set_page_count(db_header_.page_count()+1);
-
         auto mark_header_dirty_status = mark_dirty(HEADER_PAGE_ID);
         if(!mark_header_dirty_status.ok()) {
             return mark_header_dirty_status;
         }
 
-        auto mark_page_dirty_status = mark_dirty(page_id);
-        if(!mark_page_dirty_status.ok()) {
-            return mark_page_dirty_status;
-        }
+        db_header_.set_page_count(db_header_.page_count()+1);
 
         buffer::PagePin page_pin = std::move(bpm_cache_page_result.value());
+
+        transaction_state_.new_page_ids.insert(page_id);
+        transaction_state_.dirty_page_ids.insert(page_id);
         page_pin.mark_dirty();
 
         return PageHandle{
@@ -359,8 +358,67 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot rollback transaction: no transaction is active");
         }
 
-        if(!transaction_state_.dirty_page_ids.empty() || !transaction_state_.original_pages.empty()) {
-            return core::Status::InternalError("Cannot rollback transaction: dirty page rollback is not implemented yet");
+        for(const auto& [page_id, original_page]: transaction_state_.original_pages) {
+
+            if(page_id != original_page.id()) {
+                return core::Status::InternalError("Cannot rollback transaction: original page id does not match map key");
+            }
+
+            if(transaction_state_.new_page_ids.find(page_id) != transaction_state_.new_page_ids.end()) {
+                return core::Status::InternalError("Cannot rollback transaction: page cannot be both original and newly allocated");
+            }
+
+            if(page_id == HEADER_PAGE_ID) {
+                auto header_result = DatabaseHeader::decode(original_page.data());
+                if(!header_result.ok()) {
+                    return header_result.status();
+                }
+
+                continue;
+            }
+
+            auto can_restore_status = bpm_.can_restore_page(original_page);
+            if(!can_restore_status.ok()) {
+                return can_restore_status;
+            }
+
+        }
+
+        for(const auto& new_page_id: transaction_state_.new_page_ids) {
+
+            auto can_discard_status = bpm_.can_discard_page(new_page_id);
+            if(!can_discard_status.ok()) {
+                return can_discard_status;
+            }
+
+        }
+
+        for(const auto& [page_id, original_page]: transaction_state_.original_pages) {
+
+            if(page_id == HEADER_PAGE_ID) {
+                auto header_result = DatabaseHeader::decode(original_page.data());
+                if(!header_result.ok()) {
+                    return header_result.status();
+                }
+
+                db_header_ = std::move(header_result.value());
+                continue;
+            }
+
+            auto restore_status = bpm_.restore_page(original_page);
+            if(!restore_status.ok()) {
+                return restore_status;
+            }
+
+        }
+
+        for(const auto& new_page_id: transaction_state_.new_page_ids) {
+
+            auto discard_status = bpm_.discard_page(new_page_id);
+            if(!discard_status.ok()) {
+                return discard_status;
+            }
+
         }
 
         transaction_state_.clear();
@@ -407,9 +465,45 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot mark page dirty: transaction is failed");
         }
 
-        if(transaction_state_.in_transaction()) {
-            transaction_state_.dirty_page_ids.insert(page_id);
+        if(!transaction_state_.in_transaction()) {
+            return core::Status::Ok();
         }
+
+        if(transaction_state_.original_pages.find(page_id) != transaction_state_.original_pages.end()) {
+            return core::Status::Ok();
+        }
+
+        if(transaction_state_.new_page_ids.find(page_id) != transaction_state_.new_page_ids.end()) {
+            return core::Status::Ok();
+        }
+
+        if(page_id == HEADER_PAGE_ID) {
+
+            std::array<std::byte, core::PAGE_SIZE> header_page_bytes{};
+
+            auto encode_header_status = db_header_.encode_into(header_page_bytes);
+            if(!encode_header_status.ok()) {
+                return encode_header_status;
+            }
+
+            Page page(page_id);
+            page.data() = std::move(header_page_bytes);
+
+            transaction_state_.original_pages[page_id] = std::move(page);
+
+        } else {
+
+            auto bpm_get_page_result = bpm_.get_page(page_id);
+            if(!bpm_get_page_result.ok()) {
+                return bpm_get_page_result.status();
+            }
+
+            buffer::PagePin page_pin = std::move(bpm_get_page_result.value());
+            transaction_state_.original_pages[page_id] = *page_pin.page();
+
+        }
+
+        transaction_state_.dirty_page_ids.insert(page_id);
 
         return core::Status::Ok();
 
