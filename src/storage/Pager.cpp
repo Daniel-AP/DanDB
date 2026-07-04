@@ -1,7 +1,11 @@
 #include <dandb/storage/Pager.h>
 
 #include <dandb/core/Status.h>
+#include <dandb/platform/FileHandle.h>
+#include <dandb/wal/WalPageFrame.h>
+#include <dandb/wal/WalScanner.h>
 
+#include <array>
 #include <cstdint>
 #include <limits>
 #include <random>
@@ -31,13 +35,15 @@ namespace dandb::storage {
         wal::WalManager wal_manager,
         buffer::BufferPoolManager bpm,
         platform::DatabasePath path,
-        DatabaseHeader db_header
+        DatabaseHeader db_header,
+        std::unordered_map<PageId, Page> recovered_pages
     ) :
         disk_manager_(std::move(disk_manager)),
         wal_manager_(std::move(wal_manager)),
         bpm_(std::move(bpm)),
         path_(std::move(path)),
-        db_header_(std::move(db_header))
+        db_header_(std::move(db_header)),
+        recovered_pages_(std::move(recovered_pages))
     {}
 
     core::Result<Pager> Pager::create(std::filesystem::path path, std::size_t bpm_capacity) {
@@ -72,7 +78,8 @@ namespace dandb::storage {
             std::move(wal_manager),
             std::move(bpm),
             std::move(db_path),
-            std::move(db_header)
+            std::move(db_header),
+            std::unordered_map<PageId, Page>{}
         };
 
     }
@@ -106,7 +113,53 @@ namespace dandb::storage {
 
         wal::WalManager wal_manager = std::move(wal_manager_result.value());
 
-        // D05-T05 will scan WAL here and prepare recovered page images.
+        // Scan WAL
+
+        auto wal_scan_result = wal::WalScanner::scan(db_path.wal_path(), db_header.database_id());
+        if(!wal_scan_result.ok()) {
+            return wal_scan_result.status();
+        }
+
+        std::unordered_map<PageId, Page> recovered_pages;
+        const auto& latest_frame_offsets = wal_scan_result.value().latest_committed_frame_offsets;
+
+        // Get page bytes from each offset in the scan result
+
+        if(!latest_frame_offsets.empty()) {
+
+            auto wal_file_result = platform::FileHandle::open_existing(db_path.wal_path());
+            if(!wal_file_result.ok()) {
+                return wal_file_result.status();
+            }
+
+            platform::FileHandle wal_file = std::move(wal_file_result.value());
+
+            for(auto it = latest_frame_offsets.begin(); it != latest_frame_offsets.end(); it++) {
+
+                std::array<std::byte, wal::WAL_PAGE_FRAME_RECORD_SIZE> page_frame_bytes{};
+
+                auto read_page_frame_status = wal_file.read_at(it->second, page_frame_bytes);
+                if(!read_page_frame_status.ok()) {
+                    return read_page_frame_status;
+                }
+
+                auto wal_page_frame_result = wal::WalPageFrame::decode(page_frame_bytes);
+                if(!wal_page_frame_result.ok()) {
+                    return wal_page_frame_result.status();
+                }
+
+                wal::WalPageFrame wal_page_frame = std::move(wal_page_frame_result.value());
+                if(wal_page_frame.page_id() != it->first) {
+                    return core::Status::Corruption("Cannot recover WAL page frame: page id does not match scan result");
+                }
+
+                Page recovered_page(wal_page_frame.page_id());
+                recovered_page.data() = wal_page_frame.page_image();
+                recovered_pages[recovered_page.id()] = recovered_page;
+
+            }
+
+        }
 
         buffer::BufferPoolManager bpm(bpm_capacity);
 
@@ -115,7 +168,8 @@ namespace dandb::storage {
             std::move(wal_manager),
             std::move(bpm),
             std::move(db_path),
-            std::move(db_header)
+            std::move(db_header),
+            std::move(recovered_pages)
         }; 
 
     }
@@ -129,6 +183,8 @@ namespace dandb::storage {
         if(page_id == INVALID_PAGE_ID || page_id == HEADER_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot get page: invalid page id");
         }
+
+        // Try to get page from bpm
 
         auto bpm_get_page_result = bpm_.get_page(page_id);
 
@@ -146,12 +202,24 @@ namespace dandb::storage {
             return bpm_get_page_result.status();
         }
 
-        auto disk_get_page_result = disk_manager_.read_page(page_id);
-        if(!disk_get_page_result.ok()) {
-            return disk_get_page_result.status();
-        }
+        // Try to get page from recovered pages from WAL
+        // Otherwise, try to read it from disk
 
-        Page page = std::move(disk_get_page_result.value());
+        Page page;
+        auto recovered_page_it = recovered_pages_.find(page_id);
+
+        if(recovered_page_it != recovered_pages_.end()) {
+            page = recovered_page_it->second;
+        } else {
+
+            auto disk_get_page_result = disk_manager_.read_page(page_id);
+            if(!disk_get_page_result.ok()) {
+                return disk_get_page_result.status();
+            }
+
+            page = std::move(disk_get_page_result.value());
+
+        }
 
         auto bpm_cache_page_result = bpm_.cache_page(page);
         if(!bpm_cache_page_result.ok()) {

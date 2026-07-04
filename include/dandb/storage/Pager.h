@@ -7,11 +7,13 @@
 #include <dandb/buffer/BufferPoolManager.h>
 #include <dandb/storage/PageHandle.h>
 #include <dandb/storage/PageId.h>
+#include <dandb/storage/Page.h>
 #include <dandb/storage/DatabaseHeader.h>
 #include <dandb/platform/DatabasePath.h>
 
 #include <filesystem>
 #include <cstddef>
+#include <unordered_map>
 
 namespace dandb::storage {
 
@@ -43,7 +45,8 @@ namespace dandb::storage {
                 wal::WalManager wal_manager,
                 buffer::BufferPoolManager bpm,
                 platform::DatabasePath path,
-                DatabaseHeader db_header
+                DatabaseHeader db_header,
+                std::unordered_map<PageId, Page> recovered_pages
             );
 
             core::Status mark_dirty(PageId page_id);
@@ -53,6 +56,7 @@ namespace dandb::storage {
             buffer::BufferPoolManager bpm_;
             platform::DatabasePath path_;
             DatabaseHeader db_header_;
+            std::unordered_map<PageId, Page> recovered_pages_;
             bool closed_ = false;
     };
 
