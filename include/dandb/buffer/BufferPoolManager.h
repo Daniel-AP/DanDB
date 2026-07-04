@@ -30,6 +30,7 @@ namespace dandb::buffer {
             core::Status discard_page(storage::PageId page_id);
             core::Status can_restore_page(const storage::Page& page);
             core::Status restore_page(const storage::Page& page);
+            core::Result<bool> require_unpinned(storage::PageId page_id);
 
         private:
             friend class PagePin;

@@ -254,6 +254,10 @@ namespace dandb::storage {
             return core::Status::InvalidArgument("Cannot allocate new page: pager is closed");
         }
 
+        if(!transaction_state_.in_transaction()) {
+            return core::Status::TransactionError("Cannot allocate new page: no transaction is active");
+        }
+
         if(transaction_state_.is_failed()) {
             return core::Status::TransactionError("Cannot allocate new page: transaction is failed");
         }
@@ -326,6 +330,21 @@ namespace dandb::storage {
             return core::Status::TransactionError("Cannot commit transaction: transaction is unresolved");
         }
 
+        for(const auto& dirty_page_id: transaction_state_.dirty_page_ids) {
+
+            if(dirty_page_id == HEADER_PAGE_ID) continue;
+
+            auto require_unpinned_result = bpm_.require_unpinned(dirty_page_id);
+            if(!require_unpinned_result.ok()) {
+                return require_unpinned_result.status();
+            }
+            
+            if(!require_unpinned_result.value()) {
+                return core::Status::TransactionError("Cannot commit transaction: dirty page is still pinned");
+            }
+
+        }
+
         std::size_t dirty_pages_amount = transaction_state_.dirty_page_ids.size();
         std::vector<Page> dirty_pages;
         dirty_pages.reserve(dirty_pages_amount);
@@ -348,8 +367,15 @@ namespace dandb::storage {
         }
 
         for(const auto& dirty_page: dirty_pages) {
+
             if(dirty_page.id() == HEADER_PAGE_ID) continue; 
             recovered_pages_[dirty_page.id()] = dirty_page;
+
+            auto clear_status = bpm_.clear_dirty(dirty_page.id());
+            if(!clear_status.ok()) {
+                return clear_status;
+            }
+
         }
 
         transaction_state_.clear();
@@ -493,12 +519,6 @@ namespace dandb::storage {
             return sync_status;
         }
 
-        for(const auto& [page_id, page]: recovered_pages_) {
-            auto clear_dirty_page_status = bpm_.clear_dirty(page_id);
-            if(clear_dirty_page_status.ok() || clear_dirty_page_status.code() == core::StatusCode::NotFound) continue;
-            return clear_dirty_page_status;
-        }
-
         auto wal_reset_status = wal_manager_.reset();
         if(!wal_reset_status.ok()) {
             return wal_reset_status;
@@ -529,7 +549,7 @@ namespace dandb::storage {
         }
 
         if(!transaction_state_.in_transaction()) {
-            return core::Status::Ok();
+            return core::Status::TransactionError("Cannot mark page dirty: no transaction is active");
         }
 
         if(transaction_state_.original_pages.find(page_id) != transaction_state_.original_pages.end()) {

@@ -121,6 +121,30 @@ TEST_CASE("Pager can open an existing database", "[storage][pager]") {
     REQUIRE(opened.value().close().ok());
 }
 
+TEST_CASE("Pager rejects page allocation without an active transaction", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto created = Pager::create(temp_dir.database_path(), 1);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+
+    const auto missing_transaction = pager.new_page();
+    REQUIRE_FALSE(missing_transaction.ok());
+    REQUIRE(missing_transaction.status().code() == StatusCode::TransactionError);
+
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Pager allocates append-only zero-filled pages", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
@@ -128,21 +152,25 @@ TEST_CASE("Pager allocates append-only zero-filled pages", "[storage][pager]") {
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
 
-    auto first_page = pager.new_page();
-    REQUIRE(first_page.ok());
-    REQUIRE(first_page.value().page() != nullptr);
-    REQUIRE(first_page.value().page()->id() == PageId{ 1 });
-    REQUIRE(page_is_zero_filled(*first_page.value().page()));
-    REQUIRE(first_page.value().is_dirty());
+    {
+        auto first_page = pager.new_page();
+        REQUIRE(first_page.ok());
+        REQUIRE(first_page.value().page() != nullptr);
+        REQUIRE(first_page.value().page()->id() == PageId{ 1 });
+        REQUIRE(page_is_zero_filled(*first_page.value().page()));
+        REQUIRE(first_page.value().is_dirty());
 
-    auto second_page = pager.new_page();
-    REQUIRE(second_page.ok());
-    REQUIRE(second_page.value().page() != nullptr);
-    REQUIRE(second_page.value().page()->id() == PageId{ 2 });
-    REQUIRE(page_is_zero_filled(*second_page.value().page()));
-    REQUIRE(second_page.value().is_dirty());
+        auto second_page = pager.new_page();
+        REQUIRE(second_page.ok());
+        REQUIRE(second_page.value().page() != nullptr);
+        REQUIRE(second_page.value().page()->id() == PageId{ 2 });
+        REQUIRE(page_is_zero_filled(*second_page.value().page()));
+        REQUIRE(second_page.value().is_dirty());
+    }
 
+    REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
 }
 
@@ -196,9 +224,11 @@ TEST_CASE("Pager restores committed page count from WAL header after open", "[st
         Pager& pager = created.value();
         REQUIRE(pager.begin_transaction().ok());
 
-        auto allocated = pager.new_page();
-        REQUIRE(allocated.ok());
-        REQUIRE(allocated.value().page()->id() == PageId{ 1 });
+        {
+            auto allocated = pager.new_page();
+            REQUIRE(allocated.ok());
+            REQUIRE(allocated.value().page()->id() == PageId{ 1 });
+        }
 
         REQUIRE(pager.commit_transaction().ok());
         REQUIRE(pager.close().ok());
@@ -248,6 +278,39 @@ TEST_CASE("Pager commit makes dirty page data visible after reopen", "[storage][
     REQUIRE(recovered.ok());
     REQUIRE(recovered.value().page()->data() == expected_page.data());
     REQUIRE(opened.value().close().ok());
+}
+
+TEST_CASE("Pager rejects marking a page dirty without an active transaction", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page committed_page = make_page(PAGE_ID, 20);
+
+    auto created = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        allocated.value().page()->data() = committed_page.data();
+        REQUIRE(allocated.value().mark_dirty().ok());
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+
+    {
+        auto page = pager.get_page(PAGE_ID);
+        REQUIRE(page.ok());
+
+        const auto dirty_status = page.value().mark_dirty();
+        REQUIRE_FALSE(dirty_status.ok());
+        REQUIRE(dirty_status.code() == StatusCode::TransactionError);
+    }
+
+    REQUIRE(pager.close().ok());
 }
 
 TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pager]") {
@@ -396,6 +459,50 @@ TEST_CASE("Pager rollback restores modified existing page data", "[storage][page
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const Page committed_page = make_page(PAGE_ID, 21);
+    const Page uncommitted_page = make_page(PAGE_ID, 22);
+
+    auto created = Pager::create(temp_dir.database_path(), 1);
+    REQUIRE(created.ok());
+
+    Pager& pager = created.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
+
+        allocated.value().page()->data() = committed_page.data();
+        REQUIRE(allocated.value().mark_dirty().ok());
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto page = pager.get_page(PAGE_ID);
+        REQUIRE(page.ok());
+
+        REQUIRE(page.value().mark_dirty().ok());
+        page.value().page()->data() = uncommitted_page.data();
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated_after_rollback = pager.new_page();
+        REQUIRE(allocated_after_rollback.ok());
+        REQUIRE(allocated_after_rollback.value().page()->id() == PageId{ 2 });
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Pager rollback restores page count after page allocation", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
@@ -502,7 +609,7 @@ TEST_CASE("Pager checkpoint rejects active transactions", "[storage][pager]") {
     REQUIRE(pager.close().ok());
 }
 
-TEST_CASE("Pager checkpoint makes cached committed pages evictable", "[storage][pager]") {
+TEST_CASE("Pager commit makes cached committed pages evictable before checkpoint", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 18);
 
@@ -522,7 +629,6 @@ TEST_CASE("Pager checkpoint makes cached committed pages evictable", "[storage][
     }
 
     REQUIRE(pager.commit_transaction().ok());
-    REQUIRE(pager.checkpoint().ok());
 
     REQUIRE(pager.begin_transaction().ok());
 
