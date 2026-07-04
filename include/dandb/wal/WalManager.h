@@ -26,6 +26,7 @@ namespace dandb::wal {
             core::Status commit_transaction(std::uint64_t transaction_id, std::span<const storage::Page> pages);
 
             core::Status reset();
+            core::Status close();
             core::Result<std::uint64_t> size() const;
             std::uint64_t database_id() const;
             void set_fault_injector(platform::FileFaultInjector* fault_injector);

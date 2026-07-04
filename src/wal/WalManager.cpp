@@ -185,6 +185,10 @@ namespace dandb::wal {
 
     }
 
+    core::Status WalManager::close() {
+        return file_handle_.close();
+    }
+
     core::Result<std::uint64_t> WalManager::size() const {
         return file_handle_.size();
     }
