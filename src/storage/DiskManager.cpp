@@ -226,4 +226,8 @@ namespace dandb::storage {
         return file_handle_.size();
     }
 
+    void DiskManager::set_fault_injector(platform::FileFaultInjector* fault_injector) {
+        file_handle_.set_fault_injector(fault_injector);
+    }
+
 }

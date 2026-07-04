@@ -34,6 +34,7 @@ namespace dandb::storage {
             [[nodiscard]] core::Status sync();
             [[nodiscard]] core::Status close();
             [[nodiscard]] core::Result<std::uint64_t> size() const;
+            void set_fault_injector(platform::FileFaultInjector* fault_injector);
         private:
             explicit DiskManager(platform::FileHandle file_handle);
 

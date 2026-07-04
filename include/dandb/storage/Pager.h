@@ -45,6 +45,7 @@ namespace dandb::storage {
             core::Status checkpoint();
             core::Status close();
             void set_wal_fault_injector(platform::FileFaultInjector* fault_injector);
+            void set_disk_fault_injector(platform::FileFaultInjector* fault_injector);
 
         private:
             friend class PageHandle;

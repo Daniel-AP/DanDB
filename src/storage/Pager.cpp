@@ -597,4 +597,8 @@ namespace dandb::storage {
         wal_manager_.set_fault_injector(fault_injector);
     }
 
+    void Pager::set_disk_fault_injector(platform::FileFaultInjector* fault_injector) {
+        disk_manager_.set_fault_injector(fault_injector);
+    }
+
 }
