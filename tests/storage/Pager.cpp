@@ -121,6 +121,46 @@ TEST_CASE("Pager can open an existing database", "[storage][pager]") {
     REQUIRE(opened.value().close().ok());
 }
 
+TEST_CASE("Pager create holds an exclusive database lock until close", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto first = Pager::create(temp_dir.database_path(), 2);
+    REQUIRE(first.ok());
+
+    auto second = Pager::open(temp_dir.database_path(), 2);
+    REQUIRE_FALSE(second.ok());
+    REQUIRE(second.status().code() == StatusCode::IoError);
+
+    REQUIRE(first.value().close().ok());
+
+    auto third = Pager::open(temp_dir.database_path(), 2);
+    REQUIRE(third.ok());
+    REQUIRE(third.value().close().ok());
+}
+
+TEST_CASE("Pager open holds an exclusive database lock until close", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    {
+        auto created = Pager::create(temp_dir.database_path(), 2);
+        REQUIRE(created.ok());
+        REQUIRE(created.value().close().ok());
+    }
+
+    auto first = Pager::open(temp_dir.database_path(), 2);
+    REQUIRE(first.ok());
+
+    auto second = Pager::open(temp_dir.database_path(), 2);
+    REQUIRE_FALSE(second.ok());
+    REQUIRE(second.status().code() == StatusCode::IoError);
+
+    REQUIRE(first.value().close().ok());
+
+    auto third = Pager::open(temp_dir.database_path(), 2);
+    REQUIRE(third.ok());
+    REQUIRE(third.value().close().ok());
+}
+
 TEST_CASE("Pager rejects page allocation without an active transaction", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 

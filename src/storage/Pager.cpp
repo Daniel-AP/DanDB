@@ -34,6 +34,7 @@ namespace {
 namespace dandb::storage {
 
     Pager::Pager(
+        platform::FileLock file_lock,
         DiskManager disk_manager,
         wal::WalManager wal_manager,
         buffer::BufferPoolManager bpm,
@@ -41,6 +42,7 @@ namespace dandb::storage {
         DatabaseHeader db_header,
         std::unordered_map<PageId, Page> recovered_pages
     ) :
+        file_lock_(std::move(file_lock)),
         disk_manager_(std::move(disk_manager)),
         wal_manager_(std::move(wal_manager)),
         bpm_(std::move(bpm)),
@@ -67,6 +69,13 @@ namespace dandb::storage {
 
         DiskManager disk_manager = std::move(disk_manager_result.value());
 
+        auto acquire_exclusive_result = platform::FileLock::acquire_exclusive(db_path.main_path());
+        if(!acquire_exclusive_result.ok()) {
+            return acquire_exclusive_result.status();
+        }
+
+        platform::FileLock file_lock = std::move(acquire_exclusive_result.value());
+
         auto wal_manager_result = wal::WalManager::open_or_create(db_path.wal_path(), database_id);
         if(!wal_manager_result.ok()) {
             return wal_manager_result.status();
@@ -77,6 +86,7 @@ namespace dandb::storage {
         buffer::BufferPoolManager bpm(bpm_capacity);
 
         return Pager{
+            std::move(file_lock),
             std::move(disk_manager),
             std::move(wal_manager),
             std::move(bpm),
@@ -94,6 +104,13 @@ namespace dandb::storage {
         }
 
         platform::DatabasePath db_path(path);
+
+        auto acquire_exclusive_result = platform::FileLock::acquire_exclusive(db_path.main_path());
+        if(!acquire_exclusive_result.ok()) {
+            return acquire_exclusive_result.status();
+        }
+
+        platform::FileLock file_lock = std::move(acquire_exclusive_result.value());
 
         auto disk_manager_result = DiskManager::open_existing(db_path.main_path());
         if(!disk_manager_result.ok()) {
@@ -177,6 +194,7 @@ namespace dandb::storage {
         buffer::BufferPoolManager bpm(bpm_capacity);
 
         return Pager{
+            std::move(file_lock),
             std::move(disk_manager),
             std::move(wal_manager),
             std::move(bpm),
@@ -620,6 +638,7 @@ namespace dandb::storage {
 
         auto wal_close_status = wal_manager_.close();
         auto disk_close_status = disk_manager_.close();
+        auto lock_close_status = file_lock_.close();
 
         if(!wal_close_status.ok()) {
             return wal_close_status;
@@ -627,6 +646,10 @@ namespace dandb::storage {
 
         if(!disk_close_status.ok()) {
             return disk_close_status;
+        }
+
+        if(!lock_close_status.ok()) {
+            return lock_close_status;
         }
 
         closed_ = true;

@@ -11,6 +11,7 @@
 #include <dandb/storage/DatabaseHeader.h>
 #include <dandb/platform/DatabasePath.h>
 #include <dandb/transaction/TransactionState.h>
+#include <dandb/platform/FileLock.h>
 
 #include <filesystem>
 #include <cstddef>
@@ -51,6 +52,7 @@ namespace dandb::storage {
             friend class PageHandle;
 
             Pager(
+                platform::FileLock file_lock,
                 DiskManager disk_manager,
                 wal::WalManager wal_manager,
                 buffer::BufferPoolManager bpm,
@@ -62,6 +64,7 @@ namespace dandb::storage {
             core::Status mark_dirty(PageId page_id);
             core::Result<Page> dirty_page_snapshot(PageId page_id);
 
+            platform::FileLock file_lock_;
             DiskManager disk_manager_;
             wal::WalManager wal_manager_;
             buffer::BufferPoolManager bpm_;
