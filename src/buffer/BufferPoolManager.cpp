@@ -134,7 +134,7 @@ namespace dandb::buffer {
 
     }
 
-    core::Status BufferPoolManager::discard_page(storage::PageId page_id) {
+    core::Status BufferPoolManager::can_discard_page(storage::PageId page_id) {
 
         if(page_id == storage::INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot discard page: invalid page id");
@@ -153,6 +153,21 @@ namespace dandb::buffer {
             return core::Status::InternalError("Cannot discard page: page is pinned");
         }
 
+        return core::Status::Ok();
+
+    }
+
+    core::Status BufferPoolManager::discard_page(storage::PageId page_id) {
+
+        auto can_status = can_discard_page(page_id);
+        if(!can_status.ok()) {
+            return can_status;
+        }
+
+        auto it = page_frames_.find(page_id);
+        std::size_t frame_id = it->second;
+        BufferFrame& buffer_frame = frames_[frame_id];
+
         auto mark_non_evictable_status = lru_.mark_non_evictable(frame_id);
         if(!mark_non_evictable_status.ok()) {
             return mark_non_evictable_status;
@@ -166,7 +181,7 @@ namespace dandb::buffer {
 
     }
 
-    core::Status BufferPoolManager::restore_page(const storage::Page& page) {
+    core::Status BufferPoolManager::can_restore_page(const storage::Page& page) {
 
         if(page.id() == storage::INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot restore page: invalid page id");
@@ -183,6 +198,20 @@ namespace dandb::buffer {
         if(buffer_frame.is_pinned()) {
             return core::Status::InternalError("Cannot restore page: page is pinned");
         }
+
+        return core::Status::Ok();
+
+    }
+
+    core::Status BufferPoolManager::restore_page(const storage::Page& page) {
+
+        auto can_status = can_restore_page(page);
+        if(!can_status.ok()) {
+            return can_status;
+        }
+
+        auto it = page_frames_.find(page.id());
+        BufferFrame& buffer_frame = frames_[it->second];
 
         buffer_frame.page() = page;
 
