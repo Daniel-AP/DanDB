@@ -1,5 +1,7 @@
 #pragma once
 
+#include <dandb/record/Value.h>
+
 #include <cstdint>
 #include <string>
 #include <variant>
@@ -29,6 +31,8 @@ namespace dandb::record {
             double as_real() const;
             const std::string& as_string() const;
             bool as_boolean() const;
+
+            core::Result<Value> convert_to(LogicalType type, bool nullable) const;
 
         private:
             using Payload = std::variant<
