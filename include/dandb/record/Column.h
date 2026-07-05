@@ -8,6 +8,8 @@
 
 namespace dandb::record {
 
+    class Schema;
+
     class Column {
         public:
             static core::Result<Column> create(
@@ -15,9 +17,7 @@ namespace dandb::record {
                 LogicalType logical_type,
                 bool nullable,
                 bool pk,
-                bool unique,
-                std::size_t ordinal,
-                std::size_t fixed_offset
+                bool unique
             );
 
             const std::string& name() const;
@@ -29,23 +29,25 @@ namespace dandb::record {
             std::size_t fixed_offset() const;
 
         private:
+            friend class Schema;
+
             Column(
                 std::string name,
                 LogicalType logical_type,
                 bool nullable,
                 bool pk,
-                bool unique,
-                std::size_t ordinal,
-                std::size_t fixed_offset
+                bool unique
             );
+
+            void set_layout(std::size_t ordinal, std::size_t fixed_offset);
 
             std::string name_;
             LogicalType logical_type_;
             bool nullable_;
             bool pk_;
             bool unique_;
-            std::size_t ordinal_;
-            std::size_t fixed_offset_;
+            std::size_t ordinal_ = 0;
+            std::size_t fixed_offset_ = 0;
     };
 
 }

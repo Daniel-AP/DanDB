@@ -8,15 +8,13 @@ using dandb::core::StatusCode;
 using dandb::record::Column;
 using dandb::record::LogicalType;
 
-TEST_CASE("Column create stores column metadata", "[record][column]") {
+TEST_CASE("Column create stores declared column metadata", "[record][column]") {
     const auto column = Column::create(
         "id",
         LogicalType::int64(),
         false,
         true,
-        true,
-        0,
-        1
+        true
     );
 
     REQUIRE(column.ok());
@@ -25,8 +23,6 @@ TEST_CASE("Column create stores column metadata", "[record][column]") {
     REQUIRE_FALSE(column.value().nullable());
     REQUIRE(column.value().pk());
     REQUIRE(column.value().unique());
-    REQUIRE(column.value().ordinal() == 0);
-    REQUIRE(column.value().fixed_offset() == 1);
 }
 
 TEST_CASE("Column create rejects empty names", "[record][column]") {
@@ -35,9 +31,7 @@ TEST_CASE("Column create rejects empty names", "[record][column]") {
         LogicalType::int64(),
         false,
         true,
-        true,
-        0,
-        1
+        true
     );
 
     REQUIRE_FALSE(column.ok());
@@ -50,9 +44,7 @@ TEST_CASE("Column create rejects nullable primary keys", "[record][column]") {
         LogicalType::int64(),
         true,
         true,
-        true,
-        0,
-        1
+        true
     );
 
     REQUIRE_FALSE(column.ok());
@@ -65,9 +57,7 @@ TEST_CASE("Column create rejects nullable unique columns", "[record][column]") {
         LogicalType::string(32).value(),
         true,
         false,
-        true,
-        1,
-        9
+        true
     );
 
     REQUIRE_FALSE(column.ok());
@@ -80,9 +70,7 @@ TEST_CASE("Column create rejects non-indexable primary key and unique types", "[
         LogicalType::float64(),
         false,
         true,
-        true,
-        0,
-        1
+        true
     );
 
     const auto unique_column = Column::create(
@@ -90,9 +78,7 @@ TEST_CASE("Column create rejects non-indexable primary key and unique types", "[
         LogicalType::float64(),
         false,
         false,
-        true,
-        1,
-        9
+        true
     );
 
     REQUIRE_FALSE(primary_key_column.ok());

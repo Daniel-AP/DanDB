@@ -12,9 +12,7 @@ namespace dandb::record {
         LogicalType logical_type,
         bool nullable,
         bool pk,
-        bool unique,
-        std::size_t ordinal,
-        std::size_t fixed_offset
+        bool unique
     ) {
         
         if(name.empty()) {
@@ -42,9 +40,7 @@ namespace dandb::record {
             logical_type,
             nullable,
             pk,
-            unique,
-            ordinal,
-            fixed_offset
+            unique
         );
 
     }
@@ -54,17 +50,13 @@ namespace dandb::record {
         LogicalType logical_type,
         bool nullable,
         bool pk,
-        bool unique,
-        std::size_t ordinal,
-        std::size_t fixed_offset
+        bool unique
     ) :
         name_(std::move(name)),
         logical_type_(logical_type),
         nullable_(nullable),
         pk_(pk),
-        unique_(unique),
-        ordinal_(ordinal),
-        fixed_offset_(fixed_offset)
+        unique_(unique)
     {}
 
     const std::string& Column::name() const {
@@ -93,6 +85,11 @@ namespace dandb::record {
 
     std::size_t Column::fixed_offset() const {
         return fixed_offset_;
+    }
+
+    void Column::set_layout(std::size_t ordinal, std::size_t fixed_offset) {
+        ordinal_ = ordinal;
+        fixed_offset_ = fixed_offset;
     }
 
 }
