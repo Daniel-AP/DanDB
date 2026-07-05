@@ -31,6 +31,7 @@ add_library(dandb_core STATIC
     src/buffer/BufferPoolManager.cpp
     src/record/LiteralValue.cpp
     src/record/LogicalType.cpp
+    src/record/Value.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -63,6 +64,7 @@ add_executable(dandb_tests
     tests/catalog/IndexId.cpp
     tests/record/LiteralValue.cpp
     tests/record/LogicalType.cpp
+    tests/record/Value.cpp
     tests/storage/PageId.cpp
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
