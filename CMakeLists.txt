@@ -29,6 +29,7 @@ add_library(dandb_core STATIC
     src/buffer/LRUReplacer.cpp
     src/buffer/PagePin.cpp
     src/buffer/BufferPoolManager.cpp
+    src/record/LogicalType.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
