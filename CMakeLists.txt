@@ -29,6 +29,7 @@ add_library(dandb_core STATIC
     src/buffer/LRUReplacer.cpp
     src/buffer/PagePin.cpp
     src/buffer/BufferPoolManager.cpp
+    src/record/LiteralValue.cpp
     src/record/LogicalType.cpp
 )
 
@@ -60,6 +61,7 @@ add_executable(dandb_tests
     tests/core/Checksum.cpp
     tests/catalog/TableId.cpp
     tests/catalog/IndexId.cpp
+    tests/record/LiteralValue.cpp
     tests/record/LogicalType.cpp
     tests/storage/PageId.cpp
     tests/testutil/TempDir.cpp
