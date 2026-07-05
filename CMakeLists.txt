@@ -60,6 +60,7 @@ add_executable(dandb_tests
     tests/core/Checksum.cpp
     tests/catalog/TableId.cpp
     tests/catalog/IndexId.cpp
+    tests/record/LogicalType.cpp
     tests/storage/PageId.cpp
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
