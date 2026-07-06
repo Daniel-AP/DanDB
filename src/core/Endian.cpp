@@ -47,6 +47,48 @@ namespace dandb::core {
 
     }
 
+    Status write_u16_be(std::span<std::byte> buffer, std::size_t offset, std::uint16_t value) {
+        
+        if(offset >= buffer.size() || sizeof(std::uint16_t) > buffer.size()-offset) {
+            return Status::InvalidArgument("Cannot write 16-bit integer to buffer: write bounds failure");
+        }
+
+        for(std::size_t i = 0; i < sizeof(std::uint16_t); i++) {
+            buffer[offset+i] = static_cast<std::byte>((value>>(8*(sizeof(std::uint16_t)-1-i)))&0xFFu);
+        }
+
+        return Status::Ok();
+
+    }
+
+    Status write_u32_be(std::span<std::byte> buffer, std::size_t offset, std::uint32_t value) {
+        
+        if(offset >= buffer.size() || sizeof(std::uint32_t) > buffer.size()-offset) {
+            return Status::InvalidArgument("Cannot write 32-bit integer to buffer: write bounds failure");
+        }
+
+        for(std::size_t i = 0; i < sizeof(std::uint32_t); i++) {
+            buffer[offset+i] = static_cast<std::byte>((value>>(8*(sizeof(std::uint32_t)-1-i)))&0xFFu);
+        }
+
+        return Status::Ok();
+
+    }
+
+    Status write_u64_be(std::span<std::byte> buffer, std::size_t offset, std::uint64_t value) {
+        
+        if(offset >= buffer.size() || sizeof(std::uint64_t) > buffer.size()-offset) {
+            return Status::InvalidArgument("Cannot write 64-bit integer to buffer: write bounds failure");
+        }
+
+        for(std::size_t i = 0; i < sizeof(std::uint64_t); i++) {
+            buffer[offset+i] = static_cast<std::byte>((value>>(8*(sizeof(std::uint64_t)-1-i)))&0xFFu);
+        }
+
+        return Status::Ok();
+
+    }
+
     Result<std::uint16_t> read_u16_le(std::span<const std::byte> buffer, std::size_t offset) {
 
         if(offset >= buffer.size() || sizeof(std::uint16_t) > buffer.size()-offset) {

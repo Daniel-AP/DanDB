@@ -11,8 +11,11 @@ using dandb::core::read_u16_le;
 using dandb::core::read_u32_le;
 using dandb::core::read_u64_le;
 using dandb::core::StatusCode;
+using dandb::core::write_u16_be;
 using dandb::core::write_u16_le;
+using dandb::core::write_u32_be;
 using dandb::core::write_u32_le;
+using dandb::core::write_u64_be;
 using dandb::core::write_u64_le;
 
 TEST_CASE("write helpers store integers in little-endian byte order", "[core][endian]") {
@@ -52,6 +55,46 @@ TEST_CASE("write helpers store integers in little-endian byte order", "[core][en
         REQUIRE(bytes[5] == std::byte{ 0x45 });
         REQUIRE(bytes[6] == std::byte{ 0x23 });
         REQUIRE(bytes[7] == std::byte{ 0x01 });
+    }
+}
+
+TEST_CASE("write helpers store integers in big-endian byte order", "[core][endian]") {
+    SECTION("u16") {
+        std::array<std::byte, 2> bytes{};
+
+        const auto status = write_u16_be(bytes, 0, 0x1234);
+
+        REQUIRE(status.ok());
+        REQUIRE(bytes[0] == std::byte{ 0x12 });
+        REQUIRE(bytes[1] == std::byte{ 0x34 });
+    }
+
+    SECTION("u32") {
+        std::array<std::byte, 4> bytes{};
+
+        const auto status = write_u32_be(bytes, 0, 0x12345678);
+
+        REQUIRE(status.ok());
+        REQUIRE(bytes[0] == std::byte{ 0x12 });
+        REQUIRE(bytes[1] == std::byte{ 0x34 });
+        REQUIRE(bytes[2] == std::byte{ 0x56 });
+        REQUIRE(bytes[3] == std::byte{ 0x78 });
+    }
+
+    SECTION("u64") {
+        std::array<std::byte, 8> bytes{};
+
+        const auto status = write_u64_be(bytes, 0, 0x0123456789ABCDEF);
+
+        REQUIRE(status.ok());
+        REQUIRE(bytes[0] == std::byte{ 0x01 });
+        REQUIRE(bytes[1] == std::byte{ 0x23 });
+        REQUIRE(bytes[2] == std::byte{ 0x45 });
+        REQUIRE(bytes[3] == std::byte{ 0x67 });
+        REQUIRE(bytes[4] == std::byte{ 0x89 });
+        REQUIRE(bytes[5] == std::byte{ 0xAB });
+        REQUIRE(bytes[6] == std::byte{ 0xCD });
+        REQUIRE(bytes[7] == std::byte{ 0xEF });
     }
 }
 
