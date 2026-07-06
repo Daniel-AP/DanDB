@@ -157,15 +157,21 @@ logical value bytes
         N bytes: UTF-8 bytes followed by 0x00 padding
 
 key bytes
+    B+ tree keys are compared byte by byte.
+    integer key bytes are not row integer bytes.
+    integer key encoding:
+        cast signed two's-complement value to unsigned value of the same width
+        flip the unsigned sign bit
+        store the result big endian
     INT8:
-        1 byte
+        1 byte: uint8 value xor 0x80
     INT16:
-        2 bytes
+        2 bytes: uint16 value xor 0x8000, big endian
     INT32:
-        4 bytes
+        4 bytes: uint32 value xor 0x80000000, big endian
     INT64:
-        8 bytes
+        8 bytes: uint64 value xor 0x8000000000000000, big endian
     BOOL:
-        1 byte
+        1 byte: 0x00 false, 0x01 true
     STRING(N):
-        N bytes
+        N bytes: UTF-8 bytes followed by 0x00 padding
