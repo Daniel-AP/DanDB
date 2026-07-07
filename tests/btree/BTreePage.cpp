@@ -1,5 +1,7 @@
 #include <catch_amalgamated.hpp>
 
+#include <dandb/btree/BTreeInternalPage.h>
+#include <dandb/btree/BTreeLeafPage.h>
 #include <dandb/btree/BTreePage.h>
 #include <dandb/core/Constants.h>
 #include <dandb/core/Endian.h>
@@ -13,6 +15,8 @@
 
 using dandb::btree::BTreePage;
 using dandb::btree::BTreePageKind;
+using dandb::btree::BTreeInternalPage;
+using dandb::btree::BTreeLeafPage;
 using dandb::btree::BTREE_PAGE_ENTRY_AREA_SIZE;
 using dandb::btree::BTREE_PAGE_ENTRY_ARRAY_OFFSET;
 using dandb::btree::BTREE_PAGE_FIRST_CHILD_PAGE_ID_OFFSET;
@@ -70,6 +74,21 @@ namespace {
         page.set_root(true);
     };
 
+    template<class Page>
+    concept SupportsSetKeyCount = requires(Page page) {
+        page.set_key_count(0);
+    };
+
+    template<class Page>
+    concept SupportsNextLeafPageId = requires(Page page) {
+        page.next_leaf_page_id();
+    };
+
+    template<class Page>
+    concept SupportsFirstChildPageId = requires(Page page) {
+        page.first_child_page_id();
+    };
+
 }
 
 TEST_CASE("B+ tree page exposes the documented header layout constants", "[btree][page]") {
@@ -91,6 +110,24 @@ TEST_CASE("B+ tree page exposes the documented header layout constants", "[btree
 TEST_CASE("B+ tree page constness controls whether setters are available", "[btree][page]") {
     static_assert(SupportsSetRoot<BTreePage<std::byte>>);
     static_assert(!SupportsSetRoot<BTreePage<const std::byte>>);
+    static_assert(!SupportsSetKeyCount<BTreePage<std::byte>>);
+    static_assert(SupportsSetRoot<BTreeLeafPage<std::byte>>);
+    static_assert(!SupportsSetRoot<BTreeLeafPage<const std::byte>>);
+    static_assert(SupportsSetKeyCount<BTreeLeafPage<std::byte>>);
+    static_assert(!SupportsSetKeyCount<BTreeLeafPage<const std::byte>>);
+    static_assert(SupportsSetRoot<BTreeInternalPage<std::byte>>);
+    static_assert(!SupportsSetRoot<BTreeInternalPage<const std::byte>>);
+    static_assert(SupportsSetKeyCount<BTreeInternalPage<std::byte>>);
+    static_assert(!SupportsSetKeyCount<BTreeInternalPage<const std::byte>>);
+}
+
+TEST_CASE("B+ tree typed page views expose only matching kind-specific fields", "[btree][page]") {
+    static_assert(!SupportsNextLeafPageId<BTreePage<std::byte>>);
+    static_assert(!SupportsFirstChildPageId<BTreePage<std::byte>>);
+    static_assert(SupportsNextLeafPageId<BTreeLeafPage<std::byte>>);
+    static_assert(!SupportsFirstChildPageId<BTreeLeafPage<std::byte>>);
+    static_assert(!SupportsNextLeafPageId<BTreeInternalPage<std::byte>>);
+    static_assert(SupportsFirstChildPageId<BTreeInternalPage<std::byte>>);
 }
 
 TEST_CASE("B+ tree leaf initialization writes the documented header bytes", "[btree][page]") {
@@ -152,7 +189,7 @@ TEST_CASE("B+ tree internal initialization writes the documented page kind", "[b
 TEST_CASE("B+ tree page view reads initialized leaf header fields", "[btree][page]") {
     auto bytes = make_leaf_page();
 
-    const auto result = BTreePage<std::byte>::open(bytes);
+    const auto result = BTreeLeafPage<std::byte>::open(bytes);
 
     REQUIRE(result.ok());
 
@@ -164,20 +201,17 @@ TEST_CASE("B+ tree page view reads initialized leaf header fields", "[btree][pag
     REQUIRE(page.parent_page_id() == INVALID_PAGE_ID);
     REQUIRE(page.next_leaf_page_id() == INVALID_PAGE_ID);
     REQUIRE(page.previous_leaf_page_id() == INVALID_PAGE_ID);
-    REQUIRE(page.first_child_page_id() == INVALID_PAGE_ID);
     REQUIRE(page.key_size() == 8);
     REQUIRE(page.value_size() == 32);
-    REQUIRE(page.leaf_entry_size() == 40);
-    REQUIRE(page.internal_entry_size() == 16);
-    REQUIRE(page.leaf_capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 40);
-    REQUIRE(page.internal_capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 16);
+    REQUIRE(page.entry_size() == 40);
+    REQUIRE(page.capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 40);
 }
 
 TEST_CASE("B+ tree page view reads initialized internal header fields", "[btree][page]") {
     auto bytes = make_internal_page(16, 64);
 
     std::span<const std::byte> const_bytes{ bytes };
-    const auto result = BTreePage<const std::byte>::open(const_bytes);
+    const auto result = BTreeInternalPage<const std::byte>::open(const_bytes);
 
     REQUIRE(result.ok());
 
@@ -185,12 +219,11 @@ TEST_CASE("B+ tree page view reads initialized internal header fields", "[btree]
 
     REQUIRE(page.kind() == BTreePageKind::Internal);
     REQUIRE(page.key_count() == 0);
+    REQUIRE(page.first_child_page_id() == INVALID_PAGE_ID);
     REQUIRE(page.key_size() == 16);
     REQUIRE(page.value_size() == 64);
-    REQUIRE(page.leaf_entry_size() == 80);
-    REQUIRE(page.internal_entry_size() == 24);
-    REQUIRE(page.leaf_capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 80);
-    REQUIRE(page.internal_capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 24);
+    REQUIRE(page.entry_size() == 24);
+    REQUIRE(page.capacity() == BTREE_PAGE_ENTRY_AREA_SIZE / 24);
 }
 
 TEST_CASE("B+ tree page computes capacity for a string-heavy table leaf", "[btree][page]") {
@@ -199,22 +232,20 @@ TEST_CASE("B+ tree page computes capacity for a string-heavy table leaf", "[btre
 
     auto bytes = make_leaf_page(KEY_SIZE, ROW_SIZE);
 
-    const auto result = BTreePage<std::byte>::open(bytes);
+    const auto result = BTreeLeafPage<std::byte>::open(bytes);
 
     REQUIRE(result.ok());
 
     const auto page = result.value();
 
-    REQUIRE(page.leaf_entry_size() == 177);
-    REQUIRE(page.leaf_capacity() == 22);
-    REQUIRE(page.internal_entry_size() == 16);
-    REQUIRE(page.internal_capacity() == 252);
+    REQUIRE(page.entry_size() == 177);
+    REQUIRE(page.capacity() == 22);
 }
 
-TEST_CASE("B+ tree page setters update mutable header fields", "[btree][page]") {
+TEST_CASE("B+ tree leaf page setters update mutable header fields", "[btree][page]") {
     auto bytes = make_leaf_page();
 
-    auto result = BTreePage<std::byte>::open(bytes);
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
     REQUIRE(result.ok());
 
     auto page = result.value();
@@ -223,13 +254,34 @@ TEST_CASE("B+ tree page setters update mutable header fields", "[btree][page]") 
     page.set_parent_page_id(PageId{ 7 });
     page.set_next_leaf_page_id(PageId{ 8 });
     page.set_previous_leaf_page_id(PageId{ 6 });
-    page.set_first_child_page_id(PageId{ 9 });
     page.set_root(true);
 
     REQUIRE(page.key_count() == 3);
     REQUIRE(page.parent_page_id() == PageId{ 7 });
     REQUIRE(page.next_leaf_page_id() == PageId{ 8 });
     REQUIRE(page.previous_leaf_page_id() == PageId{ 6 });
+    REQUIRE(page.is_root());
+
+    page.set_root(false);
+
+    REQUIRE_FALSE(page.is_root());
+}
+
+TEST_CASE("B+ tree internal page setters update mutable header fields", "[btree][page]") {
+    auto bytes = make_internal_page();
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    REQUIRE(page.set_key_count(3).ok());
+    page.set_parent_page_id(PageId{ 7 });
+    page.set_first_child_page_id(PageId{ 9 });
+    page.set_root(true);
+
+    REQUIRE(page.key_count() == 3);
+    REQUIRE(page.parent_page_id() == PageId{ 7 });
     REQUIRE(page.first_child_page_id() == PageId{ 9 });
     REQUIRE(page.is_root());
 
@@ -241,11 +293,11 @@ TEST_CASE("B+ tree page setters update mutable header fields", "[btree][page]") 
 TEST_CASE("B+ tree page rejects key counts above page capacity", "[btree][page]") {
     auto bytes = make_leaf_page();
 
-    auto result = BTreePage<std::byte>::open(bytes);
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
     REQUIRE(result.ok());
 
     auto page = result.value();
-    const auto too_many_keys = static_cast<std::uint16_t>(page.leaf_capacity() + 1);
+    const auto too_many_keys = static_cast<std::uint16_t>(page.capacity() + 1);
 
     const auto status = page.set_key_count(too_many_keys);
 
@@ -308,10 +360,23 @@ TEST_CASE("B+ tree page initialization accepts a one-entry layout", "[btree][pag
 
     REQUIRE(status.ok());
 
-    const auto result = BTreePage<std::byte>::open(bytes);
+    const auto result = BTreeLeafPage<std::byte>::open(bytes);
 
     REQUIRE(result.ok());
-    REQUIRE(result.value().leaf_capacity() == 1);
+    REQUIRE(result.value().capacity() == 1);
+}
+
+TEST_CASE("B+ tree typed page views reject mismatched page kinds", "[btree][page]") {
+    auto leaf_bytes = make_leaf_page();
+    auto internal_bytes = make_internal_page();
+
+    const auto leaf_result = BTreeLeafPage<std::byte>::open(internal_bytes);
+    const auto internal_result = BTreeInternalPage<std::byte>::open(leaf_bytes);
+
+    REQUIRE_FALSE(leaf_result.ok());
+    REQUIRE(leaf_result.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(internal_result.ok());
+    REQUIRE(internal_result.status().code() == StatusCode::InvalidArgument);
 }
 
 TEST_CASE("B+ tree page validation rejects invalid fixed header fields", "[btree][page]") {

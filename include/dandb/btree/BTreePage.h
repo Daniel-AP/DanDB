@@ -52,6 +52,12 @@ namespace dandb::btree {
     core::Status validate(std::span<const std::byte> bytes);
 
     template<BTreePageByte Byte>
+    class BTreeLeafPage;
+
+    template<BTreePageByte Byte>
+    class BTreeInternalPage;
+
+    template<BTreePageByte Byte>
     class BTreePage {
         public:
 
@@ -61,26 +67,26 @@ namespace dandb::btree {
             bool is_root() const;
             std::uint16_t key_count() const;
             storage::PageId parent_page_id() const;
-            storage::PageId next_leaf_page_id() const;
-            storage::PageId previous_leaf_page_id() const;
-            storage::PageId first_child_page_id() const;
             std::uint16_t key_size() const;
             std::uint16_t value_size() const;
 
-            std::size_t leaf_entry_size() const;
-            std::size_t internal_entry_size() const;
-            std::size_t leaf_capacity() const;
-            std::size_t internal_capacity() const;
-
-            core::Status set_key_count(std::uint16_t key_count) requires (!std::is_const_v<Byte>);
             void set_parent_page_id(storage::PageId parent_page_id) requires (!std::is_const_v<Byte>);
-            void set_next_leaf_page_id(storage::PageId next_leaf_page_id) requires (!std::is_const_v<Byte>);
-            void set_previous_leaf_page_id(storage::PageId previous_leaf_page_id) requires (!std::is_const_v<Byte>);
-            void set_first_child_page_id(storage::PageId first_child_page_id) requires (!std::is_const_v<Byte>);
             void set_root(bool is_root) requires (!std::is_const_v<Byte>);
 
         private:
+            friend class BTreeLeafPage<Byte>;
+            friend class BTreeInternalPage<Byte>;
+
             explicit BTreePage(std::span<Byte> bytes);
+
+            storage::PageId next_leaf_page_id() const;
+            storage::PageId previous_leaf_page_id() const;
+            storage::PageId first_child_page_id() const;
+
+            core::Status set_key_count(std::uint16_t key_count) requires (!std::is_const_v<Byte>);
+            void set_next_leaf_page_id(storage::PageId next_leaf_page_id) requires (!std::is_const_v<Byte>);
+            void set_previous_leaf_page_id(storage::PageId previous_leaf_page_id) requires (!std::is_const_v<Byte>);
+            void set_first_child_page_id(storage::PageId first_child_page_id) requires (!std::is_const_v<Byte>);
 
             std::span<Byte> bytes_;
     };
@@ -172,40 +178,7 @@ namespace dandb::btree {
     }
 
     template<BTreePageByte Byte>
-    std::size_t BTreePage<Byte>::leaf_entry_size() const {
-
-        return static_cast<std::size_t>(key_size())+value_size();
-
-    }
-
-    template<BTreePageByte Byte>
-    std::size_t BTreePage<Byte>::internal_entry_size() const {
-
-        return static_cast<std::size_t>(key_size())+sizeof(std::uint64_t);
-
-    }
-
-    template<BTreePageByte Byte>
-    std::size_t BTreePage<Byte>::leaf_capacity() const {
-
-        return BTREE_PAGE_ENTRY_AREA_SIZE/leaf_entry_size();
-
-    }
-
-    template<BTreePageByte Byte>
-    std::size_t BTreePage<Byte>::internal_capacity() const {
-
-        return BTREE_PAGE_ENTRY_AREA_SIZE/internal_entry_size();
-
-    }
-
-    template<BTreePageByte Byte>
     core::Status BTreePage<Byte>::set_key_count(std::uint16_t key_count) requires (!std::is_const_v<Byte>) {
-
-        const std::size_t capacity = kind() == BTreePageKind::Leaf ? leaf_capacity() : internal_capacity();
-        if(key_count > capacity) {
-            return core::Status::InvalidArgument("Cannot set B+ tree page key count: key count exceeds page capacity");
-        }
 
         return core::write_u16_le(bytes_, BTREE_PAGE_KEY_COUNT_OFFSET, key_count);
 
