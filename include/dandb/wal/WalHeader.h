@@ -21,6 +21,14 @@ namespace dandb::wal {
     inline constexpr std::uint32_t WAL_HEADER_SIZE = 64;
     inline constexpr std::size_t WAL_HEADER_RESERVED_BYTES_SIZE = 32;
 
+    inline constexpr std::size_t WAL_MAGIC_BYTES_OFFSET = 0;
+    inline constexpr std::size_t WAL_FORMAT_VERSION_OFFSET = WAL_MAGIC_BYTES_OFFSET+WAL_MAGIC_BYTES.size();
+    inline constexpr std::size_t WAL_PAGE_SIZE_OFFSET = WAL_FORMAT_VERSION_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_HEADER_SIZE_OFFSET = WAL_PAGE_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_DATABASE_ID_OFFSET = WAL_HEADER_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_RESERVED_BYTES_OFFSET = WAL_DATABASE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t WAL_CHECKSUM_OFFSET = WAL_RESERVED_BYTES_OFFSET+WAL_HEADER_RESERVED_BYTES_SIZE;
+
     class WalHeader {
         public:
             static core::Result<WalHeader> decode(std::span<const std::byte> bytes);

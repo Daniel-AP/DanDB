@@ -18,9 +18,17 @@ using dandb::core::read_u32_le;
 using dandb::core::read_u64_le;
 using dandb::core::write_u32_le;
 using dandb::core::write_u64_le;
+using dandb::wal::WAL_CHECKSUM_OFFSET;
+using dandb::wal::WAL_DATABASE_ID_OFFSET;
 using dandb::wal::WAL_FORMAT_VERSION;
+using dandb::wal::WAL_FORMAT_VERSION_OFFSET;
+using dandb::wal::WAL_HEADER_RESERVED_BYTES_SIZE;
 using dandb::wal::WAL_HEADER_SIZE;
+using dandb::wal::WAL_HEADER_SIZE_OFFSET;
 using dandb::wal::WAL_MAGIC_BYTES;
+using dandb::wal::WAL_MAGIC_BYTES_OFFSET;
+using dandb::wal::WAL_PAGE_SIZE_OFFSET;
+using dandb::wal::WAL_RESERVED_BYTES_OFFSET;
 using dandb::wal::WalHeader;
 
 namespace {
@@ -60,6 +68,18 @@ namespace {
         REQUIRE(result.status().code() == StatusCode::Corruption);
     }
 
+}
+
+TEST_CASE("wal header exposes named layout offsets", "[wal][wal-header]") {
+    static_assert(WAL_MAGIC_BYTES_OFFSET == 0);
+    static_assert(WAL_FORMAT_VERSION_OFFSET == 4);
+    static_assert(WAL_PAGE_SIZE_OFFSET == 8);
+    static_assert(WAL_HEADER_SIZE_OFFSET == 12);
+    static_assert(WAL_DATABASE_ID_OFFSET == 16);
+    static_assert(WAL_RESERVED_BYTES_OFFSET == 24);
+    static_assert(WAL_CHECKSUM_OFFSET == 56);
+    static_assert(WAL_CHECKSUM_OFFSET + sizeof(std::uint64_t) == WAL_HEADER_SIZE);
+    static_assert(WAL_CHECKSUM_OFFSET - WAL_RESERVED_BYTES_OFFSET == WAL_HEADER_RESERVED_BYTES_SIZE);
 }
 
 TEST_CASE("wal header decodes a valid documented header", "[wal][wal-header]") {

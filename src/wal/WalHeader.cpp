@@ -20,25 +20,22 @@ namespace dandb::wal {
             return core::Status::InvalidArgument("Cannot decode WAL header: header size is invalid");
         }
 
-        std::size_t offset = 0;
-
         // Validate magic bytes
         #pragma region
 
         std::array<std::byte, WAL_MAGIC_BYTES.size()> stored_magic{};
-        for(std::size_t i = 0; i < WAL_MAGIC_BYTES.size(); i++) stored_magic[i] = bytes[i];
+        for(std::size_t i = 0; i < WAL_MAGIC_BYTES.size(); i++) stored_magic[i] = bytes[WAL_MAGIC_BYTES_OFFSET+i];
 
         if(stored_magic != WAL_MAGIC_BYTES) {
             return core::Status::Corruption("Cannot decode WAL header: magic bytes are invalid");
         }
 
-        offset += WAL_MAGIC_BYTES.size();
         #pragma endregion
 
         // Validate WAL format version
         #pragma region
 
-        auto stored_wal_format_version_result = core::read_u32_le(bytes, offset);
+        auto stored_wal_format_version_result = core::read_u32_le(bytes, WAL_FORMAT_VERSION_OFFSET);
         if(!stored_wal_format_version_result.ok()) {
             return stored_wal_format_version_result.status();
         }
@@ -49,13 +46,12 @@ namespace dandb::wal {
             return core::Status::Corruption("Cannot decode WAL header: unsupported WAL format version");
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Validate page size
         #pragma region
 
-        auto stored_page_size_result = core::read_u32_le(bytes, offset);
+        auto stored_page_size_result = core::read_u32_le(bytes, WAL_PAGE_SIZE_OFFSET);
         if(!stored_page_size_result.ok()) {
             return stored_page_size_result.status();
         }
@@ -66,13 +62,12 @@ namespace dandb::wal {
             return core::Status::Corruption("Cannot decode WAL header: WAL header has unsupported page size");
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Validate header size
         #pragma region
 
-        auto stored_header_size_result = core::read_u32_le(bytes, offset);
+        auto stored_header_size_result = core::read_u32_le(bytes, WAL_HEADER_SIZE_OFFSET);
         if(!stored_header_size_result.ok()) {
             return stored_header_size_result.status();
         }
@@ -83,53 +78,45 @@ namespace dandb::wal {
             return core::Status::Corruption("Cannot decode WAL header: WAL header has unsupported size");
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Decode database id
         #pragma region
 
-        auto stored_database_id_result = core::read_u64_le(bytes, offset);
+        auto stored_database_id_result = core::read_u64_le(bytes, WAL_DATABASE_ID_OFFSET);
         if(!stored_database_id_result.ok()) {
             return stored_database_id_result.status();
         }
 
         const auto stored_database_id = stored_database_id_result.value();
 
-        offset += sizeof(std::uint64_t);
         #pragma endregion
 
         // Validate reserved bytes
         #pragma region
 
-        if(!core::bytes_are_zero(bytes.subspan(offset, WAL_HEADER_RESERVED_BYTES_SIZE))) {
+        if(!core::bytes_are_zero(bytes.subspan(WAL_RESERVED_BYTES_OFFSET, WAL_HEADER_RESERVED_BYTES_SIZE))) {
             return core::Status::Corruption("Cannot decode WAL header: some reserved bytes are non-zero");
         }
 
-        offset += WAL_HEADER_RESERVED_BYTES_SIZE;
         #pragma endregion
 
         // Validate checksum
         #pragma region
 
-        auto stored_checksum_result = core::read_u64_le(bytes, offset);
+        auto stored_checksum_result = core::read_u64_le(bytes, WAL_CHECKSUM_OFFSET);
         if(!stored_checksum_result.ok()) {
             return stored_checksum_result.status();
         }
 
         const auto stored_checksum = stored_checksum_result.value();
-        const auto current_checksum = core::checksum(bytes.first(WAL_HEADER_SIZE - sizeof(std::uint64_t)));
+        const auto current_checksum = core::checksum(bytes.first(WAL_CHECKSUM_OFFSET));
 
         if(stored_checksum != current_checksum) {
             return core::Status::Corruption("Cannot decode WAL header: stored checksum and actual checksum differ");
         }
 
-        offset += sizeof(std::uint64_t);
         #pragma endregion
-
-        if(offset != WAL_HEADER_SIZE) {
-            return core::Status::InternalError("WAL header decode ended at an unexpected offset");
-        }
 
         return WalHeader{
             stored_database_id
@@ -153,81 +140,66 @@ namespace dandb::wal {
             out[i] = std::byte{ 0 };
         }
 
-        std::size_t offset = 0;
-
         // Encode magic bytes
         #pragma region
 
         for(std::size_t i = 0; i < WAL_MAGIC_BYTES.size(); i++) {
-            out[offset+i] = WAL_MAGIC_BYTES[i];
+            out[WAL_MAGIC_BYTES_OFFSET+i] = WAL_MAGIC_BYTES[i];
         }
 
-        offset += WAL_MAGIC_BYTES.size();
         #pragma endregion
 
         // Encode WAL format version
         #pragma region
 
-        auto status = core::write_u32_le(out, offset, WAL_FORMAT_VERSION);
+        auto status = core::write_u32_le(out, WAL_FORMAT_VERSION_OFFSET, WAL_FORMAT_VERSION);
         if(!status.ok()) {
             return status;
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Encode page size
         #pragma region
 
-        status = core::write_u32_le(out, offset, static_cast<std::uint32_t>(core::PAGE_SIZE));
+        status = core::write_u32_le(out, WAL_PAGE_SIZE_OFFSET, static_cast<std::uint32_t>(core::PAGE_SIZE));
         if(!status.ok()) {
             return status;
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Encode header size
         #pragma region
 
-        status = core::write_u32_le(out, offset, WAL_HEADER_SIZE);
+        status = core::write_u32_le(out, WAL_HEADER_SIZE_OFFSET, WAL_HEADER_SIZE);
         if(!status.ok()) {
             return status;
         }
 
-        offset += sizeof(std::uint32_t);
         #pragma endregion
 
         // Encode database id
         #pragma region
 
-        status = core::write_u64_le(out, offset, database_id_);
+        status = core::write_u64_le(out, WAL_DATABASE_ID_OFFSET, database_id_);
         if(!status.ok()) {
             return status;
         }
 
-        offset += sizeof(std::uint64_t);
         #pragma endregion
-
-        // Reserved bytes
-        offset += WAL_HEADER_RESERVED_BYTES_SIZE;
 
         // Encode checksum
         #pragma region
 
-        const auto current_checksum = core::checksum(out.first(WAL_HEADER_SIZE-sizeof(std::uint64_t)));
+        const auto current_checksum = core::checksum(out.first(WAL_CHECKSUM_OFFSET));
 
-        status = core::write_u64_le(out, offset, current_checksum);
+        status = core::write_u64_le(out, WAL_CHECKSUM_OFFSET, current_checksum);
         if(!status.ok()) {
             return status;
         }
 
-        offset += sizeof(std::uint64_t);
         #pragma endregion
-
-        if(offset != WAL_HEADER_SIZE) {
-            return core::Status::InternalError("WAL header encode ended at an unexpected offset");
-        }
 
         return core::Status::Ok();
 

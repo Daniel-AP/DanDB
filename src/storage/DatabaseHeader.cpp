@@ -405,8 +405,6 @@ namespace dandb::storage {
 
         #pragma endregion
 
-        // Reserved bytes are already zero because the page was cleared above.
-
         // Encode checksum
         #pragma region
 
