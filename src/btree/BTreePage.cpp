@@ -1,5 +1,6 @@
 #include <dandb/btree/BTreePage.h>
 
+#include <dandb/core/Bytes.h>
 #include <dandb/core/Endian.h>
 
 namespace dandb::btree {
@@ -167,6 +168,12 @@ namespace dandb::btree {
         const auto stored_header_size = static_cast<std::size_t>(stored_header_size_result.value());
         if(stored_header_size != BTREE_PAGE_HEADER_SIZE) {
             return core::Status::Corruption("Cannot validate B+ tree page: header size is invalid");
+        }
+
+        for(const auto& [offset, size]: BTREE_PAGE_RESERVED_RANGES) {
+            if(!core::bytes_are_zero(bytes.subspan(offset, size))) {
+                return core::Status::Corruption("Cannot validate B+ tree page: reserved bytes are non-zero");
+            }
         }
 
         auto stored_key_size_result = core::read_u16_le(bytes, BTREE_PAGE_KEY_SIZE_OFFSET);

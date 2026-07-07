@@ -7,6 +7,8 @@
 
 #include <concepts>
 #include <type_traits>
+#include <array>
+#include <utility>
 #include <span>
 #include <cstddef>
 #include <cstdint>
@@ -27,6 +29,10 @@ namespace dandb::btree {
     inline constexpr std::size_t BTREE_PAGE_HEADER_SIZE = 64;
     inline constexpr std::size_t BTREE_PAGE_ENTRY_ARRAY_OFFSET = BTREE_PAGE_HEADER_SIZE;
     inline constexpr std::size_t BTREE_PAGE_ENTRY_AREA_SIZE = core::PAGE_SIZE - BTREE_PAGE_HEADER_SIZE;
+    inline constexpr std::array<std::pair<std::size_t, std::size_t>, 2> BTREE_PAGE_RESERVED_RANGES{{
+        { 6, 2 },
+        { 44, 20 }
+    }};
 
     inline constexpr std::uint8_t BTREE_INTERNAL_PAGE_KIND = 1;
     inline constexpr std::uint8_t BTREE_LEAF_PAGE_KIND = 2;
