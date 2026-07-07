@@ -1,6 +1,8 @@
 #include <dandb/btree/BTree.h>
 
 #include <dandb/btree/BTreeLeafPage.h>
+#include <dandb/btree/BTreePage.h>
+#include <dandb/core/Status.h>
 #include <dandb/storage/Page.h>
 #include <dandb/storage/PageHandle.h>
 #include <dandb/storage/Pager.h>
@@ -56,6 +58,48 @@ namespace dandb::btree {
         }
 
         leaf_page_result.value().set_root(true);
+
+        return BTree{
+            pager,
+            root_page_id,
+            key_size,
+            value_size,
+            uniqueness
+        };
+
+    }
+
+    core::Result<BTree> BTree::open_existing(
+        storage::Pager& pager,
+        storage::PageId root_page_id,
+        std::uint16_t key_size,
+        std::uint16_t value_size,
+        bool uniqueness
+    ) {
+
+        auto page_handle_result = pager.get_page(root_page_id);
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        const auto* page = page_handle_result.value().page();
+        auto btree_page_result = BTreePage<const std::byte>::open(page->data());
+        if(!btree_page_result.ok()) {
+            return btree_page_result.status();
+        }
+
+        const auto& btree_page = btree_page_result.value();
+        if(!btree_page.is_root()) {
+            return core::Status::InvalidArgument("Cannot open existing B+ tree: root page is not marked as root");
+        }
+
+        if(btree_page.key_size() != key_size) {
+            return core::Status::InvalidArgument("Cannot open existing B+ tree: key size does not match root page");
+        }
+
+        if(btree_page.value_size() != value_size) {
+            return core::Status::InvalidArgument("Cannot open existing B+ tree: value size does not match root page");
+        }
 
         return BTree{
             pager,
