@@ -287,6 +287,232 @@ TEST_CASE("B+ tree leaf page setters update mutable header fields", "[btree][pag
     REQUIRE_FALSE(page.is_root());
 }
 
+TEST_CASE("B+ tree leaf page reads keys and values by entry slot", "[btree][page]") {
+    auto bytes = make_leaf_page(2, 3);
+    const auto first_entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET;
+    const auto second_entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+5;
+
+    bytes[first_entry_offset] = std::byte{ 0x10 };
+    bytes[first_entry_offset+1] = std::byte{ 0x11 };
+    bytes[first_entry_offset+2] = std::byte{ 0xA0 };
+    bytes[first_entry_offset+3] = std::byte{ 0xA1 };
+    bytes[first_entry_offset+4] = std::byte{ 0xA2 };
+
+    bytes[second_entry_offset] = std::byte{ 0x20 };
+    bytes[second_entry_offset+1] = std::byte{ 0x21 };
+    bytes[second_entry_offset+2] = std::byte{ 0xB0 };
+    bytes[second_entry_offset+3] = std::byte{ 0xB1 };
+    bytes[second_entry_offset+4] = std::byte{ 0xB2 };
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    std::span<const std::byte> const_bytes{ bytes };
+    const auto result = BTreeLeafPage<const std::byte>::open(const_bytes);
+    REQUIRE(result.ok());
+
+    const auto page = result.value();
+    const auto first_key = page.key_at(0);
+    const auto first_value = page.value_at(0);
+    const auto second_key = page.key_at(1);
+    const auto second_value = page.value_at(1);
+
+    REQUIRE(first_key.ok());
+    REQUIRE(first_value.ok());
+    REQUIRE(second_key.ok());
+    REQUIRE(second_value.ok());
+    REQUIRE(first_key.value()[0] == std::byte{ 0x10 });
+    REQUIRE(first_key.value()[1] == std::byte{ 0x11 });
+    REQUIRE(first_value.value()[0] == std::byte{ 0xA0 });
+    REQUIRE(first_value.value()[1] == std::byte{ 0xA1 });
+    REQUIRE(first_value.value()[2] == std::byte{ 0xA2 });
+    REQUIRE(second_key.value()[0] == std::byte{ 0x20 });
+    REQUIRE(second_key.value()[1] == std::byte{ 0x21 });
+    REQUIRE(second_value.value()[0] == std::byte{ 0xB0 });
+    REQUIRE(second_value.value()[1] == std::byte{ 0xB1 });
+    REQUIRE(second_value.value()[2] == std::byte{ 0xB2 });
+}
+
+TEST_CASE("B+ tree leaf page finds encoded key insertion positions", "[btree][page]") {
+    auto bytes = make_leaf_page(1, 1);
+
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET] = std::byte{ 10 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+2] = std::byte{ 20 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+4] = std::byte{ 40 };
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 3).ok());
+
+    std::span<const std::byte> const_bytes{ bytes };
+    const auto result = BTreeLeafPage<const std::byte>::open(const_bytes);
+    REQUIRE(result.ok());
+
+    const auto page = result.value();
+
+    const auto find = [&](std::byte key) {
+        const std::array<std::byte, 1> encoded_key{ key };
+        const auto position = page.find_insertion_position(encoded_key);
+
+        REQUIRE(position.ok());
+        return position.value();
+    };
+
+    REQUIRE(find(std::byte{ 5 }) == 0);
+    REQUIRE(find(std::byte{ 10 }) == 0);
+    REQUIRE(find(std::byte{ 25 }) == 2);
+    REQUIRE(find(std::byte{ 50 }) == 3);
+}
+
+TEST_CASE("B+ tree leaf page inserts an entry and shifts later entries", "[btree][page]") {
+    auto bytes = make_leaf_page(1, 2);
+
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET] = std::byte{ 10 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+1] = std::byte{ 0xA0 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+2] = std::byte{ 0xA1 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+3] = std::byte{ 30 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+4] = std::byte{ 0xC0 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+5] = std::byte{ 0xC1 };
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+    const std::array<std::byte, 1> inserted_key{ std::byte{ 20 } };
+    const std::array<std::byte, 2> inserted_value{ std::byte{ 0xB0 }, std::byte{ 0xB1 } };
+
+    const auto status = page.insert_entry(1, inserted_key, inserted_value);
+
+    REQUIRE(status.ok());
+    REQUIRE(page.key_count() == 3);
+
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.value_at(0).value()[0] == std::byte{ 0xA0 });
+    REQUIRE(page.value_at(0).value()[1] == std::byte{ 0xA1 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 20 });
+    REQUIRE(page.value_at(1).value()[0] == std::byte{ 0xB0 });
+    REQUIRE(page.value_at(1).value()[1] == std::byte{ 0xB1 });
+    REQUIRE(page.key_at(2).value()[0] == std::byte{ 30 });
+    REQUIRE(page.value_at(2).value()[0] == std::byte{ 0xC0 });
+    REQUIRE(page.value_at(2).value()[1] == std::byte{ 0xC1 });
+}
+
+TEST_CASE("B+ tree leaf page rejects invalid insert requests", "[btree][page]") {
+    SECTION("entry index is after the current entries") {
+        auto bytes = make_leaf_page(1, 2);
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 20 } };
+        const std::array<std::byte, 2> value{ std::byte{ 0xB0 }, std::byte{ 0xB1 } };
+
+        const auto status = page.insert_entry(3, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
+    }
+
+    SECTION("key size does not match the leaf page key size") {
+        auto bytes = make_leaf_page(1, 2);
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 2> key{ std::byte{ 20 }, std::byte{ 21 } };
+        const std::array<std::byte, 2> value{ std::byte{ 0xB0 }, std::byte{ 0xB1 } };
+
+        const auto status = page.insert_entry(0, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 0);
+    }
+
+    SECTION("value size does not match the leaf page value size") {
+        auto bytes = make_leaf_page(1, 2);
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 20 } };
+        const std::array<std::byte, 1> value{ std::byte{ 0xB0 } };
+
+        const auto status = page.insert_entry(0, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 0);
+    }
+
+    SECTION("page is full") {
+        auto bytes = make_leaf_page(1, 2);
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        REQUIRE(page.set_key_count(static_cast<std::uint16_t>(page.capacity())).ok());
+
+        const std::array<std::byte, 1> key{ std::byte{ 20 } };
+        const std::array<std::byte, 2> value{ std::byte{ 0xB0 }, std::byte{ 0xB1 } };
+        const auto status = page.insert_entry(0, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == page.capacity());
+    }
+}
+
+TEST_CASE("B+ tree leaf page erases an entry and shifts later entries", "[btree][page]") {
+    auto bytes = make_leaf_page(1, 2);
+
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET] = std::byte{ 10 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+1] = std::byte{ 0xA0 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+2] = std::byte{ 0xA1 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+3] = std::byte{ 20 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+4] = std::byte{ 0xB0 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+5] = std::byte{ 0xB1 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+6] = std::byte{ 30 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+7] = std::byte{ 0xC0 };
+    bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+8] = std::byte{ 0xC1 };
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 3).ok());
+
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto status = page.erase_entry(1);
+
+    REQUIRE(status.ok());
+    REQUIRE(page.key_count() == 2);
+
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.value_at(0).value()[0] == std::byte{ 0xA0 });
+    REQUIRE(page.value_at(0).value()[1] == std::byte{ 0xA1 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 30 });
+    REQUIRE(page.value_at(1).value()[0] == std::byte{ 0xC0 });
+    REQUIRE(page.value_at(1).value()[1] == std::byte{ 0xC1 });
+}
+
+TEST_CASE("B+ tree leaf page rejects invalid erase requests", "[btree][page]") {
+    auto bytes = make_leaf_page(1, 2);
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto status = page.erase_entry(2);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+    REQUIRE(page.key_count() == 2);
+}
+
 TEST_CASE("B+ tree internal page setters update mutable header fields", "[btree][page]") {
     auto bytes = make_internal_page();
 
