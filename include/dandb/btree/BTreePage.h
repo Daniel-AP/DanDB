@@ -84,4 +84,21 @@ namespace dandb::btree {
             std::span<Byte> bytes_;
     };
 
+    template<BTreePageByte Byte>
+    core::Result<BTreePage<Byte>> BTreePage<Byte>::open(std::span<Byte> bytes) {
+
+        auto status = validate(bytes);
+        if(!status.ok()) {
+            return status;
+        }
+
+        return BTreePage<Byte>{ bytes };
+
+    }
+
+    template<BTreePageByte Byte>
+    BTreePage<Byte>::BTreePage(std::span<Byte> bytes) :
+        bytes_(bytes)
+    {}
+
 }
