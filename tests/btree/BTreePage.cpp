@@ -393,6 +393,36 @@ TEST_CASE("B+ tree leaf page inserts an entry and shifts later entries", "[btree
     REQUIRE(page.value_at(2).value()[1] == std::byte{ 0xC1 });
 }
 
+TEST_CASE("B+ tree leaf page inserts reverse-ordered keys at found positions", "[btree][page]") {
+    auto bytes = make_leaf_page(1, 1);
+
+    auto result = BTreeLeafPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto insert = [&](std::byte key_byte, std::byte value_byte) {
+        const std::array<std::byte, 1> key{ key_byte };
+        const std::array<std::byte, 1> value{ value_byte };
+
+        const auto position = page.find_insertion_position(key);
+        REQUIRE(position.ok());
+        REQUIRE(page.insert_entry(position.value(), key, value).ok());
+    };
+
+    insert(std::byte{ 30 }, std::byte{ 0xC0 });
+    insert(std::byte{ 20 }, std::byte{ 0xB0 });
+    insert(std::byte{ 10 }, std::byte{ 0xA0 });
+
+    REQUIRE(page.key_count() == 3);
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.value_at(0).value()[0] == std::byte{ 0xA0 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 20 });
+    REQUIRE(page.value_at(1).value()[0] == std::byte{ 0xB0 });
+    REQUIRE(page.key_at(2).value()[0] == std::byte{ 30 });
+    REQUIRE(page.value_at(2).value()[0] == std::byte{ 0xC0 });
+}
+
 TEST_CASE("B+ tree leaf page rejects invalid insert requests", "[btree][page]") {
     SECTION("entry index is after the current entries") {
         auto bytes = make_leaf_page(1, 2);
@@ -462,6 +492,46 @@ TEST_CASE("B+ tree leaf page rejects invalid insert requests", "[btree][page]") 
         REQUIRE_FALSE(status.ok());
         REQUIRE(status.code() == StatusCode::InvalidArgument);
         REQUIRE(page.key_count() == page.capacity());
+    }
+
+    SECTION("entry index would place key before a smaller existing key") {
+        auto bytes = make_leaf_page(1, 1);
+        bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET] = std::byte{ 10 };
+        bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+2] = std::byte{ 30 };
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 40 } };
+        const std::array<std::byte, 1> value{ std::byte{ 0xD0 } };
+
+        const auto status = page.insert_entry(1, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
+    }
+
+    SECTION("entry index would place key after a larger existing key") {
+        auto bytes = make_leaf_page(1, 1);
+        bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET] = std::byte{ 10 };
+        bytes[BTREE_PAGE_ENTRY_ARRAY_OFFSET+2] = std::byte{ 30 };
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeLeafPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 5 } };
+        const std::array<std::byte, 1> value{ std::byte{ 0x50 } };
+
+        const auto status = page.insert_entry(1, key, value);
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
     }
 }
 
@@ -590,6 +660,35 @@ TEST_CASE("B+ tree internal page inserts an entry and shifts later entries", "[b
     REQUIRE(page.right_child_page_id_at(2).value() == PageId{ 8 });
 }
 
+TEST_CASE("B+ tree internal page inserts reverse-ordered keys at found positions", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto insert = [&](std::byte key_byte, PageId right_child_page_id) {
+        const std::array<std::byte, 1> key{ key_byte };
+
+        const auto position = page.find_insertion_position(key);
+        REQUIRE(position.ok());
+        REQUIRE(page.insert_entry(position.value(), key, right_child_page_id).ok());
+    };
+
+    insert(std::byte{ 30 }, PageId{ 8 });
+    insert(std::byte{ 20 }, PageId{ 7 });
+    insert(std::byte{ 10 }, PageId{ 6 });
+
+    REQUIRE(page.key_count() == 3);
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.right_child_page_id_at(0).value() == PageId{ 6 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 20 });
+    REQUIRE(page.right_child_page_id_at(1).value() == PageId{ 7 });
+    REQUIRE(page.key_at(2).value()[0] == std::byte{ 30 });
+    REQUIRE(page.right_child_page_id_at(2).value() == PageId{ 8 });
+}
+
 TEST_CASE("B+ tree internal page rejects invalid insert requests", "[btree][page]") {
     SECTION("entry index is after the current entries") {
         auto bytes = make_internal_page(1, 8);
@@ -639,6 +738,44 @@ TEST_CASE("B+ tree internal page rejects invalid insert requests", "[btree][page
         REQUIRE_FALSE(status.ok());
         REQUIRE(status.code() == StatusCode::InvalidArgument);
         REQUIRE(page.key_count() == page.capacity());
+    }
+
+    SECTION("entry index would place key before a smaller existing key") {
+        auto bytes = make_internal_page(1, 8);
+        write_one_byte_internal_entry(bytes, 0, std::byte{ 10 }, PageId{ 6 });
+        write_one_byte_internal_entry(bytes, 1, std::byte{ 30 }, PageId{ 8 });
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeInternalPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 40 } };
+
+        const auto status = page.insert_entry(1, key, PageId{ 9 });
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
+    }
+
+    SECTION("entry index would place key after a larger existing key") {
+        auto bytes = make_internal_page(1, 8);
+        write_one_byte_internal_entry(bytes, 0, std::byte{ 10 }, PageId{ 6 });
+        write_one_byte_internal_entry(bytes, 1, std::byte{ 30 }, PageId{ 8 });
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeInternalPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 5 } };
+
+        const auto status = page.insert_entry(1, key, PageId{ 5 });
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
     }
 }
 

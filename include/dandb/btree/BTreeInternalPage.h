@@ -211,6 +211,32 @@ namespace dandb::btree {
             return core::Status::InvalidArgument("Cannot insert B+ tree internal page entry: page is full");
         }
 
+        if(entry_index > 0) {
+
+            const auto prev_key_result = key_at(entry_index-1);
+            if(!prev_key_result.ok()) {
+                return prev_key_result.status();
+            }
+
+            if(std::memcmp(key.data(), prev_key_result.value().data(), key_size()) < 0) {
+                return core::Status::InvalidArgument("Cannot insert B+ tree internal page entry: entry index breaks sorted-key invariant");                
+            }
+
+        }
+
+        if(entry_index < stored_key_count) {
+
+            const auto next_key_result = key_at(entry_index);
+            if(!next_key_result.ok()) {
+                return next_key_result.status();
+            }
+
+            if(std::memcmp(next_key_result.value().data(), key.data(), key_size()) < 0) {
+                return core::Status::InvalidArgument("Cannot insert B+ tree internal page entry: entry index breaks sorted-key invariant");
+            }
+
+        }
+
         const auto entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(entry_index)*entry_size();
         const auto bytes_to_shift = static_cast<std::size_t>(stored_key_count-entry_index)*entry_size();
         if(bytes_to_shift > 0) {
