@@ -23,6 +23,20 @@ namespace dandb::storage {
     inline constexpr std::size_t DATABASE_HEADER_RESERVED_BYTES_SIZE = 48;
     inline constexpr std::uint64_t INITIAL_DATABASE_PAGE_COUNT = 1;
 
+    inline constexpr std::size_t DATABASE_MAGIC_BYTES_OFFSET = 0;
+    inline constexpr std::size_t DATABASE_FORMAT_VERSION_OFFSET = DATABASE_MAGIC_BYTES_OFFSET+DATABASE_MAGIC_BYTES.size();
+    inline constexpr std::size_t DATABASE_PAGE_SIZE_OFFSET = DATABASE_FORMAT_VERSION_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t DATABASE_HEADER_SIZE_OFFSET = DATABASE_PAGE_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t DATABASE_ID_OFFSET = DATABASE_HEADER_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t DATABASE_PAGE_COUNT_OFFSET = DATABASE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_CATALOG_ROOT_PAGE_ID_OFFSET = DATABASE_PAGE_COUNT_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_SYSTEM_TABLES_ROOT_PAGE_ID_OFFSET = DATABASE_CATALOG_ROOT_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_SYSTEM_COLUMNS_ROOT_PAGE_ID_OFFSET = DATABASE_SYSTEM_TABLES_ROOT_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_SYSTEM_INDEXES_ROOT_PAGE_ID_OFFSET = DATABASE_SYSTEM_COLUMNS_ROOT_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_SYSTEM_INDEX_COLUMNS_ROOT_PAGE_ID_OFFSET = DATABASE_SYSTEM_INDEXES_ROOT_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_RESERVED_BYTES_OFFSET = DATABASE_SYSTEM_INDEX_COLUMNS_ROOT_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t DATABASE_CHECKSUM_OFFSET = DATABASE_RESERVED_BYTES_OFFSET+DATABASE_HEADER_RESERVED_BYTES_SIZE;
+
     class DatabaseHeader {
         public:
             static core::Result<DatabaseHeader> decode(std::span<const std::byte> page);
