@@ -73,17 +73,73 @@ TEST_CASE("LiteralValue converts integer literals to integer values", "[record][
     REQUIRE(int64_value.value().as_integer() == 5000000000);
 }
 
+TEST_CASE("LiteralValue converts integer boundary literals to integer values", "[record][literal-value]") {
+    const auto min_int8 = LiteralValue::integer(std::numeric_limits<std::int8_t>::min())
+        .convert_to(LogicalType::int8(), false);
+    const auto max_int8 = LiteralValue::integer(std::numeric_limits<std::int8_t>::max())
+        .convert_to(LogicalType::int8(), false);
+    const auto min_int16 = LiteralValue::integer(std::numeric_limits<std::int16_t>::min())
+        .convert_to(LogicalType::int16(), false);
+    const auto max_int16 = LiteralValue::integer(std::numeric_limits<std::int16_t>::max())
+        .convert_to(LogicalType::int16(), false);
+    const auto min_int32 = LiteralValue::integer(std::numeric_limits<std::int32_t>::min())
+        .convert_to(LogicalType::int32(), false);
+    const auto max_int32 = LiteralValue::integer(std::numeric_limits<std::int32_t>::max())
+        .convert_to(LogicalType::int32(), false);
+    const auto min_int64 = LiteralValue::integer(std::numeric_limits<std::int64_t>::min())
+        .convert_to(LogicalType::int64(), false);
+    const auto max_int64 = LiteralValue::integer(std::numeric_limits<std::int64_t>::max())
+        .convert_to(LogicalType::int64(), false);
+
+    REQUIRE(min_int8.ok());
+    REQUIRE(min_int8.value().as_integer() == std::numeric_limits<std::int8_t>::min());
+    REQUIRE(max_int8.ok());
+    REQUIRE(max_int8.value().as_integer() == std::numeric_limits<std::int8_t>::max());
+
+    REQUIRE(min_int16.ok());
+    REQUIRE(min_int16.value().as_integer() == std::numeric_limits<std::int16_t>::min());
+    REQUIRE(max_int16.ok());
+    REQUIRE(max_int16.value().as_integer() == std::numeric_limits<std::int16_t>::max());
+
+    REQUIRE(min_int32.ok());
+    REQUIRE(min_int32.value().as_integer() == std::numeric_limits<std::int32_t>::min());
+    REQUIRE(max_int32.ok());
+    REQUIRE(max_int32.value().as_integer() == std::numeric_limits<std::int32_t>::max());
+
+    REQUIRE(min_int64.ok());
+    REQUIRE(min_int64.value().as_integer() == std::numeric_limits<std::int64_t>::min());
+    REQUIRE(max_int64.ok());
+    REQUIRE(max_int64.value().as_integer() == std::numeric_limits<std::int64_t>::max());
+}
+
 TEST_CASE("LiteralValue rejects integer overflow during conversion", "[record][literal-value]") {
     const auto too_large_int8 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::max()) + 1)
         .convert_to(LogicalType::int8(), false);
+    const auto too_small_int8 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::min()) - 1)
+        .convert_to(LogicalType::int8(), false);
     const auto too_large_int16 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int16_t>::max()) + 1)
         .convert_to(LogicalType::int16(), false);
+    const auto too_small_int16 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int16_t>::min()) - 1)
+        .convert_to(LogicalType::int16(), false);
+    const auto too_large_int32 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::max()) + 1)
+        .convert_to(LogicalType::int32(), false);
+    const auto too_small_int32 = LiteralValue::integer(static_cast<std::int64_t>(std::numeric_limits<std::int32_t>::min()) - 1)
+        .convert_to(LogicalType::int32(), false);
 
     REQUIRE_FALSE(too_large_int8.ok());
     REQUIRE(too_large_int8.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(too_small_int8.ok());
+    REQUIRE(too_small_int8.status().code() == StatusCode::InvalidArgument);
 
     REQUIRE_FALSE(too_large_int16.ok());
     REQUIRE(too_large_int16.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(too_small_int16.ok());
+    REQUIRE(too_small_int16.status().code() == StatusCode::InvalidArgument);
+
+    REQUIRE_FALSE(too_large_int32.ok());
+    REQUIRE(too_large_int32.status().code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(too_small_int32.ok());
+    REQUIRE(too_small_int32.status().code() == StatusCode::InvalidArgument);
 }
 
 TEST_CASE("LiteralValue converts real literals only to float64 values", "[record][literal-value]") {
@@ -99,17 +155,17 @@ TEST_CASE("LiteralValue converts real literals only to float64 values", "[record
 }
 
 TEST_CASE("LiteralValue converts string literals only when they fit the target capacity", "[record][literal-value]") {
-    const auto string_type = LogicalType::string(5);
+    const auto string_type = LogicalType::string(4);
 
     REQUIRE(string_type.ok());
 
-    const auto value = LiteralValue::string("dan").convert_to(string_type.value(), false);
-    const auto overflow = LiteralValue::string("daniel").convert_to(string_type.value(), false);
+    const auto value = LiteralValue::string("abcd").convert_to(string_type.value(), false);
+    const auto overflow = LiteralValue::string("abcde").convert_to(string_type.value(), false);
     const auto invalid = LiteralValue::string("dan").convert_to(LogicalType::int64(), false);
 
     REQUIRE(value.ok());
     REQUIRE(value.value().type().kind() == LogicalType::Kind::String);
-    REQUIRE(value.value().as_string() == "dan");
+    REQUIRE(value.value().as_string() == "abcd");
 
     REQUIRE_FALSE(overflow.ok());
     REQUIRE(overflow.status().code() == StatusCode::InvalidArgument);

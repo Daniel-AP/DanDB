@@ -32,6 +32,35 @@ TEST_CASE("Value stores typed integer values", "[record][value]") {
     REQUIRE(int64_value.as_integer() == 5000000000);
 }
 
+TEST_CASE("Value accepts integer values at logical type boundaries", "[record][value]") {
+    const auto min_int8 = Value::int8(std::numeric_limits<std::int8_t>::min());
+    const auto max_int8 = Value::int8(std::numeric_limits<std::int8_t>::max());
+    const auto min_int16 = Value::int16(std::numeric_limits<std::int16_t>::min());
+    const auto max_int16 = Value::int16(std::numeric_limits<std::int16_t>::max());
+    const auto min_int32 = Value::int32(std::numeric_limits<std::int32_t>::min());
+    const auto max_int32 = Value::int32(std::numeric_limits<std::int32_t>::max());
+    const auto min_int64 = Value::int64(std::numeric_limits<std::int64_t>::min());
+    const auto max_int64 = Value::int64(std::numeric_limits<std::int64_t>::max());
+
+    REQUIRE(min_int8.ok());
+    REQUIRE(min_int8.value().as_integer() == std::numeric_limits<std::int8_t>::min());
+    REQUIRE(max_int8.ok());
+    REQUIRE(max_int8.value().as_integer() == std::numeric_limits<std::int8_t>::max());
+
+    REQUIRE(min_int16.ok());
+    REQUIRE(min_int16.value().as_integer() == std::numeric_limits<std::int16_t>::min());
+    REQUIRE(max_int16.ok());
+    REQUIRE(max_int16.value().as_integer() == std::numeric_limits<std::int16_t>::max());
+
+    REQUIRE(min_int32.ok());
+    REQUIRE(min_int32.value().as_integer() == std::numeric_limits<std::int32_t>::min());
+    REQUIRE(max_int32.ok());
+    REQUIRE(max_int32.value().as_integer() == std::numeric_limits<std::int32_t>::max());
+
+    REQUIRE(min_int64.as_integer() == std::numeric_limits<std::int64_t>::min());
+    REQUIRE(max_int64.as_integer() == std::numeric_limits<std::int64_t>::max());
+}
+
 TEST_CASE("Value rejects integer values outside their logical type range", "[record][value]") {
     const auto too_large_int8 = Value::int8(static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::max()) + 1);
     const auto too_small_int8 = Value::int8(static_cast<std::int64_t>(std::numeric_limits<std::int8_t>::min()) - 1);
@@ -73,8 +102,15 @@ TEST_CASE("Value stores string values with capacity", "[record][value]") {
     REQUIRE(value.value().as_string() == "dan");
 }
 
+TEST_CASE("Value accepts string values exactly at capacity", "[record][value]") {
+    const auto value = Value::string("abcd", 4);
+
+    REQUIRE(value.ok());
+    REQUIRE(value.value().as_string() == "abcd");
+}
+
 TEST_CASE("Value rejects string values longer than capacity", "[record][value]") {
-    const auto value = Value::string("daniel", 3);
+    const auto value = Value::string("abcde", 4);
 
     REQUIRE_FALSE(value.ok());
     REQUIRE(value.status().code() == StatusCode::InvalidArgument);

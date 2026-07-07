@@ -120,6 +120,20 @@ TEST_CASE("RowHelpers rejects rows that do not match the schema", "[record][row-
         REQUIRE(row.status().code() == StatusCode::InvalidArgument);
     }
 
+    SECTION("string capacity does not match schema") {
+        auto name = Value::string("dan", 4);
+        REQUIRE(name.ok());
+
+        auto row = RowHelpers::build_row(schema, {
+            Value::int64(7),
+            name.value(),
+            Value::boolean(true)
+        });
+
+        REQUIRE_FALSE(row.ok());
+        REQUIRE(row.status().code() == StatusCode::InvalidArgument);
+    }
+
     SECTION("null in non-nullable column") {
         auto row = RowHelpers::build_row(schema, {
             Value::int64(7),

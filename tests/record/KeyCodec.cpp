@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <cstdint>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -109,6 +111,60 @@ TEST_CASE("KeyCodec encodes signed integers into bytewise sortable keys", "[reco
 
         REQUIRE(bytes_less(negative, zero));
         REQUIRE(bytes_less(zero, positive));
+    }
+}
+
+TEST_CASE("KeyCodec preserves bytewise ordering for integer edge values", "[record][key-codec]") {
+    SECTION("INT8") {
+        const auto min_key = require_key(require_value(Value::int8(std::numeric_limits<std::int8_t>::min())));
+        const auto negative_key = require_key(require_value(Value::int8(-1)));
+        const auto zero_key = require_key(require_value(Value::int8(0)));
+        const auto positive_key = require_key(require_value(Value::int8(1)));
+        const auto max_key = require_key(require_value(Value::int8(std::numeric_limits<std::int8_t>::max())));
+
+        REQUIRE(bytes_less(min_key, negative_key));
+        REQUIRE(bytes_less(negative_key, zero_key));
+        REQUIRE(bytes_less(zero_key, positive_key));
+        REQUIRE(bytes_less(positive_key, max_key));
+    }
+
+    SECTION("INT16") {
+        const auto min_key = require_key(require_value(Value::int16(std::numeric_limits<std::int16_t>::min())));
+        const auto negative_key = require_key(require_value(Value::int16(-1)));
+        const auto zero_key = require_key(require_value(Value::int16(0)));
+        const auto positive_key = require_key(require_value(Value::int16(1)));
+        const auto max_key = require_key(require_value(Value::int16(std::numeric_limits<std::int16_t>::max())));
+
+        REQUIRE(bytes_less(min_key, negative_key));
+        REQUIRE(bytes_less(negative_key, zero_key));
+        REQUIRE(bytes_less(zero_key, positive_key));
+        REQUIRE(bytes_less(positive_key, max_key));
+    }
+
+    SECTION("INT32") {
+        const auto min_key = require_key(require_value(Value::int32(std::numeric_limits<std::int32_t>::min())));
+        const auto negative_key = require_key(require_value(Value::int32(-1)));
+        const auto zero_key = require_key(require_value(Value::int32(0)));
+        const auto positive_key = require_key(require_value(Value::int32(1)));
+        const auto max_key = require_key(require_value(Value::int32(std::numeric_limits<std::int32_t>::max())));
+
+        REQUIRE(bytes_less(min_key, negative_key));
+        REQUIRE(bytes_less(negative_key, zero_key));
+        REQUIRE(bytes_less(zero_key, positive_key));
+        REQUIRE(bytes_less(positive_key, max_key));
+    }
+
+    SECTION("INT64") {
+        const auto min_key = require_key(Value::int64(std::numeric_limits<std::int64_t>::min()));
+        const auto negative_key = require_key(Value::int64(-1));
+        const auto zero_key = require_key(Value::int64(0));
+        const auto positive_key = require_key(Value::int64(1));
+        const auto max_key = require_key(Value::int64(std::numeric_limits<std::int64_t>::max()));
+
+        REQUIRE(bytes_less(min_key, negative_key));
+        REQUIRE(bytes_less(negative_key, zero_key));
+        REQUIRE(bytes_less(zero_key, positive_key));
+        REQUIRE(bytes_less(positive_key, max_key));
     }
 }
 

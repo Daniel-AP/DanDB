@@ -55,6 +55,16 @@ namespace {
         return std::move(schema.value());
     }
 
+    Schema make_boolean_schema() {
+        auto schema = Schema::create({
+            make_column("id", LogicalType::int64(), false, true, true),
+            make_column("active", LogicalType::boolean(), false, false, false)
+        });
+
+        REQUIRE(schema.ok());
+        return std::move(schema.value());
+    }
+
     Schema make_all_types_schema() {
         auto name_type = LogicalType::string(5);
         REQUIRE(name_type.ok());
@@ -145,6 +155,71 @@ TEST_CASE("RowCodec encodes and decodes all supported types in the documented fi
     REQUIRE(decoded.value().value(4).as_float64() == 1.5);
     REQUIRE(decoded.value().value(5).as_boolean());
     REQUIRE(decoded.value().value(6).as_string() == "dan");
+}
+
+TEST_CASE("RowCodec encode rejects rows that do not match the schema", "[record][row-codec]") {
+    auto schema = make_string_schema();
+
+    SECTION("missing value") {
+        Row row(std::vector<Value>{
+            Value::int64(7)
+        });
+
+        auto encoded = RowCodec::encode(schema, row);
+
+        REQUIRE_FALSE(encoded.ok());
+        REQUIRE(encoded.status().code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("extra value") {
+        auto name = Value::string("dan", 4);
+        REQUIRE(name.ok());
+
+        Row row(std::vector<Value>{
+            Value::int64(7),
+            name.value(),
+            Value::boolean(true)
+        });
+
+        auto encoded = RowCodec::encode(schema, row);
+
+        REQUIRE_FALSE(encoded.ok());
+        REQUIRE(encoded.status().code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("wrong value type") {
+        Row row(std::vector<Value>{
+            Value::int64(7),
+            Value::boolean(true)
+        });
+
+        auto encoded = RowCodec::encode(schema, row);
+
+        REQUIRE_FALSE(encoded.ok());
+        REQUIRE(encoded.status().code() == StatusCode::InvalidArgument);
+    }
+}
+
+TEST_CASE("RowCodec decode rejects buffers that do not match the schema row size", "[record][row-codec]") {
+    auto schema = make_string_schema();
+
+    SECTION("too small") {
+        std::vector<std::byte> bytes(schema.row_size()-1);
+
+        auto decoded = RowCodec::decode(schema, bytes);
+
+        REQUIRE_FALSE(decoded.ok());
+        REQUIRE(decoded.status().code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("too large") {
+        std::vector<std::byte> bytes(schema.row_size()+1);
+
+        auto decoded = RowCodec::decode(schema, bytes);
+
+        REQUIRE_FALSE(decoded.ok());
+        REQUIRE(decoded.status().code() == StatusCode::InvalidArgument);
+    }
 }
 
 TEST_CASE("RowCodec decodes real null bitmap bits without rejecting unused bits that are zero", "[record][row-codec]") {
@@ -272,6 +347,26 @@ TEST_CASE("RowCodec encode rejects strings containing null characters", "[record
 
     REQUIRE_FALSE(encoded.ok());
     REQUIRE(encoded.status().code() == StatusCode::InvalidArgument);
+}
+
+TEST_CASE("RowCodec decode rejects invalid boolean bytes", "[record][row-codec]") {
+    auto schema = make_boolean_schema();
+
+    Row row(std::vector<Value>{
+        Value::int64(7),
+        Value::boolean(true)
+    });
+
+    auto encoded = RowCodec::encode(schema, row);
+    REQUIRE(encoded.ok());
+
+    auto bytes = std::move(encoded.value());
+    bytes[schema.column(1).fixed_offset()] = std::byte{ 0x02 };
+
+    auto decoded = RowCodec::decode(schema, bytes);
+
+    REQUIRE_FALSE(decoded.ok());
+    REQUIRE(decoded.status().code() == StatusCode::InvalidArgument);
 }
 
 TEST_CASE("RowCodec decode rejects non-zero string padding bytes", "[record][row-codec]") {
