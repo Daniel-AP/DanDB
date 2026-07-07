@@ -32,8 +32,10 @@ add_library(dandb_core STATIC
     src/record/Schema.cpp
     src/record/Column.cpp
     src/record/Row.cpp
+    src/record/RowValidation.cpp
     src/record/RowCodec.cpp
     src/record/KeyCodec.cpp
+    src/record/RowHelpers.cpp
     src/record/LiteralValue.cpp
     src/record/LogicalType.cpp
     src/record/Value.cpp
@@ -73,6 +75,7 @@ add_executable(dandb_tests
     tests/record/KeyCodec.cpp
     tests/record/Row.cpp
     tests/record/RowCodec.cpp
+    tests/record/RowHelpers.cpp
     tests/record/Schema.cpp
     tests/record/Value.cpp
     tests/storage/PageId.cpp
