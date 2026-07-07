@@ -69,6 +69,26 @@ namespace {
         REQUIRE(status.code() == StatusCode::Corruption);
     }
 
+    void write_one_byte_internal_key(PageBytes& bytes, std::uint16_t entry_index, std::byte key) {
+        constexpr std::size_t ENTRY_SIZE = 1+sizeof(std::uint64_t);
+        const auto key_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(entry_index)*ENTRY_SIZE;
+
+        bytes[key_offset] = key;
+    }
+
+    void write_one_byte_internal_entry(
+        PageBytes& bytes,
+        std::uint16_t entry_index,
+        std::byte key,
+        PageId right_child_page_id
+    ) {
+        constexpr std::size_t ENTRY_SIZE = 1+sizeof(std::uint64_t);
+        const auto entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(entry_index)*ENTRY_SIZE;
+
+        bytes[entry_offset] = key;
+        REQUIRE(dandb::core::write_u64_le(bytes, entry_offset+1, right_child_page_id.id).ok());
+    }
+
     template<class Page>
     concept SupportsSetRoot = requires(Page page) {
         page.set_root(true);
@@ -288,6 +308,152 @@ TEST_CASE("B+ tree internal page setters update mutable header fields", "[btree]
     page.set_root(false);
 
     REQUIRE_FALSE(page.is_root());
+}
+
+TEST_CASE("B+ tree internal page finds encoded key insertion positions", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    write_one_byte_internal_key(bytes, 0, std::byte{ 10 });
+    write_one_byte_internal_key(bytes, 1, std::byte{ 20 });
+    write_one_byte_internal_key(bytes, 2, std::byte{ 40 });
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 3).ok());
+
+    std::span<const std::byte> const_bytes{ bytes };
+    const auto result = BTreeInternalPage<const std::byte>::open(const_bytes);
+    REQUIRE(result.ok());
+
+    const auto page = result.value();
+
+    const auto find = [&](std::byte key) {
+        const std::array<std::byte, 1> encoded_key{ key };
+        const auto position = page.find_insertion_position(encoded_key);
+
+        REQUIRE(position.ok());
+        return position.value();
+    };
+
+    REQUIRE(find(std::byte{ 5 }) == 0);
+    REQUIRE(find(std::byte{ 10 }) == 0);
+    REQUIRE(find(std::byte{ 25 }) == 2);
+    REQUIRE(find(std::byte{ 50 }) == 3);
+}
+
+TEST_CASE("B+ tree internal page inserts an entry and shifts later entries", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    write_one_byte_internal_entry(bytes, 0, std::byte{ 10 }, PageId{ 6 });
+    write_one_byte_internal_entry(bytes, 1, std::byte{ 30 }, PageId{ 8 });
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+    const std::array<std::byte, 1> inserted_key{ std::byte{ 20 } };
+
+    const auto status = page.insert_entry(1, inserted_key, PageId{ 7 });
+
+    REQUIRE(status.ok());
+    REQUIRE(page.key_count() == 3);
+
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.right_child_page_id_at(0).value() == PageId{ 6 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 20 });
+    REQUIRE(page.right_child_page_id_at(1).value() == PageId{ 7 });
+    REQUIRE(page.key_at(2).value()[0] == std::byte{ 30 });
+    REQUIRE(page.right_child_page_id_at(2).value() == PageId{ 8 });
+}
+
+TEST_CASE("B+ tree internal page rejects invalid insert requests", "[btree][page]") {
+    SECTION("entry index is after the current entries") {
+        auto bytes = make_internal_page(1, 8);
+        REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+        auto result = BTreeInternalPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 1> key{ std::byte{ 20 } };
+
+        const auto status = page.insert_entry(3, key, PageId{ 7 });
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 2);
+    }
+
+    SECTION("key size does not match the internal page key size") {
+        auto bytes = make_internal_page(1, 8);
+
+        auto result = BTreeInternalPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        const std::array<std::byte, 2> key{ std::byte{ 20 }, std::byte{ 21 } };
+
+        const auto status = page.insert_entry(0, key, PageId{ 7 });
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == 0);
+    }
+
+    SECTION("page is full") {
+        auto bytes = make_internal_page(1, 8);
+
+        auto result = BTreeInternalPage<std::byte>::open(bytes);
+        REQUIRE(result.ok());
+
+        auto page = result.value();
+        REQUIRE(page.set_key_count(static_cast<std::uint16_t>(page.capacity())).ok());
+
+        const std::array<std::byte, 1> key{ std::byte{ 20 } };
+        const auto status = page.insert_entry(0, key, PageId{ 7 });
+
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+        REQUIRE(page.key_count() == page.capacity());
+    }
+}
+
+TEST_CASE("B+ tree internal page erases an entry and shifts later entries", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    write_one_byte_internal_entry(bytes, 0, std::byte{ 10 }, PageId{ 6 });
+    write_one_byte_internal_entry(bytes, 1, std::byte{ 20 }, PageId{ 7 });
+    write_one_byte_internal_entry(bytes, 2, std::byte{ 30 }, PageId{ 8 });
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 3).ok());
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto status = page.erase_entry(1);
+
+    REQUIRE(status.ok());
+    REQUIRE(page.key_count() == 2);
+
+    REQUIRE(page.key_at(0).value()[0] == std::byte{ 10 });
+    REQUIRE(page.right_child_page_id_at(0).value() == PageId{ 6 });
+    REQUIRE(page.key_at(1).value()[0] == std::byte{ 30 });
+    REQUIRE(page.right_child_page_id_at(1).value() == PageId{ 8 });
+}
+
+TEST_CASE("B+ tree internal page rejects invalid erase requests", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+
+    const auto status = page.erase_entry(2);
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+    REQUIRE(page.key_count() == 2);
 }
 
 TEST_CASE("B+ tree page rejects key counts above page capacity", "[btree][page]") {
