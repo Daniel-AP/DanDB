@@ -30,6 +30,7 @@ namespace dandb::btree {
 
     inline constexpr std::uint8_t BTREE_INTERNAL_PAGE_KIND = 1;
     inline constexpr std::uint8_t BTREE_LEAF_PAGE_KIND = 2;
+    inline constexpr std::uint8_t BTREE_PAGE_ROOT_FLAG = 0x01;
 
     template<class Byte>
     concept BTreePageByte = std::same_as<std::remove_const_t<Byte>, std::byte>;
