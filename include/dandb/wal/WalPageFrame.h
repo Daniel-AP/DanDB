@@ -13,7 +13,8 @@
 namespace dandb::wal {
 
     inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_TYPE = 1;
-    inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_SIZE = core::PAGE_SIZE+40;
+    inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_METADATA_SIZE = 40;
+    inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_SIZE = core::PAGE_SIZE+WAL_PAGE_FRAME_RECORD_METADATA_SIZE;
 
     class WalPageFrame {
         public:

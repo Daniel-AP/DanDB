@@ -19,6 +19,7 @@ namespace dandb::wal {
 
     inline constexpr std::uint32_t WAL_FORMAT_VERSION = 1;
     inline constexpr std::uint32_t WAL_HEADER_SIZE = 64;
+    inline constexpr std::size_t WAL_HEADER_RESERVED_BYTES_SIZE = 32;
 
     class WalHeader {
         public:

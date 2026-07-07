@@ -73,7 +73,7 @@ namespace dandb::wal {
         while(offset < file_size) {
 
             std::uint64_t remaining = file_size-offset;
-            if(remaining < 4) break;
+            if(remaining < sizeof(std::uint32_t)) break;
 
             // Read record type
 

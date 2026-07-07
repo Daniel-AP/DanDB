@@ -25,8 +25,8 @@ namespace dandb::wal {
         // Validate magic bytes
         #pragma region
 
-        std::array<std::byte, 4> stored_magic{};
-        for(std::size_t i = 0; i < 4; i++) stored_magic[i] = bytes[i];
+        std::array<std::byte, WAL_MAGIC_BYTES.size()> stored_magic{};
+        for(std::size_t i = 0; i < WAL_MAGIC_BYTES.size(); i++) stored_magic[i] = bytes[i];
 
         if(stored_magic != WAL_MAGIC_BYTES) {
             return core::Status::Corruption("Cannot decode WAL header: magic bytes are invalid");
@@ -102,11 +102,11 @@ namespace dandb::wal {
         // Validate reserved bytes
         #pragma region
 
-        if(!core::bytes_are_zero(bytes.subspan(offset, 32))) {
+        if(!core::bytes_are_zero(bytes.subspan(offset, WAL_HEADER_RESERVED_BYTES_SIZE))) {
             return core::Status::Corruption("Cannot decode WAL header: some reserved bytes are non-zero");
         }
 
-        offset += 32;
+        offset += WAL_HEADER_RESERVED_BYTES_SIZE;
         #pragma endregion
 
         // Validate checksum
@@ -210,7 +210,7 @@ namespace dandb::wal {
         #pragma endregion
 
         // Reserved bytes
-        offset += 32;
+        offset += WAL_HEADER_RESERVED_BYTES_SIZE;
 
         // Encode checksum
         #pragma region

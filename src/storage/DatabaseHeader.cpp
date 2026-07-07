@@ -47,8 +47,8 @@ namespace dandb::storage {
         // Validate magic bytes
         #pragma region
 
-        std::array<std::byte, 4> stored_magic{};
-        for(std::size_t i = 0; i < 4; i++) stored_magic[i] = page[i];
+        std::array<std::byte, DATABASE_MAGIC_BYTES.size()> stored_magic{};
+        for(std::size_t i = 0; i < DATABASE_MAGIC_BYTES.size(); i++) stored_magic[i] = page[i];
 
         if(stored_magic != DATABASE_MAGIC_BYTES) {
             return core::Status::Corruption("Cannot decode database header: magic bytes are invalid");
@@ -231,11 +231,11 @@ namespace dandb::storage {
         // Validate reserved bytes
         #pragma region
 
-        if(!core::bytes_are_zero(page.subspan(offset, 48))) {
+        if(!core::bytes_are_zero(page.subspan(offset, DATABASE_HEADER_RESERVED_BYTES_SIZE))) {
             return core::Status::Corruption("Cannot decode database header: some reserved bytes are non-zero");
         }
 
-        offset += 48;
+        offset += DATABASE_HEADER_RESERVED_BYTES_SIZE;
         #pragma endregion
 
         // Validate checksum
@@ -443,7 +443,7 @@ namespace dandb::storage {
         #pragma endregion
 
         // Reserved bytes
-        offset += 48;
+        offset += DATABASE_HEADER_RESERVED_BYTES_SIZE;
 
         // Encode checksum
         #pragma region
