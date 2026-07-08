@@ -29,8 +29,6 @@ namespace dandb::wal {
         std::size_t offset = 0;
 
         // Validate record type
-        #pragma region
-
         auto stored_record_type_result = core::read_u32_le(bytes, offset);
         if(!stored_record_type_result.ok()) {
             return stored_record_type_result.status();
@@ -43,11 +41,8 @@ namespace dandb::wal {
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Validate record size
-        #pragma region
-
         auto stored_record_size_result = core::read_u32_le(bytes, offset);
         if(!stored_record_size_result.ok()) {
             return stored_record_size_result.status();
@@ -60,11 +55,8 @@ namespace dandb::wal {
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Decode transaction id
-        #pragma region
-
         auto stored_transaction_id_result = core::read_u64_le(bytes, offset);
         if(!stored_transaction_id_result.ok()) {
             return stored_transaction_id_result.status();
@@ -73,11 +65,8 @@ namespace dandb::wal {
         const auto stored_transaction_id = stored_transaction_id_result.value();
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         // Decode page id
-        #pragma region
-
         auto stored_page_id_result = core::read_u64_le(bytes, offset);
         if(!stored_page_id_result.ok()) {
             return stored_page_id_result.status();
@@ -86,11 +75,8 @@ namespace dandb::wal {
         const auto stored_page_id = storage::PageId{ stored_page_id_result.value() };
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         // Validate page image size
-        #pragma region
-
         auto stored_page_image_size_result = core::read_u32_le(bytes, offset);
         if(!stored_page_image_size_result.ok()) {
             return stored_page_image_size_result.status();
@@ -103,21 +89,15 @@ namespace dandb::wal {
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Validate reserved bytes
-        #pragma region
-
         if(!core::bytes_are_zero(bytes.subspan(offset, sizeof(std::uint32_t)))) {
             return core::Status::Corruption("Cannot decode WAL page frame: reserved bytes are non-zero");
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Decode page image
-        #pragma region
-
         std::array<std::byte, core::PAGE_SIZE> stored_page_image{};
 
         for(std::size_t i = 0; i < core::PAGE_SIZE; i++) {
@@ -125,11 +105,8 @@ namespace dandb::wal {
         }
 
         offset += core::PAGE_SIZE;
-        #pragma endregion
 
         // Validate checksum
-        #pragma region
-
         auto stored_checksum_result = core::read_u64_le(bytes, offset);
         if(!stored_checksum_result.ok()) {
             return stored_checksum_result.status();
@@ -143,7 +120,6 @@ namespace dandb::wal {
         }
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         if(offset != WAL_PAGE_FRAME_RECORD_SIZE) {
             return core::Status::InternalError("WAL page frame decode ended at an unexpected offset");
@@ -184,76 +160,56 @@ namespace dandb::wal {
         std::size_t offset = 0;
 
         // Encode record type
-        #pragma region
-
         auto status = core::write_u32_le(out, offset, WAL_PAGE_FRAME_RECORD_TYPE);
         if(!status.ok()) {
             return status;
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Encode record size
-        #pragma region
-
         status = core::write_u32_le(out, offset, WAL_PAGE_FRAME_RECORD_SIZE);
         if(!status.ok()) {
             return status;
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Encode transaction id
-        #pragma region
-
         status = core::write_u64_le(out, offset, transaction_id_);
         if(!status.ok()) {
             return status;
         }
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         // Encode page id
-        #pragma region
-
         status = core::write_u64_le(out, offset, page_id_.id);
         if(!status.ok()) {
             return status;
         }
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         // Encode page image size
-        #pragma region
-
         status = core::write_u32_le(out, offset, static_cast<std::uint32_t>(core::PAGE_SIZE));
         if(!status.ok()) {
             return status;
         }
 
         offset += sizeof(std::uint32_t);
-        #pragma endregion
 
         // Reserved bytes
         offset += sizeof(std::uint32_t);
 
         // Encode page image
-        #pragma region
-
         for(std::size_t i = 0; i < core::PAGE_SIZE; i++) {
             out[offset+i] = page_image_[i];
         }
 
         offset += core::PAGE_SIZE;
-        #pragma endregion
 
         // Encode checksum
-        #pragma region
-
         const auto current_checksum = core::checksum(out.first(WAL_PAGE_FRAME_RECORD_SIZE-sizeof(std::uint64_t)));
 
         status = core::write_u64_le(out, offset, current_checksum);
@@ -262,7 +218,6 @@ namespace dandb::wal {
         }
 
         offset += sizeof(std::uint64_t);
-        #pragma endregion
 
         if(offset != WAL_PAGE_FRAME_RECORD_SIZE) {
             return core::Status::InternalError("WAL page frame encode ended at an unexpected offset");
