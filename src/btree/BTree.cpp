@@ -111,4 +111,20 @@ namespace dandb::btree {
 
     }
 
+    storage::PageId BTree::root_page_id() const {
+        return root_page_id_;
+    }
+
+    std::uint16_t BTree::key_size() const {
+        return key_size_;
+    }
+
+    std::uint16_t BTree::value_size() const {
+        return value_size_;
+    }
+
+    bool BTree::uniqueness() const {
+        return uniqueness_;
+    }
+
 }
