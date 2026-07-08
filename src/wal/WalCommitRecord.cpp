@@ -21,10 +21,8 @@ namespace dandb::wal {
             return core::Status::InvalidArgument("Cannot decode WAL commit record: record size is invalid");
         }
 
-        std::size_t offset = 0;
-
         // Validate record type
-        auto stored_record_type_result = core::read_u32_le(bytes, offset);
+        auto stored_record_type_result = core::read_u32_le(bytes, WAL_COMMIT_RECORD_TYPE_OFFSET);
         if(!stored_record_type_result.ok()) {
             return stored_record_type_result.status();
         }
@@ -35,10 +33,8 @@ namespace dandb::wal {
             return core::Status::Corruption("Cannot decode WAL commit record: record type is invalid");
         }
 
-        offset += sizeof(std::uint32_t);
-
         // Validate record size
-        auto stored_record_size_result = core::read_u32_le(bytes, offset);
+        auto stored_record_size_result = core::read_u32_le(bytes, WAL_COMMIT_RECORD_SIZE_OFFSET);
         if(!stored_record_size_result.ok()) {
             return stored_record_size_result.status();
         }
@@ -49,30 +45,24 @@ namespace dandb::wal {
             return core::Status::Corruption("Cannot decode WAL commit record: record has unsupported size");
         }
 
-        offset += sizeof(std::uint32_t);
-
         // Decode transaction id
-        auto stored_transaction_id_result = core::read_u64_le(bytes, offset);
+        auto stored_transaction_id_result = core::read_u64_le(bytes, WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET);
         if(!stored_transaction_id_result.ok()) {
             return stored_transaction_id_result.status();
         }
 
         const auto stored_transaction_id = stored_transaction_id_result.value();
 
-        offset += sizeof(std::uint64_t);
-
         // Decode frame count
-        auto stored_frame_count_result = core::read_u64_le(bytes, offset);
+        auto stored_frame_count_result = core::read_u64_le(bytes, WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET);
         if(!stored_frame_count_result.ok()) {
             return stored_frame_count_result.status();
         }
 
         const auto stored_frame_count = stored_frame_count_result.value();
 
-        offset += sizeof(std::uint64_t);
-
         // Validate checksum
-        auto stored_checksum_result = core::read_u64_le(bytes, offset);
+        auto stored_checksum_result = core::read_u64_le(bytes, WAL_COMMIT_RECORD_CHECKSUM_OFFSET);
         if(!stored_checksum_result.ok()) {
             return stored_checksum_result.status();
         }
@@ -82,12 +72,6 @@ namespace dandb::wal {
 
         if(stored_checksum != current_checksum) {
             return core::Status::Corruption("Cannot decode WAL commit record: stored checksum and actual checksum differ");
-        }
-
-        offset += sizeof(std::uint64_t);
-
-        if(offset != WAL_COMMIT_RECORD_SIZE) {
-            return core::Status::InternalError("WAL commit record decode ended at an unexpected offset");
         }
 
         return WalCommitRecord{
@@ -119,52 +103,36 @@ namespace dandb::wal {
             out[i] = std::byte{ 0 };
         }
 
-        std::size_t offset = 0;
-
         // Encode record type
-        auto status = core::write_u32_le(out, offset, WAL_COMMIT_RECORD_TYPE);
+        auto status = core::write_u32_le(out, WAL_COMMIT_RECORD_TYPE_OFFSET, WAL_COMMIT_RECORD_TYPE);
         if(!status.ok()) {
             return status;
         }
-
-        offset += sizeof(std::uint32_t);
 
         // Encode record size
-        status = core::write_u32_le(out, offset, WAL_COMMIT_RECORD_SIZE);
+        status = core::write_u32_le(out, WAL_COMMIT_RECORD_SIZE_OFFSET, WAL_COMMIT_RECORD_SIZE);
         if(!status.ok()) {
             return status;
         }
-
-        offset += sizeof(std::uint32_t);
 
         // Encode transaction id
-        status = core::write_u64_le(out, offset, transaction_id_);
+        status = core::write_u64_le(out, WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET, transaction_id_);
         if(!status.ok()) {
             return status;
         }
-
-        offset += sizeof(std::uint64_t);
 
         // Encode frame count
-        status = core::write_u64_le(out, offset, frame_count_);
+        status = core::write_u64_le(out, WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET, frame_count_);
         if(!status.ok()) {
             return status;
         }
-
-        offset += sizeof(std::uint64_t);
 
         // Encode checksum
         const auto current_checksum = core::checksum(out.first(WAL_COMMIT_RECORD_SIZE-sizeof(std::uint64_t)));
 
-        status = core::write_u64_le(out, offset, current_checksum);
+        status = core::write_u64_le(out, WAL_COMMIT_RECORD_CHECKSUM_OFFSET, current_checksum);
         if(!status.ok()) {
             return status;
-        }
-
-        offset += sizeof(std::uint64_t);
-
-        if(offset != WAL_COMMIT_RECORD_SIZE) {
-            return core::Status::InternalError("WAL commit record encode ended at an unexpected offset");
         }
 
         return core::Status::Ok();

@@ -16,8 +16,13 @@ using dandb::core::read_u32_le;
 using dandb::core::read_u64_le;
 using dandb::core::write_u32_le;
 using dandb::core::write_u64_le;
+using dandb::wal::WAL_COMMIT_RECORD_CHECKSUM_OFFSET;
+using dandb::wal::WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET;
+using dandb::wal::WAL_COMMIT_RECORD_SIZE_OFFSET;
 using dandb::wal::WAL_COMMIT_RECORD_SIZE;
+using dandb::wal::WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET;
 using dandb::wal::WAL_COMMIT_RECORD_TYPE;
+using dandb::wal::WAL_COMMIT_RECORD_TYPE_OFFSET;
 using dandb::wal::WalCommitRecord;
 
 namespace {
@@ -30,13 +35,13 @@ namespace {
     WalCommitRecordBytes make_valid_commit_record_bytes() {
         WalCommitRecordBytes bytes{};
 
-        REQUIRE(write_u32_le(bytes, 0, WAL_COMMIT_RECORD_TYPE).ok());
-        REQUIRE(write_u32_le(bytes, 4, WAL_COMMIT_RECORD_SIZE).ok());
-        REQUIRE(write_u64_le(bytes, 8, TRANSACTION_ID).ok());
-        REQUIRE(write_u64_le(bytes, 16, FRAME_COUNT).ok());
+        REQUIRE(write_u32_le(bytes, WAL_COMMIT_RECORD_TYPE_OFFSET, WAL_COMMIT_RECORD_TYPE).ok());
+        REQUIRE(write_u32_le(bytes, WAL_COMMIT_RECORD_SIZE_OFFSET, WAL_COMMIT_RECORD_SIZE).ok());
+        REQUIRE(write_u64_le(bytes, WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET, TRANSACTION_ID).ok());
+        REQUIRE(write_u64_le(bytes, WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET, FRAME_COUNT).ok());
 
         const auto current_checksum = checksum(std::span<const std::byte>(bytes).first(WAL_COMMIT_RECORD_SIZE - sizeof(std::uint64_t)));
-        REQUIRE(write_u64_le(bytes, 24, current_checksum).ok());
+        REQUIRE(write_u64_le(bytes, WAL_COMMIT_RECORD_CHECKSUM_OFFSET, current_checksum).ok());
 
         return bytes;
     }
@@ -44,7 +49,7 @@ namespace {
     void rewrite_commit_record_checksum(WalCommitRecordBytes& bytes) {
         const auto current_checksum = checksum(std::span<const std::byte>(bytes).first(WAL_COMMIT_RECORD_SIZE - sizeof(std::uint64_t)));
 
-        REQUIRE(write_u64_le(bytes, 24, current_checksum).ok());
+        REQUIRE(write_u64_le(bytes, WAL_COMMIT_RECORD_CHECKSUM_OFFSET, current_checksum).ok());
     }
 
     void require_corruption(const WalCommitRecordBytes& bytes) {
@@ -54,6 +59,15 @@ namespace {
         REQUIRE(result.status().code() == StatusCode::Corruption);
     }
 
+}
+
+TEST_CASE("wal commit record exposes named layout offsets", "[wal][wal-commit-record]") {
+    static_assert(WAL_COMMIT_RECORD_TYPE_OFFSET == 0);
+    static_assert(WAL_COMMIT_RECORD_SIZE_OFFSET == 4);
+    static_assert(WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET == 8);
+    static_assert(WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET == 16);
+    static_assert(WAL_COMMIT_RECORD_CHECKSUM_OFFSET == 24);
+    static_assert(WAL_COMMIT_RECORD_CHECKSUM_OFFSET + sizeof(std::uint64_t) == WAL_COMMIT_RECORD_SIZE);
 }
 
 TEST_CASE("wal commit record decodes a valid documented record", "[wal][wal-commit-record]") {
@@ -76,23 +90,23 @@ TEST_CASE("wal commit record encodes into the documented layout", "[wal][wal-com
 
     REQUIRE(status.ok());
 
-    const auto record_type = read_u32_le(bytes, 0);
+    const auto record_type = read_u32_le(bytes, WAL_COMMIT_RECORD_TYPE_OFFSET);
     REQUIRE(record_type.ok());
     REQUIRE(record_type.value() == WAL_COMMIT_RECORD_TYPE);
 
-    const auto record_size = read_u32_le(bytes, 4);
+    const auto record_size = read_u32_le(bytes, WAL_COMMIT_RECORD_SIZE_OFFSET);
     REQUIRE(record_size.ok());
     REQUIRE(record_size.value() == WAL_COMMIT_RECORD_SIZE);
 
-    const auto transaction_id = read_u64_le(bytes, 8);
+    const auto transaction_id = read_u64_le(bytes, WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET);
     REQUIRE(transaction_id.ok());
     REQUIRE(transaction_id.value() == TRANSACTION_ID);
 
-    const auto frame_count = read_u64_le(bytes, 16);
+    const auto frame_count = read_u64_le(bytes, WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET);
     REQUIRE(frame_count.ok());
     REQUIRE(frame_count.value() == FRAME_COUNT);
 
-    const auto stored_checksum = read_u64_le(bytes, 24);
+    const auto stored_checksum = read_u64_le(bytes, WAL_COMMIT_RECORD_CHECKSUM_OFFSET);
     REQUIRE(stored_checksum.ok());
     REQUIRE(stored_checksum.value() == checksum(std::span<const std::byte>(bytes).first(WAL_COMMIT_RECORD_SIZE - sizeof(std::uint64_t))));
 }
@@ -121,7 +135,7 @@ TEST_CASE("wal commit record refuses buffers that are not exactly the record siz
 TEST_CASE("wal commit record rejects invalid fixed fields while decoding", "[wal][wal-commit-record]") {
     SECTION("unknown record type") {
         auto bytes = make_valid_commit_record_bytes();
-        REQUIRE(write_u32_le(bytes, 0, WAL_COMMIT_RECORD_TYPE + 1).ok());
+        REQUIRE(write_u32_le(bytes, WAL_COMMIT_RECORD_TYPE_OFFSET, WAL_COMMIT_RECORD_TYPE + 1).ok());
         rewrite_commit_record_checksum(bytes);
 
         require_corruption(bytes);
@@ -129,7 +143,7 @@ TEST_CASE("wal commit record rejects invalid fixed fields while decoding", "[wal
 
     SECTION("unsupported record size") {
         auto bytes = make_valid_commit_record_bytes();
-        REQUIRE(write_u32_le(bytes, 4, WAL_COMMIT_RECORD_SIZE + 8).ok());
+        REQUIRE(write_u32_le(bytes, WAL_COMMIT_RECORD_SIZE_OFFSET, WAL_COMMIT_RECORD_SIZE + 8).ok());
         rewrite_commit_record_checksum(bytes);
 
         require_corruption(bytes);
@@ -139,7 +153,7 @@ TEST_CASE("wal commit record rejects invalid fixed fields while decoding", "[wal
 TEST_CASE("wal commit record rejects a bad checksum", "[wal][wal-commit-record]") {
     auto bytes = make_valid_commit_record_bytes();
 
-    REQUIRE(write_u64_le(bytes, 24, 0).ok());
+    REQUIRE(write_u64_le(bytes, WAL_COMMIT_RECORD_CHECKSUM_OFFSET, 0).ok());
 
     require_corruption(bytes);
 }

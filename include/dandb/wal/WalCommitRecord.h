@@ -11,6 +11,12 @@ namespace dandb::wal {
 
     inline constexpr std::uint32_t WAL_COMMIT_RECORD_TYPE = 2;
     inline constexpr std::uint32_t WAL_COMMIT_RECORD_SIZE = 32;
+    inline constexpr std::size_t WAL_COMMIT_RECORD_TYPE_OFFSET = 0;
+    inline constexpr std::size_t WAL_COMMIT_RECORD_SIZE_OFFSET = WAL_COMMIT_RECORD_TYPE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET = WAL_COMMIT_RECORD_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET = WAL_COMMIT_RECORD_TRANSACTION_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t WAL_COMMIT_RECORD_CHECKSUM_OFFSET = WAL_COMMIT_RECORD_FRAME_COUNT_OFFSET+sizeof(std::uint64_t);
+    static_assert(WAL_COMMIT_RECORD_CHECKSUM_OFFSET+sizeof(std::uint64_t) == WAL_COMMIT_RECORD_SIZE);
 
     class WalCommitRecord {
         public:
