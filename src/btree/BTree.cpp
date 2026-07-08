@@ -18,21 +18,18 @@ namespace dandb::btree {
         storage::Pager& pager,
         storage::PageId root_page_id,
         std::uint16_t key_size,
-        std::uint16_t value_size,
-        bool uniqueness
+        std::uint16_t value_size
     ) :
         pager_(&pager),
         root_page_id_(root_page_id),
         key_size_(key_size),
-        value_size_(value_size),
-        uniqueness_(uniqueness)
+        value_size_(value_size)
     {}
 
     core::Result<BTree> BTree::create_new(
         storage::Pager& pager,
         std::uint16_t key_size,
-        std::uint16_t value_size,
-        bool uniqueness
+        std::uint16_t value_size
     ) {
 
         auto page_handle_result = pager.new_page();
@@ -66,8 +63,7 @@ namespace dandb::btree {
             pager,
             root_page_id,
             key_size,
-            value_size,
-            uniqueness
+            value_size
         };
 
     }
@@ -76,8 +72,7 @@ namespace dandb::btree {
         storage::Pager& pager,
         storage::PageId root_page_id,
         std::uint16_t key_size,
-        std::uint16_t value_size,
-        bool uniqueness
+        std::uint16_t value_size
     ) {
 
         auto page_handle_result = pager.get_page(root_page_id);
@@ -108,8 +103,7 @@ namespace dandb::btree {
             pager,
             root_page_id,
             key_size,
-            value_size,
-            uniqueness
+            value_size
         };
 
     }
@@ -124,10 +118,6 @@ namespace dandb::btree {
 
     std::uint16_t BTree::value_size() const {
         return value_size_;
-    }
-
-    bool BTree::uniqueness() const {
-        return uniqueness_;
     }
 
     core::Status BTree::insert(std::span<const std::byte> key, std::span<const std::byte> value) {
@@ -180,7 +170,7 @@ namespace dandb::btree {
                     }
 
                     const auto stored_key = stored_key_result.value();
-                    if(uniqueness_ && std::memcmp(stored_key.data(), key.data(), key_size_) == 0) {
+                    if(std::memcmp(stored_key.data(), key.data(), key_size_) == 0) {
                         return core::Status::ConstraintViolation("Cannot insert B+ tree key: key already exists");
                     }
 

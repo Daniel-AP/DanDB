@@ -116,14 +116,13 @@ TEST_CASE("BTree create_new initializes an empty leaf root", "[btree][tree]") {
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     const auto& tree = tree_result.value();
     REQUIRE(tree.root_page_id().is_valid());
     REQUIRE(tree.key_size() == KEY_SIZE);
     REQUIRE(tree.value_size() == VALUE_SIZE);
-    REQUIRE(tree.uniqueness());
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -152,18 +151,17 @@ TEST_CASE("BTree open_existing accepts a matching root page", "[btree][tree]") {
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto created_tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, false);
+    auto created_tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(created_tree_result.ok());
 
     const auto root_page_id = created_tree_result.value().root_page_id();
-    auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE, VALUE_SIZE, false);
+    auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE, VALUE_SIZE);
     REQUIRE(opened_tree_result.ok());
 
     const auto& opened_tree = opened_tree_result.value();
     REQUIRE(opened_tree.root_page_id() == root_page_id);
     REQUIRE(opened_tree.key_size() == KEY_SIZE);
     REQUIRE(opened_tree.value_size() == VALUE_SIZE);
-    REQUIRE_FALSE(opened_tree.uniqueness());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -191,7 +189,7 @@ TEST_CASE("BTree open_existing rejects a non-root page", "[btree][tree]") {
         REQUIRE(initialize_leaf(mutable_page_result.value()->data(), KEY_SIZE, VALUE_SIZE).ok());
     }
 
-    auto opened_tree_result = BTree::open_existing(pager, non_root_page_id, KEY_SIZE, VALUE_SIZE, false);
+    auto opened_tree_result = BTree::open_existing(pager, non_root_page_id, KEY_SIZE, VALUE_SIZE);
     REQUIRE_FALSE(opened_tree_result.ok());
     REQUIRE(opened_tree_result.status().code() == StatusCode::InvalidArgument);
 
@@ -208,19 +206,19 @@ TEST_CASE("BTree open_existing rejects mismatched root layout", "[btree][tree]")
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto created_tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto created_tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(created_tree_result.ok());
 
     const auto root_page_id = created_tree_result.value().root_page_id();
 
     SECTION("key size does not match") {
-        auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE+1, VALUE_SIZE, true);
+        auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE+1, VALUE_SIZE);
         REQUIRE_FALSE(opened_tree_result.ok());
         REQUIRE(opened_tree_result.status().code() == StatusCode::InvalidArgument);
     }
 
     SECTION("value size does not match") {
-        auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE, VALUE_SIZE+1, true);
+        auto opened_tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE, VALUE_SIZE+1);
         REQUIRE_FALSE(opened_tree_result.ok());
         REQUIRE(opened_tree_result.status().code() == StatusCode::InvalidArgument);
     }
@@ -238,7 +236,7 @@ TEST_CASE("BTree find reports not found in an empty root leaf", "[btree][tree]")
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     require_missing_key(tree_result.value(), 10);
@@ -256,7 +254,7 @@ TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     auto& tree = tree_result.value();
@@ -271,6 +269,34 @@ TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("BTree insert rejects duplicate keys", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key = make_key(10);
+    auto original_value = make_value(10);
+    REQUIRE(tree.insert(key, original_value).ok());
+
+    auto duplicate_value = make_value(20);
+    auto duplicate_status = tree.insert(key, duplicate_value);
+    REQUIRE_FALSE(duplicate_status.ok());
+    REQUIRE(duplicate_status.code() == StatusCode::ConstraintViolation);
+
+    require_found_value(tree, 10, 10);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("BTree find rejects invalid key sizes", "[btree][tree]") {
     const TempDir temp_dir;
 
@@ -280,7 +306,7 @@ TEST_CASE("BTree find rejects invalid key sizes", "[btree][tree]") {
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     std::array<std::byte, KEY_SIZE+1> oversized_key{};
@@ -306,7 +332,7 @@ TEST_CASE("BTree find routes equal separator keys to the right child", "[btree][
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     auto& tree = tree_result.value();
@@ -357,7 +383,7 @@ TEST_CASE("BTree find routes internal boundary keys to the correct child", "[btr
     Pager& pager = pager_result.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE, true);
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
     auto& tree = tree_result.value();
