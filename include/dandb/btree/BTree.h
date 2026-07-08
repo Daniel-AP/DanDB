@@ -7,18 +7,12 @@
 #include <cstdint>
 #include <span>
 #include <vector>
-#include <optional>
 
 namespace dandb::storage {
     class Pager;
 }
 
 namespace dandb::btree {
-
-    struct SplitResult {
-        std::vector<std::byte> separator_key;
-        storage::PageId right_page_id;
-    };
 
     class BTree {
         public:
@@ -35,12 +29,11 @@ namespace dandb::btree {
                 std::uint16_t value_size
             );
 
-            core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
-            core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
-            
             storage::PageId root_page_id() const;
             std::uint16_t key_size() const;
             std::uint16_t value_size() const;
+            core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
+            core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
 
         private:
             explicit BTree(
@@ -49,10 +42,6 @@ namespace dandb::btree {
                 std::uint16_t key_size,
                 std::uint16_t value_size
             );
-
-            core::Result<std::optional<SplitResult>> insert_into_leaf(storage::PageId page_id, std::span<std::byte> key, std::span<const std::byte> value);
-            core::Result<std::optional<SplitResult>> insert_into_internal(storage::PageId page_id, std::span<std::byte> key, std::span<const std::byte> value);
-            storage::PageId next_child_page_id_to_key(const BTreeInternalPage<const std::byte> page, std::span<std::byte> key);
 
             storage::Pager* pager_;
             storage::PageId root_page_id_;
