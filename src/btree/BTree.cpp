@@ -321,4 +321,33 @@ namespace dandb::btree {
         return value_size_;
     }
 
+    core::Result<std::optional<SplitResult>> BTree::insert_into_subtree(
+        storage::PageId page_id,
+        std::span<const std::byte> key,
+        std::span<const std::byte> value
+    ) {
+
+        auto page_handle_result = pager_->get_page(page_id);
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        auto& page_handle = page_handle_result.value();
+        const auto* page = page_handle.page();
+
+        auto page_view_result = BTreePage<const std::byte>::open(page->data());
+        if(!page_view_result.ok()) {
+            return page_view_result.status();
+        }
+
+        auto& page_view = page_view_result.value();
+
+        if(page_view.kind() == BTreePageKind::Leaf) {
+            return insert_into_leaf(page_id, key, value);
+        }
+
+        return insert_into_internal(page_id, key, value);
+
+    }
+
 }
