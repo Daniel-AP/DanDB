@@ -3,7 +3,10 @@
 #include <dandb/core/Result.h>
 #include <dandb/storage/PageId.h>
 
+#include <cstddef>
 #include <cstdint>
+#include <span>
+#include <vector>
 
 namespace dandb::storage {
     class Pager;
@@ -32,6 +35,7 @@ namespace dandb::btree {
             std::uint16_t key_size() const;
             std::uint16_t value_size() const;
             bool uniqueness() const;
+            core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
 
         private:
             explicit BTree(
