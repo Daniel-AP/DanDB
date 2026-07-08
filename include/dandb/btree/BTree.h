@@ -36,6 +36,7 @@ namespace dandb::btree {
             std::uint16_t value_size() const;
             bool uniqueness() const;
             core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
+            core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
 
         private:
             explicit BTree(
