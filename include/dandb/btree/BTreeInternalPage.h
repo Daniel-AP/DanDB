@@ -24,6 +24,7 @@ namespace dandb::btree {
 
             std::size_t entry_size() const;
             std::size_t capacity() const;
+            core::Result<std::span<const std::byte>> entry_at(std::uint16_t entry_index) const;
             core::Result<std::span<const std::byte>> key_at(std::uint16_t entry_index) const;
             core::Result<storage::PageId> right_child_page_id_at(std::uint16_t entry_index) const;
             core::Result<storage::PageId> child_page_id_for_key(std::span<const std::byte> key) const;
@@ -129,6 +130,18 @@ namespace dandb::btree {
     std::size_t BTreeInternalPage<Byte>::capacity() const {
 
         return BTREE_PAGE_ENTRY_AREA_SIZE/entry_size();
+
+    }
+
+    template<BTreePageByte Byte>
+    core::Result<std::span<const std::byte>> BTreeInternalPage<Byte>::entry_at(std::uint16_t entry_index) const {
+
+        if(entry_index >= key_count()) {
+            return core::Status::InvalidArgument("Cannot read B+ tree internal page entry: entry index is out of bounds");
+        }
+
+        const auto entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(entry_index)*entry_size();
+        return std::span<const std::byte>{ page_.bytes_ }.subspan(entry_offset, entry_size());
 
     }
 

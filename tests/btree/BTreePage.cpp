@@ -331,6 +331,48 @@ TEST_CASE("B+ tree leaf page reads keys and values by entry slot", "[btree][page
     REQUIRE(second_value.value()[2] == std::byte{ 0xB2 });
 }
 
+TEST_CASE("B+ tree leaf page reads raw entries by slot", "[btree][page]") {
+    auto bytes = make_leaf_page(2, 3);
+    const auto first_entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET;
+    const auto second_entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+5;
+
+    bytes[first_entry_offset] = std::byte{ 0x10 };
+    bytes[first_entry_offset+1] = std::byte{ 0x11 };
+    bytes[first_entry_offset+2] = std::byte{ 0xA0 };
+    bytes[first_entry_offset+3] = std::byte{ 0xA1 };
+    bytes[first_entry_offset+4] = std::byte{ 0xA2 };
+
+    bytes[second_entry_offset] = std::byte{ 0x20 };
+    bytes[second_entry_offset+1] = std::byte{ 0x21 };
+    bytes[second_entry_offset+2] = std::byte{ 0xB0 };
+    bytes[second_entry_offset+3] = std::byte{ 0xB1 };
+    bytes[second_entry_offset+4] = std::byte{ 0xB2 };
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    std::span<const std::byte> const_bytes{ bytes };
+    const auto result = BTreeLeafPage<const std::byte>::open(const_bytes);
+    REQUIRE(result.ok());
+
+    const auto page = result.value();
+    const auto first_entry = page.entry_at(0);
+    const auto second_entry = page.entry_at(1);
+
+    REQUIRE(first_entry.ok());
+    REQUIRE(second_entry.ok());
+    REQUIRE(first_entry.value().size() == 5);
+    REQUIRE(second_entry.value().size() == 5);
+    REQUIRE(first_entry.value()[0] == std::byte{ 0x10 });
+    REQUIRE(first_entry.value()[1] == std::byte{ 0x11 });
+    REQUIRE(first_entry.value()[2] == std::byte{ 0xA0 });
+    REQUIRE(first_entry.value()[3] == std::byte{ 0xA1 });
+    REQUIRE(first_entry.value()[4] == std::byte{ 0xA2 });
+    REQUIRE(second_entry.value()[0] == std::byte{ 0x20 });
+    REQUIRE(second_entry.value()[1] == std::byte{ 0x21 });
+    REQUIRE(second_entry.value()[2] == std::byte{ 0xB0 });
+    REQUIRE(second_entry.value()[3] == std::byte{ 0xB1 });
+    REQUIRE(second_entry.value()[4] == std::byte{ 0xB2 });
+}
+
 TEST_CASE("B+ tree leaf page finds encoded key insertion positions", "[btree][page]") {
     auto bytes = make_leaf_page(1, 1);
 
@@ -685,6 +727,37 @@ TEST_CASE("B+ tree internal page inserts an entry and shifts later entries", "[b
     REQUIRE(page.right_child_page_id_at(1).value() == PageId{ 7 });
     REQUIRE(page.key_at(2).value()[0] == std::byte{ 30 });
     REQUIRE(page.right_child_page_id_at(2).value() == PageId{ 8 });
+}
+
+TEST_CASE("B+ tree internal page reads raw entries by slot", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    write_one_byte_internal_entry(bytes, 0, std::byte{ 10 }, PageId{ 6 });
+    write_one_byte_internal_entry(bytes, 1, std::byte{ 20 }, PageId{ 7 });
+    REQUIRE(write_u16_le(bytes, BTREE_PAGE_KEY_COUNT_OFFSET, 2).ok());
+
+    std::span<const std::byte> const_bytes{ bytes };
+    auto result = BTreeInternalPage<const std::byte>::open(const_bytes);
+    REQUIRE(result.ok());
+
+    const auto page = result.value();
+    const auto first_entry = page.entry_at(0);
+    const auto second_entry = page.entry_at(1);
+
+    REQUIRE(first_entry.ok());
+    REQUIRE(second_entry.ok());
+    REQUIRE(first_entry.value().size() == 9);
+    REQUIRE(second_entry.value().size() == 9);
+    REQUIRE(first_entry.value()[0] == std::byte{ 10 });
+    REQUIRE(second_entry.value()[0] == std::byte{ 20 });
+
+    const auto first_right_child_page_id = read_u64_le(first_entry.value(), 1);
+    const auto second_right_child_page_id = read_u64_le(second_entry.value(), 1);
+
+    REQUIRE(first_right_child_page_id.ok());
+    REQUIRE(second_right_child_page_id.ok());
+    REQUIRE(first_right_child_page_id.value() == PageId{ 6 }.id);
+    REQUIRE(second_right_child_page_id.value() == PageId{ 7 }.id);
 }
 
 TEST_CASE("B+ tree internal page inserts reverse-ordered keys at found positions", "[btree][page]") {
