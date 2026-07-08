@@ -1,5 +1,6 @@
 #pragma once
 
+#include <dandb/btree/BTreeCursor.h>
 #include <dandb/core/Result.h>
 #include <dandb/storage/PageId.h>
 
@@ -37,6 +38,7 @@ namespace dandb::btree {
 
             core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
             core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
+            core::Result<BTreeCursor> scan() const;
 
             storage::PageId root_page_id() const;
             std::uint16_t key_size() const;
