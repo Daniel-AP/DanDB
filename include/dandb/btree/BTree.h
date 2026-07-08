@@ -5,6 +5,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -13,6 +14,11 @@ namespace dandb::storage {
 }
 
 namespace dandb::btree {
+
+    struct SplitResult {
+        std::vector<std::byte> separator_key;
+        storage::PageId right_child_page_id;
+    };
 
     class BTree {
         public:
@@ -42,6 +48,24 @@ namespace dandb::btree {
                 storage::PageId root_page_id,
                 std::uint16_t key_size,
                 std::uint16_t value_size
+            );
+
+            core::Result<std::optional<SplitResult>> insert_into_subtree(
+                storage::PageId page_id,
+                std::span<const std::byte> key,
+                std::span<const std::byte> value
+            );
+
+            core::Result<std::optional<SplitResult>> insert_into_leaf(
+                storage::PageId page_id,
+                std::span<const std::byte> key,
+                std::span<const std::byte> value
+            );
+
+            core::Result<std::optional<SplitResult>> insert_into_internal(
+                storage::PageId page_id,
+                std::span<const std::byte> key,
+                std::span<const std::byte> value
             );
 
             storage::Pager* pager_;

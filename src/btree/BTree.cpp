@@ -188,6 +188,125 @@ namespace dandb::btree {
 
     core::Status BTree::insert(std::span<const std::byte> key, std::span<const std::byte> value) {
 
+        if(key.size() != key_size_) {
+            return core::Status::InvalidArgument("Cannot insert key/value into B+ tree: key size is invalid");
+        }
+
+        if(value.size() != value_size_) {
+            return core::Status::InvalidArgument("Cannot insert key/value into B+ tree: value size is invalid");
+        }
+
+        const auto split_result = insert_into_subtree(root_page_id_, key, value);
+        if(!split_result.ok()) {
+            return split_result.status();
+        }
+
+        const auto& split = split_result.value();
+
+        if(!split.has_value()) {
+            return core::Status::Ok();
+        }
+
+        const auto old_root_page_id = root_page_id_;
+        const auto right_child_page_id = split->right_child_page_id;
+        storage::PageId new_root_page_id;
+
+        // Create the new internal root.
+        {
+            auto new_root_handle_result = pager_->new_page();
+            if(!new_root_handle_result.ok()) {
+                return new_root_handle_result.status();
+            }
+
+            auto& new_root_handle = new_root_handle_result.value();
+
+            const auto new_root_page_result = new_root_handle.mutable_page();
+            if(!new_root_page_result.ok()) {
+                return new_root_page_result.status();
+            }
+
+            auto& new_root_page = new_root_page_result.value();
+            new_root_page_id = new_root_page->id();
+
+            const auto init_internal_status = initialize_internal(new_root_page->data(), key_size_, value_size_);
+            if(!init_internal_status.ok()) {
+                return init_internal_status;
+            }
+
+            auto new_root_page_view_result = BTreeInternalPage<std::byte>::open(new_root_page->data());
+            if(!new_root_page_view_result.ok()) {
+                return new_root_page_view_result.status();
+            }
+
+            auto& new_root_page_view = new_root_page_view_result.value();
+
+            new_root_page_view.set_root(true);
+            new_root_page_view.set_first_child_page_id(old_root_page_id);
+
+            auto insert_status = new_root_page_view.insert_entry(0, split->separator_key, right_child_page_id);
+            if(!insert_status.ok()) {
+                return insert_status;
+            }
+        }
+
+        // The old root becomes the left child.
+        {
+            auto old_root_handle_result = pager_->get_page(old_root_page_id);
+            if(!old_root_handle_result.ok()) {
+                return old_root_handle_result.status();
+            }
+
+            auto& old_root_handle = old_root_handle_result.value();
+
+            const auto old_root_page_result = old_root_handle.mutable_page();
+            if(!old_root_page_result.ok()) {
+                return old_root_page_result.status();
+            }
+
+            auto& old_root_page = old_root_page_result.value();
+
+            auto old_root_page_view_result = BTreePage<std::byte>::open(old_root_page->data());
+            if(!old_root_page_view_result.ok()) {
+                return old_root_page_view_result.status();
+            }
+
+            auto& old_root_page_view = old_root_page_view_result.value();
+
+            old_root_page_view.set_root(false);
+            old_root_page_view.set_parent_page_id(new_root_page_id);
+        }
+
+        // The split page becomes the right child.
+        {
+            auto right_child_handle_result = pager_->get_page(right_child_page_id);
+            if(!right_child_handle_result.ok()) {
+                return right_child_handle_result.status();
+            }
+
+            auto& right_child_handle = right_child_handle_result.value();
+
+            const auto right_child_page_result = right_child_handle.mutable_page();
+            if(!right_child_page_result.ok()) {
+                return right_child_page_result.status();
+            }
+
+            auto& right_child_page = right_child_page_result.value();
+
+            auto right_child_page_view_result = BTreePage<std::byte>::open(right_child_page->data());
+            if(!right_child_page_view_result.ok()) {
+                return right_child_page_view_result.status();
+            }
+
+            auto& right_child_page_view = right_child_page_view_result.value();
+
+            right_child_page_view.set_root(false);
+            right_child_page_view.set_parent_page_id(new_root_page_id);
+        }
+
+        root_page_id_ = new_root_page_id;
+
+        return core::Status::Ok();
+
     }
 
     storage::PageId BTree::root_page_id() const {
