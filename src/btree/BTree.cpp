@@ -10,6 +10,7 @@
 
 #include <cstring>
 #include <cstddef>
+#include <utility>
 #include <vector>
 
 namespace dandb::btree {
@@ -350,4 +351,193 @@ namespace dandb::btree {
 
     }
 
+    core::Result<std::optional<SplitResult>> BTree::insert_into_leaf(
+        storage::PageId page_id,
+        std::span<const std::byte> key,
+        std::span<const std::byte> value
+    ) {
+
+        auto page_handle_result = pager_->get_page(page_id);
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        auto& page_handle = page_handle_result.value();
+
+        const auto page_result = page_handle.mutable_page();
+        if(!page_result.ok()) {
+            return page_result.status();
+        }
+
+        auto& page = page_result.value();
+
+        auto page_view_result = BTreeLeafPage<std::byte>::open(page->data());
+        if(!page_view_result.ok()) {
+            return page_view_result.status();
+        }
+
+        auto& page_view = page_view_result.value();
+
+        if(page_view.key_count() < page_view.capacity()) {
+
+            auto insertion_pos_result = page_view.find_insertion_position(key);
+            if(!insertion_pos_result.ok()) {
+                return insertion_pos_result.status();
+            }
+
+            const auto insertion_pos = insertion_pos_result.value();
+
+            auto insertion_status = page_view.insert_entry(insertion_pos, key, value);
+            if(!insertion_status.ok()) {
+                return insertion_status;
+            }
+
+            return std::optional<SplitResult>{};
+
+        }
+
+        auto insertion_pos_result = page_view.find_insertion_position(key);
+        if(!insertion_pos_result.ok()) {
+            return insertion_pos_result.status();
+        }
+
+        const auto insertion_pos = insertion_pos_result.value();
+        const auto stored_key_count = page_view.key_count();
+        const auto parent_page_id = page_view.parent_page_id();
+        const auto old_next_leaf_page_id = page_view.next_leaf_page_id();
+
+        // Gather the old entries plus the new entry in sorted order
+        std::vector<std::vector<std::byte>> entries;
+        entries.reserve(static_cast<std::size_t>(stored_key_count)+1);
+
+        for(std::uint16_t entry_index = 0; entry_index <= stored_key_count; entry_index++) {
+
+            if(entry_index == insertion_pos) {
+                std::vector<std::byte> inserted_entry;
+                inserted_entry.reserve(page_view.entry_size());
+                inserted_entry.insert(inserted_entry.end(), key.begin(), key.end());
+                inserted_entry.insert(inserted_entry.end(), value.begin(), value.end());
+                entries.push_back(std::move(inserted_entry));
+            }
+
+            if(entry_index == stored_key_count) continue;
+
+            auto entry_result = page_view.entry_at(entry_index);
+            if(!entry_result.ok()) {
+                return entry_result.status();
+            }
+
+            const auto entry = entry_result.value();
+            entries.emplace_back(entry.begin(), entry.end());
+
+        }
+
+        // Create the right leaf that will receive the right half
+        auto right_leaf_handle_result = pager_->new_page();
+        if(!right_leaf_handle_result.ok()) {
+            return right_leaf_handle_result.status();
+        }
+
+        auto& right_leaf_handle = right_leaf_handle_result.value();
+
+        const auto right_leaf_page_result = right_leaf_handle.mutable_page();
+        if(!right_leaf_page_result.ok()) {
+            return right_leaf_page_result.status();
+        }
+
+        auto& right_leaf_page = right_leaf_page_result.value();
+        const auto right_leaf_page_id = right_leaf_page->id();
+
+        const auto init_leaf_status = initialize_leaf(right_leaf_page->data(), key_size_, value_size_);
+        if(!init_leaf_status.ok()) {
+            return init_leaf_status;
+        }
+
+        auto right_leaf_page_view_result = BTreeLeafPage<std::byte>::open(right_leaf_page->data());
+        if(!right_leaf_page_view_result.ok()) {
+            return right_leaf_page_view_result.status();
+        }
+
+        auto& right_leaf_page_view = right_leaf_page_view_result.value();
+
+        const auto total_key_count = static_cast<std::uint16_t>(entries.size());
+        const auto left_key_count = static_cast<std::uint16_t>(total_key_count/2);
+
+        // Rebuild the left leaf from the left half
+        auto clear_left_status = page_view.set_key_count(0);
+        if(!clear_left_status.ok()) {
+            return clear_left_status;
+        }
+
+        for(std::uint16_t entry_index = 0; entry_index < left_key_count; entry_index++) {
+            const std::span<const std::byte> entry{ entries[entry_index].data(), entries[entry_index].size() };
+            const auto insert_status = page_view.insert_entry(
+                entry_index,
+                entry.subspan(0, key_size_),
+                entry.subspan(key_size_, value_size_)
+            );
+
+            if(!insert_status.ok()) {
+                return insert_status;
+            }
+        }
+
+        // Build the right leaf from the right half
+        for(std::uint16_t entry_index = left_key_count; entry_index < total_key_count; entry_index++) {
+            const std::span<const std::byte> entry{ entries[entry_index].data(), entries[entry_index].size() };
+            const auto right_entry_index = static_cast<std::uint16_t>(entry_index-left_key_count);
+            const auto insert_status = right_leaf_page_view.insert_entry(
+                right_entry_index,
+                entry.subspan(0, key_size_),
+                entry.subspan(key_size_, value_size_)
+            );
+
+            if(!insert_status.ok()) {
+                return insert_status;
+            }
+        }
+
+        page_view.set_next_leaf_page_id(right_leaf_page_id);
+
+        right_leaf_page_view.set_parent_page_id(parent_page_id);
+        right_leaf_page_view.set_previous_leaf_page_id(page_id);
+        right_leaf_page_view.set_next_leaf_page_id(old_next_leaf_page_id);
+
+        if(old_next_leaf_page_id.is_valid()) {
+
+            auto next_leaf_handle_result = pager_->get_page(old_next_leaf_page_id);
+            if(!next_leaf_handle_result.ok()) {
+                return next_leaf_handle_result.status();
+            }
+
+            auto& next_leaf_handle = next_leaf_handle_result.value();
+
+            const auto next_leaf_page_result = next_leaf_handle.mutable_page();
+            if(!next_leaf_page_result.ok()) {
+                return next_leaf_page_result.status();
+            }
+
+            auto& next_leaf_page = next_leaf_page_result.value();
+
+            auto next_leaf_page_view_result = BTreeLeafPage<std::byte>::open(next_leaf_page->data());
+            if(!next_leaf_page_view_result.ok()) {
+                return next_leaf_page_view_result.status();
+            }
+
+            auto& next_leaf_page_view = next_leaf_page_view_result.value();
+
+            next_leaf_page_view.set_previous_leaf_page_id(right_leaf_page_id);
+
+        }
+
+        return std::optional<SplitResult>{{
+            std::vector<std::byte>{
+                entries[left_key_count].begin(),
+                entries[left_key_count].begin()+key_size_
+            },
+            right_leaf_page_id
+        }};
+
+    }
+    
 }
