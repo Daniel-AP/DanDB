@@ -40,6 +40,7 @@ add_library(dandb_core STATIC
     src/record/LogicalType.cpp
     src/record/Value.cpp
     src/btree/BTreePage.cpp
+    src/btree/BTree.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -93,6 +94,7 @@ add_executable(dandb_tests
     tests/buffer/LRUReplacer.cpp
     tests/buffer/BufferPoolManager.cpp
     tests/btree/BTreePage.cpp
+    tests/btree/BTree.cpp
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
     tests/wal/WalCommitRecord.cpp
