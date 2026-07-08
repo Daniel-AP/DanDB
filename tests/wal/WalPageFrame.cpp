@@ -20,8 +20,16 @@ using dandb::core::read_u64_le;
 using dandb::core::write_u32_le;
 using dandb::core::write_u64_le;
 using dandb::storage::PageId;
+using dandb::wal::WAL_PAGE_FRAME_CHECKSUM_OFFSET;
+using dandb::wal::WAL_PAGE_FRAME_IMAGE_OFFSET;
+using dandb::wal::WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET;
+using dandb::wal::WAL_PAGE_FRAME_PAGE_ID_OFFSET;
 using dandb::wal::WAL_PAGE_FRAME_RECORD_SIZE;
+using dandb::wal::WAL_PAGE_FRAME_RECORD_SIZE_OFFSET;
 using dandb::wal::WAL_PAGE_FRAME_RECORD_TYPE;
+using dandb::wal::WAL_PAGE_FRAME_RECORD_TYPE_OFFSET;
+using dandb::wal::WAL_PAGE_FRAME_RESERVED_OFFSET;
+using dandb::wal::WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET;
 using dandb::wal::WalPageFrame;
 
 namespace {
@@ -45,18 +53,18 @@ namespace {
         WalPageFrameBytes bytes{};
         const auto page_image = make_page_image();
 
-        REQUIRE(write_u32_le(bytes, 0, WAL_PAGE_FRAME_RECORD_TYPE).ok());
-        REQUIRE(write_u32_le(bytes, 4, WAL_PAGE_FRAME_RECORD_SIZE).ok());
-        REQUIRE(write_u64_le(bytes, 8, TRANSACTION_ID).ok());
-        REQUIRE(write_u64_le(bytes, 16, PAGE_ID.id).ok());
-        REQUIRE(write_u32_le(bytes, 24, static_cast<std::uint32_t>(PAGE_SIZE)).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_RECORD_TYPE_OFFSET, WAL_PAGE_FRAME_RECORD_TYPE).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_RECORD_SIZE_OFFSET, WAL_PAGE_FRAME_RECORD_SIZE).ok());
+        REQUIRE(write_u64_le(bytes, WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET, TRANSACTION_ID).ok());
+        REQUIRE(write_u64_le(bytes, WAL_PAGE_FRAME_PAGE_ID_OFFSET, PAGE_ID.id).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET, static_cast<std::uint32_t>(PAGE_SIZE)).ok());
 
         for(std::size_t i = 0; i < page_image.size(); i++) {
-            bytes[32+i] = page_image[i];
+            bytes[WAL_PAGE_FRAME_IMAGE_OFFSET+i] = page_image[i];
         }
 
         const auto current_checksum = checksum(std::span<const std::byte>(bytes).first(WAL_PAGE_FRAME_RECORD_SIZE - sizeof(std::uint64_t)));
-        REQUIRE(write_u64_le(bytes, 4128, current_checksum).ok());
+        REQUIRE(write_u64_le(bytes, WAL_PAGE_FRAME_CHECKSUM_OFFSET, current_checksum).ok());
 
         return bytes;
     }
@@ -64,7 +72,7 @@ namespace {
     void rewrite_page_frame_checksum(WalPageFrameBytes& bytes) {
         const auto current_checksum = checksum(std::span<const std::byte>(bytes).first(WAL_PAGE_FRAME_RECORD_SIZE - sizeof(std::uint64_t)));
 
-        REQUIRE(write_u64_le(bytes, 4128, current_checksum).ok());
+        REQUIRE(write_u64_le(bytes, WAL_PAGE_FRAME_CHECKSUM_OFFSET, current_checksum).ok());
     }
 
     void require_corruption(const WalPageFrameBytes& bytes) {
@@ -74,6 +82,18 @@ namespace {
         REQUIRE(result.status().code() == StatusCode::Corruption);
     }
 
+}
+
+TEST_CASE("wal page frame exposes named layout offsets", "[wal][wal-page-frame]") {
+    static_assert(WAL_PAGE_FRAME_RECORD_TYPE_OFFSET == 0);
+    static_assert(WAL_PAGE_FRAME_RECORD_SIZE_OFFSET == 4);
+    static_assert(WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET == 8);
+    static_assert(WAL_PAGE_FRAME_PAGE_ID_OFFSET == 16);
+    static_assert(WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET == 24);
+    static_assert(WAL_PAGE_FRAME_RESERVED_OFFSET == 28);
+    static_assert(WAL_PAGE_FRAME_IMAGE_OFFSET == 32);
+    static_assert(WAL_PAGE_FRAME_CHECKSUM_OFFSET == 4128);
+    static_assert(WAL_PAGE_FRAME_CHECKSUM_OFFSET + sizeof(std::uint64_t) == WAL_PAGE_FRAME_RECORD_SIZE);
 }
 
 TEST_CASE("wal page frame decodes a valid documented frame", "[wal][wal-page-frame]") {
@@ -99,35 +119,35 @@ TEST_CASE("wal page frame encodes into the documented layout", "[wal][wal-page-f
 
     REQUIRE(status.ok());
 
-    const auto record_type = read_u32_le(bytes, 0);
+    const auto record_type = read_u32_le(bytes, WAL_PAGE_FRAME_RECORD_TYPE_OFFSET);
     REQUIRE(record_type.ok());
     REQUIRE(record_type.value() == WAL_PAGE_FRAME_RECORD_TYPE);
 
-    const auto record_size = read_u32_le(bytes, 4);
+    const auto record_size = read_u32_le(bytes, WAL_PAGE_FRAME_RECORD_SIZE_OFFSET);
     REQUIRE(record_size.ok());
     REQUIRE(record_size.value() == WAL_PAGE_FRAME_RECORD_SIZE);
 
-    const auto transaction_id = read_u64_le(bytes, 8);
+    const auto transaction_id = read_u64_le(bytes, WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET);
     REQUIRE(transaction_id.ok());
     REQUIRE(transaction_id.value() == TRANSACTION_ID);
 
-    const auto page_id = read_u64_le(bytes, 16);
+    const auto page_id = read_u64_le(bytes, WAL_PAGE_FRAME_PAGE_ID_OFFSET);
     REQUIRE(page_id.ok());
     REQUIRE(page_id.value() == PAGE_ID.id);
 
-    const auto page_image_size = read_u32_le(bytes, 24);
+    const auto page_image_size = read_u32_le(bytes, WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET);
     REQUIRE(page_image_size.ok());
     REQUIRE(page_image_size.value() == PAGE_SIZE);
 
-    const auto reserved = read_u32_le(bytes, 28);
+    const auto reserved = read_u32_le(bytes, WAL_PAGE_FRAME_RESERVED_OFFSET);
     REQUIRE(reserved.ok());
     REQUIRE(reserved.value() == 0);
 
     for(std::size_t i = 0; i < PAGE_SIZE; i++) {
-        REQUIRE(bytes[32+i] == page_image[i]);
+        REQUIRE(bytes[WAL_PAGE_FRAME_IMAGE_OFFSET+i] == page_image[i]);
     }
 
-    const auto stored_checksum = read_u64_le(bytes, 4128);
+    const auto stored_checksum = read_u64_le(bytes, WAL_PAGE_FRAME_CHECKSUM_OFFSET);
     REQUIRE(stored_checksum.ok());
     REQUIRE(stored_checksum.value() == checksum(std::span<const std::byte>(bytes).first(WAL_PAGE_FRAME_RECORD_SIZE - sizeof(std::uint64_t))));
 }
@@ -156,7 +176,7 @@ TEST_CASE("wal page frame refuses buffers that are not exactly the record size",
 TEST_CASE("wal page frame rejects invalid fixed fields while decoding", "[wal][wal-page-frame]") {
     SECTION("unknown record type") {
         auto bytes = make_valid_page_frame_bytes();
-        REQUIRE(write_u32_le(bytes, 0, WAL_PAGE_FRAME_RECORD_TYPE + 1).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_RECORD_TYPE_OFFSET, WAL_PAGE_FRAME_RECORD_TYPE + 1).ok());
         rewrite_page_frame_checksum(bytes);
 
         require_corruption(bytes);
@@ -164,7 +184,7 @@ TEST_CASE("wal page frame rejects invalid fixed fields while decoding", "[wal][w
 
     SECTION("unsupported record size") {
         auto bytes = make_valid_page_frame_bytes();
-        REQUIRE(write_u32_le(bytes, 4, WAL_PAGE_FRAME_RECORD_SIZE + 8).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_RECORD_SIZE_OFFSET, WAL_PAGE_FRAME_RECORD_SIZE + 8).ok());
         rewrite_page_frame_checksum(bytes);
 
         require_corruption(bytes);
@@ -172,7 +192,7 @@ TEST_CASE("wal page frame rejects invalid fixed fields while decoding", "[wal][w
 
     SECTION("unsupported page image size") {
         auto bytes = make_valid_page_frame_bytes();
-        REQUIRE(write_u32_le(bytes, 24, static_cast<std::uint32_t>(PAGE_SIZE / 2)).ok());
+        REQUIRE(write_u32_le(bytes, WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET, static_cast<std::uint32_t>(PAGE_SIZE / 2)).ok());
         rewrite_page_frame_checksum(bytes);
 
         require_corruption(bytes);
@@ -182,7 +202,7 @@ TEST_CASE("wal page frame rejects invalid fixed fields while decoding", "[wal][w
 TEST_CASE("wal page frame rejects nonzero reserved bytes", "[wal][wal-page-frame]") {
     auto bytes = make_valid_page_frame_bytes();
 
-    bytes[28] = std::byte{ 0x01 };
+    bytes[WAL_PAGE_FRAME_RESERVED_OFFSET] = std::byte{ 0x01 };
     rewrite_page_frame_checksum(bytes);
 
     require_corruption(bytes);
@@ -191,7 +211,7 @@ TEST_CASE("wal page frame rejects nonzero reserved bytes", "[wal][wal-page-frame
 TEST_CASE("wal page frame rejects a bad checksum", "[wal][wal-page-frame]") {
     auto bytes = make_valid_page_frame_bytes();
 
-    REQUIRE(write_u64_le(bytes, 4128, 0).ok());
+    REQUIRE(write_u64_le(bytes, WAL_PAGE_FRAME_CHECKSUM_OFFSET, 0).ok());
 
     require_corruption(bytes);
 }

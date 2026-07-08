@@ -15,6 +15,15 @@ namespace dandb::wal {
     inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_TYPE = 1;
     inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_METADATA_SIZE = 40;
     inline constexpr std::uint32_t WAL_PAGE_FRAME_RECORD_SIZE = core::PAGE_SIZE+WAL_PAGE_FRAME_RECORD_METADATA_SIZE;
+    inline constexpr std::size_t WAL_PAGE_FRAME_RECORD_TYPE_OFFSET = 0;
+    inline constexpr std::size_t WAL_PAGE_FRAME_RECORD_SIZE_OFFSET = WAL_PAGE_FRAME_RECORD_TYPE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET = WAL_PAGE_FRAME_RECORD_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_PAGE_ID_OFFSET = WAL_PAGE_FRAME_TRANSACTION_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET = WAL_PAGE_FRAME_PAGE_ID_OFFSET+sizeof(std::uint64_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_RESERVED_OFFSET = WAL_PAGE_FRAME_IMAGE_SIZE_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_IMAGE_OFFSET = WAL_PAGE_FRAME_RESERVED_OFFSET+sizeof(std::uint32_t);
+    inline constexpr std::size_t WAL_PAGE_FRAME_CHECKSUM_OFFSET = WAL_PAGE_FRAME_IMAGE_OFFSET+core::PAGE_SIZE;
+    static_assert(WAL_PAGE_FRAME_CHECKSUM_OFFSET+sizeof(std::uint64_t) == WAL_PAGE_FRAME_RECORD_SIZE);
 
     class WalPageFrame {
         public:
