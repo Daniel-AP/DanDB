@@ -29,11 +29,12 @@ namespace dandb::btree {
                 std::uint16_t value_size
             );
 
+            core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
+            core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
+
             storage::PageId root_page_id() const;
             std::uint16_t key_size() const;
             std::uint16_t value_size() const;
-            core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
-            core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
 
         private:
             explicit BTree(

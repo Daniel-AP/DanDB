@@ -26,6 +26,7 @@ namespace dandb::btree {
             std::size_t capacity() const;
             core::Result<std::span<const std::byte>> key_at(std::uint16_t entry_index) const;
             core::Result<storage::PageId> right_child_page_id_at(std::uint16_t entry_index) const;
+            core::Result<storage::PageId> child_page_id_for_key(std::span<const std::byte> key) const;
             core::Result<std::uint16_t> find_insertion_position(std::span<const std::byte> key) const;
 
             core::Status insert_entry(
@@ -158,6 +159,40 @@ namespace dandb::btree {
         }
 
         return storage::PageId{ result.value() };
+
+    }
+
+    template<BTreePageByte Byte>
+    core::Result<storage::PageId> BTreeInternalPage<Byte>::child_page_id_for_key(std::span<const std::byte> key) const {
+
+        if(key.size() != key_size()) {
+            return core::Status::InvalidArgument("Cannot find B+ tree internal page child: key size is invalid");
+        }
+
+        std::uint16_t left = 0;
+        std::uint16_t right = key_count();
+
+        while(left < right) {
+            const auto mid = static_cast<std::uint16_t>(left+(right-left)/2);
+
+            auto separator_key_result = key_at(mid);
+            if(!separator_key_result.ok()) {
+                return separator_key_result.status();
+            }
+
+            const auto separator_key = separator_key_result.value();
+            if(std::memcmp(separator_key.data(), key.data(), key.size()) <= 0) {
+                left = static_cast<std::uint16_t>(mid+1);
+            } else {
+                right = mid;
+            }
+        }
+
+        if(left == 0) {
+            return first_child_page_id();
+        }
+
+        return right_child_page_id_at(static_cast<std::uint16_t>(left-1));
 
     }
 

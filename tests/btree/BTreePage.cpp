@@ -634,6 +634,33 @@ TEST_CASE("B+ tree internal page finds encoded key insertion positions", "[btree
     REQUIRE(find(std::byte{ 50 }) == 3);
 }
 
+TEST_CASE("B+ tree internal page chooses child page ids for search keys", "[btree][page]") {
+    auto bytes = make_internal_page(1, 8);
+
+    auto result = BTreeInternalPage<std::byte>::open(bytes);
+    REQUIRE(result.ok());
+
+    auto page = result.value();
+    page.set_first_child_page_id(PageId{ 5 });
+    REQUIRE(page.insert_entry(0, std::array<std::byte, 1>{ std::byte{ 10 } }, PageId{ 6 }).ok());
+    REQUIRE(page.insert_entry(1, std::array<std::byte, 1>{ std::byte{ 20 } }, PageId{ 7 }).ok());
+    REQUIRE(page.insert_entry(2, std::array<std::byte, 1>{ std::byte{ 40 } }, PageId{ 8 }).ok());
+
+    const auto child_for_key = [&](std::byte key) {
+        const std::array<std::byte, 1> encoded_key{ key };
+        const auto child_page_id = page.child_page_id_for_key(encoded_key);
+
+        REQUIRE(child_page_id.ok());
+        return child_page_id.value();
+    };
+
+    REQUIRE(child_for_key(std::byte{ 5 }) == PageId{ 5 });
+    REQUIRE(child_for_key(std::byte{ 10 }) == PageId{ 6 });
+    REQUIRE(child_for_key(std::byte{ 15 }) == PageId{ 6 });
+    REQUIRE(child_for_key(std::byte{ 20 }) == PageId{ 7 });
+    REQUIRE(child_for_key(std::byte{ 50 }) == PageId{ 8 });
+}
+
 TEST_CASE("B+ tree internal page inserts an entry and shifts later entries", "[btree][page]") {
     auto bytes = make_internal_page(1, 8);
 
