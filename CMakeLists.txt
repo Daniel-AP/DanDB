@@ -97,6 +97,7 @@ add_executable(dandb_tests
     tests/buffer/BufferPoolManager.cpp
     tests/btree/BTreePage.cpp
     tests/btree/BTree.cpp
+    tests/btree/BTreeValidator.cpp
     tests/wal/WalHeader.cpp
     tests/wal/WalPageFrame.cpp
     tests/wal/WalCommitRecord.cpp

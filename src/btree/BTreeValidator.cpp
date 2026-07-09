@@ -146,6 +146,10 @@ namespace dandb::btree {
                 return core::Status::Corruption("Cannot validate B+ tree: internal page first child page id is invalid");
             }
 
+            if(internal_page.key_count() == 0) {
+                return core::Status::Corruption("Cannot validate B+ tree: internal page has no separator keys");
+            }
+
             std::optional<std::vector<std::byte>> previous_key;
             std::vector<std::vector<std::byte>> separator_keys;
             separator_keys.reserve(internal_page.key_count());
