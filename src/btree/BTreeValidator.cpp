@@ -47,7 +47,88 @@ namespace dandb::btree {
             const KeyRange& key_range,
             std::size_t depth,
             bool is_root
-        );
+        ) {
+
+            if(!page_id.is_valid()) {
+                return core::Status::Corruption("Cannot validate B+ tree: subtree page id is invalid");
+            }
+
+            auto [_, inserted] = context.state.visited_page_ids.insert(page_id);
+            if(!inserted) {
+                return core::Status::Corruption("Cannot validate B+ tree: page is reachable more than once");
+            }
+
+            auto page_handle_result = context.pager.get_page(page_id);
+            if(!page_handle_result.ok()) {
+                return page_handle_result.status();
+            }
+
+            const auto* page = page_handle_result.value().page();
+            auto page_view_result = BTreePage<const std::byte>::open(page->data());
+            if(!page_view_result.ok()) {
+                return page_view_result.status();
+            }
+
+            const auto& page_view = page_view_result.value();
+            if(page_view.key_size() != context.key_size) {
+                return core::Status::Corruption("Cannot validate B+ tree: page key size does not match tree");
+            }
+
+            if(page_view.value_size() != context.value_size) {
+                return core::Status::Corruption("Cannot validate B+ tree: page value size does not match tree");
+            }
+
+            if(is_root) {
+                if(!page_view.is_root()) {
+                    return core::Status::Corruption("Cannot validate B+ tree: root page is not marked as root");
+                }
+
+                if(page_view.parent_page_id().is_valid()) {
+                    return core::Status::Corruption("Cannot validate B+ tree: root page parent page id is valid");
+                }
+            } else {
+                if(page_view.is_root()) {
+                    return core::Status::Corruption("Cannot validate B+ tree: non-root page is marked as root");
+                }
+
+                if(page_view.parent_page_id() != expected_parent_page_id) {
+                    return core::Status::Corruption("Cannot validate B+ tree: page parent page id does not match parent");
+                }
+            }
+
+            if(page_view.kind() == BTreePageKind::Leaf) {
+
+                auto leaf_page_result = BTreeLeafPage<const std::byte>::open(page->data());
+                if(!leaf_page_result.ok()) {
+                    return leaf_page_result.status();
+                }
+
+                return validate_leaf(
+                    context,
+                    leaf_page_result.value(),
+                    page_id,
+                    key_range,
+                    depth,
+                    is_root
+                );
+                
+            }
+
+            auto internal_page_result = BTreeInternalPage<const std::byte>::open(page->data());
+            if(!internal_page_result.ok()) {
+                return internal_page_result.status();
+            }
+
+            return validate_internal(
+                context,
+                internal_page_result.value(),
+                page_id,
+                key_range,
+                depth,
+                is_root
+            );
+
+        }
 
         core::Status validate_leaf(
             ValidationContext& context,
