@@ -15,6 +15,7 @@
 #include <vector>
 
 using dandb::btree::BTree;
+using dandb::btree::BTreeCursor;
 using dandb::btree::BTreeInternalPage;
 using dandb::btree::BTreeLeafPage;
 using dandb::btree::initialize_internal;
@@ -124,6 +125,32 @@ namespace {
         auto result = tree.find(key);
         REQUIRE_FALSE(result.ok());
         REQUIRE(result.status().code() == StatusCode::NotFound);
+    }
+
+    void require_next_scan_entry(
+        BTreeCursor& cursor,
+        std::uint8_t key_value,
+        std::uint16_t value_size,
+        std::uint8_t stored_value
+    ) {
+
+        auto entry_result = cursor.next();
+        REQUIRE(entry_result.ok());
+        REQUIRE(entry_result.value().has_value());
+
+        const auto& entry = entry_result.value().value();
+        const auto expected_key = make_key(key_value);
+        const auto expected_value = make_value(value_size, stored_value);
+
+        REQUIRE(entry.key == std::vector<std::byte>{ expected_key.begin(), expected_key.end() });
+        REQUIRE(entry.value == expected_value);
+    }
+
+    void require_scan_finished(BTreeCursor& cursor) {
+
+        auto entry_result = cursor.next();
+        REQUIRE(entry_result.ok());
+        REQUIRE_FALSE(entry_result.value().has_value());
     }
 
 }
@@ -266,6 +293,27 @@ TEST_CASE("BTree find reports not found in an empty root leaf", "[btree][tree]")
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("BTree scan returns no entries for an empty tree", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto cursor_result = tree_result.value().scan();
+    REQUIRE(cursor_result.ok());
+
+    require_scan_finished(cursor_result.value());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
@@ -285,6 +333,44 @@ TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
     require_found_value(tree, 10, 10);
     require_found_value(tree, 30, 30);
     require_missing_key(tree, 20);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree scan returns one-leaf entries in key order", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_30 = make_key(30);
+    auto value_30 = make_value(30);
+    REQUIRE(tree.insert(key_30, value_30).ok());
+
+    auto key_10 = make_key(10);
+    auto value_10 = make_value(10);
+    REQUIRE(tree.insert(key_10, value_10).ok());
+
+    auto key_20 = make_key(20);
+    auto value_20 = make_value(20);
+    REQUIRE(tree.insert(key_20, value_20).ok());
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 10, VALUE_SIZE, 10);
+    require_next_scan_entry(cursor, 20, VALUE_SIZE, 20);
+    require_next_scan_entry(cursor, 30, VALUE_SIZE, 30);
+    require_scan_finished(cursor);
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -570,6 +656,40 @@ TEST_CASE("BTree insert supports multiple leaf splits below one root", "[btree][
         REQUIRE(root_page_result_view.value().is_root());
         REQUIRE(root_page_result_view.value().key_count() > 1);
     }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree scan follows leaf sibling links in key order", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 12);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 50, 10, 40, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_next_scan_entry(cursor, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_next_scan_entry(cursor, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_next_scan_entry(cursor, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_next_scan_entry(cursor, 50, SMALL_LEAF_VALUE_SIZE, 50);
+    require_scan_finished(cursor);
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
