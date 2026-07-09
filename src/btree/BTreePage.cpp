@@ -137,7 +137,7 @@ namespace dandb::btree {
 
     }
 
-    core::Status validate(std::span<const std::byte> bytes) {
+    core::Status validate_page(std::span<const std::byte> bytes) {
 
         if(bytes.size() != core::PAGE_SIZE) {
             return core::Status::InvalidArgument("Cannot validate B+ tree page: page size is invalid");

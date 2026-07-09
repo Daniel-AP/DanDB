@@ -35,7 +35,7 @@ using dandb::btree::BTREE_INTERNAL_PAGE_KIND;
 using dandb::btree::BTREE_LEAF_PAGE_KIND;
 using dandb::btree::initialize_internal;
 using dandb::btree::initialize_leaf;
-using dandb::btree::validate;
+using dandb::btree::validate_page;
 using dandb::core::PAGE_SIZE;
 using dandb::core::StatusCode;
 using dandb::core::read_u16_le;
@@ -63,7 +63,7 @@ namespace {
     }
 
     void require_corruption(const PageBytes& bytes) {
-        const auto status = validate(bytes);
+        const auto status = validate_page(bytes);
 
         REQUIRE_FALSE(status.ok());
         REQUIRE(status.code() == StatusCode::Corruption);
@@ -203,7 +203,7 @@ TEST_CASE("B+ tree internal initialization writes the documented page kind", "[b
     const auto bytes = make_internal_page(16, 64);
 
     REQUIRE(bytes[BTREE_PAGE_KIND_OFFSET] == static_cast<std::byte>(BTREE_INTERNAL_PAGE_KIND));
-    REQUIRE(validate(bytes).ok());
+    REQUIRE(validate_page(bytes).ok());
 }
 
 TEST_CASE("B+ tree page view reads initialized leaf header fields", "[btree][page]") {

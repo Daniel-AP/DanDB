@@ -49,7 +49,7 @@ namespace dandb::btree {
 
     core::Status initialize_internal(std::span<std::byte> bytes, std::uint16_t key_size, std::uint16_t value_size);
     core::Status initialize_leaf(std::span<std::byte> bytes, std::uint16_t key_size, std::uint16_t value_size);
-    core::Status validate(std::span<const std::byte> bytes);
+    core::Status validate_page(std::span<const std::byte> bytes);
 
     template<BTreePageByte Byte>
     class BTreeLeafPage;
@@ -94,7 +94,7 @@ namespace dandb::btree {
     template<BTreePageByte Byte>
     core::Result<BTreePage<Byte>> BTreePage<Byte>::open(std::span<Byte> bytes) {
 
-        auto status = validate(bytes);
+        auto status = validate_page(bytes);
         if(!status.ok()) {
             return status;
         }
