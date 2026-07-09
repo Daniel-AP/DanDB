@@ -592,6 +592,65 @@ namespace dandb::btree {
 
     }
 
+    core::Status BTree::rebalance_child_after_erase(
+        storage::PageId parent_page_id,
+        std::uint16_t child_index
+    ) {
+
+        storage::PageId child_page_id;
+
+        {
+            auto parent_page_handle_result = pager_->get_page(parent_page_id);
+            if(!parent_page_handle_result.ok()) {
+                return parent_page_handle_result.status();
+            }
+
+            const auto* parent_page = parent_page_handle_result.value().page();
+            auto parent_page_view_result = BTreeInternalPage<const std::byte>::open(parent_page->data());
+            if(!parent_page_view_result.ok()) {
+                return parent_page_view_result.status();
+            }
+
+            const auto& parent_page_view = parent_page_view_result.value();
+            if(child_index == 0) {
+                child_page_id = parent_page_view.first_child_page_id();
+            } else {
+                auto child_page_id_result = parent_page_view.right_child_page_id_at(
+                    static_cast<std::uint16_t>(child_index-1)
+                );
+                if(!child_page_id_result.ok()) {
+                    return child_page_id_result.status();
+                }
+
+                child_page_id = child_page_id_result.value();
+            }
+        }
+
+        BTreePageKind child_page_kind;
+
+        {
+            auto child_page_handle_result = pager_->get_page(child_page_id);
+            if(!child_page_handle_result.ok()) {
+                return child_page_handle_result.status();
+            }
+
+            const auto* child_page = child_page_handle_result.value().page();
+            auto child_page_view_result = BTreePage<const std::byte>::open(child_page->data());
+            if(!child_page_view_result.ok()) {
+                return child_page_view_result.status();
+            }
+
+            child_page_kind = child_page_view_result.value().kind();
+        }
+
+        if(child_page_kind == BTreePageKind::Leaf) {
+            return rebalance_leaf_child_after_erase(parent_page_id, child_index);
+        }
+
+        return rebalance_internal_child_after_erase(parent_page_id, child_index);
+
+    }
+
     core::Result<std::optional<SplitResult>> BTree::insert_into_leaf(
         storage::PageId page_id,
         std::span<const std::byte> key,
