@@ -38,6 +38,7 @@ namespace dandb::btree {
 
             core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
             core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
+            core::Status erase(std::span<const std::byte> key);
             core::Result<BTreeCursor> scan() const;
             core::Status validate() const;
 
@@ -70,6 +71,61 @@ namespace dandb::btree {
                 std::span<const std::byte> key,
                 std::span<const std::byte> value
             );
+
+            core::Result<bool> erase_from_subtree(
+                storage::PageId page_id,
+                std::span<const std::byte> key
+            );
+
+            core::Result<bool> erase_from_leaf(
+                storage::PageId page_id,
+                std::span<const std::byte> key
+            );
+
+            core::Result<bool> erase_from_internal(
+                storage::PageId page_id,
+                std::span<const std::byte> key
+            );
+
+            core::Status rebalance_child_after_erase(
+                storage::PageId parent_page_id,
+                std::uint16_t child_index
+            );
+
+            core::Status rebalance_leaf_child_after_erase(
+                storage::PageId parent_page_id,
+                std::uint16_t child_index
+            );
+
+            core::Status rebalance_internal_child_after_erase(
+                storage::PageId parent_page_id,
+                std::uint16_t child_index
+            );
+
+            core::Status shrink_root_after_erase();
+
+            core::Result<std::uint16_t> child_index_for_key(
+                storage::PageId internal_page_id,
+                std::span<const std::byte> key
+            ) const;
+
+            core::Result<storage::PageId> child_page_id_at(
+                storage::PageId internal_page_id,
+                std::uint16_t child_index
+            ) const;
+
+            core::Status refresh_child_separator(
+                storage::PageId internal_page_id,
+                std::uint16_t child_index
+            );
+
+            core::Result<std::vector<std::byte>> first_key_in_subtree(
+                storage::PageId page_id
+            ) const;
+
+            core::Result<bool> page_is_underfull(
+                storage::PageId page_id
+            ) const;
 
             storage::Pager* pager_;
             storage::PageId root_page_id_;

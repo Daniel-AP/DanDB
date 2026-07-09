@@ -38,6 +38,7 @@ namespace dandb::btree {
             core::Status erase_entry(std::uint16_t entry_index) requires (!std::is_const_v<Byte>);
 
             core::Status set_key_count(std::uint16_t key_count) requires (!std::is_const_v<Byte>);
+            core::Status set_key_at(std::uint16_t entry_index, std::span<const std::byte> key) requires (!std::is_const_v<Byte>);
             void set_parent_page_id(storage::PageId parent_page_id) requires (!std::is_const_v<Byte>);
             void set_first_child_page_id(storage::PageId first_child_page_id) requires (!std::is_const_v<Byte>);
             void set_root(bool is_root) requires (!std::is_const_v<Byte>);
