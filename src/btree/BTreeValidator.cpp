@@ -70,4 +70,49 @@ namespace dandb::btree {
         core::Status validate_leaf_links(const ValidationState& state);
 
     }
+
+    core::Status BTreeValidator::validate(
+        storage::Pager& pager,
+        storage::PageId root_page_id,
+        std::uint16_t key_size,
+        std::uint16_t value_size
+    ) {
+
+        if(!root_page_id.is_valid()) {
+            return core::Status::InvalidArgument("Cannot validate B+ tree: root page id is invalid");
+        }
+
+        if(key_size == 0) {
+            return core::Status::InvalidArgument("Cannot validate B+ tree: key size must be greater than 0");
+        }
+
+        if(value_size == 0) {
+            return core::Status::InvalidArgument("Cannot validate B+ tree: value size must be greater than 0");
+        }
+
+        ValidationState state;
+        ValidationContext context{
+            pager,
+            key_size,
+            value_size,
+            state
+        };
+
+        const KeyRange root_key_range;
+        auto status = validate_subtree(
+            context,
+            root_page_id,
+            storage::INVALID_PAGE_ID,
+            root_key_range,
+            0,
+            true
+        );
+        if(!status.ok()) {
+            return status;
+        }
+
+        return validate_leaf_links(state);
+
+    }
+
 }
