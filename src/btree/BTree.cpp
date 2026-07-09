@@ -455,6 +455,80 @@ namespace dandb::btree {
 
     }
 
+    core::Result<bool> BTree::erase_from_leaf(
+        storage::PageId page_id,
+        std::span<const std::byte> key
+    ) {
+
+        std::uint16_t position;
+
+        // Check key exists
+        {
+            auto page_handle_result = pager_->get_page(page_id);
+            if(!page_handle_result.ok()) {
+                return page_handle_result.status();
+            }
+
+            auto& page_handle = page_handle_result.value();
+            const auto* page = page_handle.page();
+            auto page_view_result = BTreeLeafPage<const std::byte>::open(page->data());
+            if(!page_view_result.ok()) {
+                return page_view_result.status();
+            }
+
+            auto& page_view = page_view_result.value();
+            auto position_result = page_view.find_insertion_position(key);
+            if(!position_result.ok()) {
+                return position_result.status();
+            }
+
+            position = position_result.value();
+            if(position == page_view.key_count()) {
+                return core::Status::NotFound("Cannot erase key from B+ tree: key was not found");
+            }
+
+            auto stored_key_result = page_view.key_at(position);
+            if(!stored_key_result.ok()) {
+                return stored_key_result.status();
+            }
+
+            const auto stored_key = stored_key_result.value();
+            if(std::memcmp(stored_key.data(), key.data(), key_size_) != 0) {
+                return core::Status::NotFound("Cannot erase key from B+ tree: key was not found");
+            }
+        }
+
+        // Erase entry by position
+        {
+            auto page_handle_result = pager_->get_page(page_id);
+            if(!page_handle_result.ok()) {
+                return page_handle_result.status();
+            }
+
+            auto& page_handle = page_handle_result.value();
+            auto page_result = page_handle.mutable_page();
+            if(!page_result.ok()) {
+                return page_result.status();
+            }
+
+            auto& page = page_result.value();
+            auto page_view_result = BTreeLeafPage<std::byte>::open(page->data());
+            if(!page_view_result.ok()) {
+                return page_view_result.status();
+            }
+
+            auto& page_view = page_view_result.value();
+
+            auto erase_status = page_view.erase_entry(position);
+            if(!erase_status.ok()) {
+                return erase_status;
+            }
+        }
+
+        return page_is_underfull(page_id);
+
+    }
+
     core::Result<std::optional<SplitResult>> BTree::insert_into_leaf(
         storage::PageId page_id,
         std::span<const std::byte> key,
