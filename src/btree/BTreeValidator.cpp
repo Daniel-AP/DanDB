@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <optional>
 #include <vector>
 #include <unordered_set>
@@ -39,6 +40,91 @@ namespace dandb::btree {
             std::uint16_t value_size;
             ValidationState& state;
         };
+
+        core::Status validate_leaf(
+            ValidationContext& context,
+            const BTreeLeafPage<const std::byte>& leaf_page,
+            storage::PageId page_id,
+            const KeyRange& key_range,
+            std::size_t depth,
+            bool is_root
+        ) {
+
+            if(!is_root) {
+                const auto minimum_key_count = static_cast<std::uint16_t>((leaf_page.capacity()+1)/2);
+                if(leaf_page.key_count() < minimum_key_count) {
+                    return core::Status::Corruption("Cannot validate B+ tree: non-root leaf page is underfull");
+                }
+            }
+
+            std::optional<std::vector<std::byte>> previous_key;
+            std::optional<std::vector<std::byte>> first_key;
+            std::optional<std::vector<std::byte>> last_key;
+
+            for(std::uint16_t key_index = 0; key_index < leaf_page.key_count(); key_index++) {
+
+                auto key_result = leaf_page.key_at(key_index);
+                if(!key_result.ok()) {
+                    return key_result.status();
+                }
+
+                const auto key = key_result.value();
+
+                if(previous_key.has_value()) {
+                    if(std::memcmp(previous_key->data(), key.data(), context.key_size) >= 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: leaf page keys are not strictly sorted");
+                    }
+                }
+
+                if(key_range.lower_bound.has_value()) {
+                    if(std::memcmp(key.data(), key_range.lower_bound->data(), context.key_size) < 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: leaf page key is below lower bound");
+                    }
+                }
+
+                if(key_range.upper_bound.has_value()) {
+                    if(std::memcmp(key.data(), key_range.upper_bound->data(), context.key_size) >= 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: leaf page key is above upper bound");
+                    }
+                }
+
+                std::vector<std::byte> key_copy{ key.begin(), key.end() };
+                if(!first_key.has_value()) {
+                    first_key = key_copy;
+                }
+
+                last_key = key_copy;
+                previous_key = std::move(key_copy);
+                
+            }
+
+            if(!context.state.expected_leaf_depth.has_value()) {
+                context.state.expected_leaf_depth = depth;
+            } else if(context.state.expected_leaf_depth.value() != depth) {
+                return core::Status::Corruption("Cannot validate B+ tree: leaves are not all at the same depth");
+            }
+
+            context.state.leaves.push_back(LeafInfo{
+                page_id,
+                leaf_page.previous_leaf_page_id(),
+                leaf_page.next_leaf_page_id(),
+                std::move(first_key),
+                std::move(last_key),
+                depth
+            });
+
+            return core::Status::Ok();
+
+        }
+
+        core::Status validate_internal(
+            ValidationContext& context,
+            const BTreeInternalPage<const std::byte>& internal_page,
+            storage::PageId page_id,
+            const KeyRange& key_range,
+            std::size_t depth,
+            bool is_root
+        );
 
         core::Status validate_subtree(
             ValidationContext& context,
@@ -129,25 +215,6 @@ namespace dandb::btree {
             );
 
         }
-
-        core::Status validate_leaf(
-            ValidationContext& context,
-            const BTreeLeafPage<const std::byte>& leaf_page,
-            storage::PageId page_id,
-            const KeyRange& key_range,
-            std::size_t depth,
-            bool is_root
-        );
-
-        core::Status validate_internal(
-            ValidationContext& context,
-            const BTreeInternalPage<const std::byte>& internal_page,
-            storage::PageId page_id,
-            const KeyRange& key_range,
-            std::size_t depth,
-            bool is_root
-        );
-
         core::Status validate_leaf_links(const ValidationState& state);
 
     }
