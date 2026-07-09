@@ -311,6 +311,26 @@ namespace dandb::btree {
 
     }
 
+    core::Status BTree::erase(std::span<const std::byte> key) {
+
+        if(key.size() != key_size_) {
+            return core::Status::InvalidArgument("Cannot erase key from B+ tree: key size is invalid");
+        }
+
+        auto erase_result = erase_from_subtree(root_page_id_, key);
+        if(!erase_result.ok()) {
+            return erase_result.status();
+        }
+
+        auto shrink_status = shrink_root_after_erase();
+        if(!shrink_status.ok()) {
+            return shrink_status;
+        }
+
+        return core::Status::Ok();
+
+    }
+
     core::Result<BTreeCursor> BTree::scan() const {
 
         storage::PageId current_page_id = root_page_id_;
