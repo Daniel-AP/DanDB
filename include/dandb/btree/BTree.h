@@ -104,11 +104,6 @@ namespace dandb::btree {
 
             core::Status shrink_root_after_erase();
 
-            core::Result<std::uint16_t> child_index_for_key(
-                storage::PageId internal_page_id,
-                std::span<const std::byte> key
-            ) const;
-
             core::Result<storage::PageId> child_page_id_at(
                 storage::PageId internal_page_id,
                 std::uint16_t child_index

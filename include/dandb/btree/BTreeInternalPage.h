@@ -27,6 +27,7 @@ namespace dandb::btree {
             core::Result<std::span<const std::byte>> entry_at(std::uint16_t entry_index) const;
             core::Result<std::span<const std::byte>> key_at(std::uint16_t entry_index) const;
             core::Result<storage::PageId> right_child_page_id_at(std::uint16_t entry_index) const;
+            core::Result<std::uint16_t> child_index_for_key(std::span<const std::byte> key) const;
             core::Result<storage::PageId> child_page_id_for_key(std::span<const std::byte> key) const;
             core::Result<std::uint16_t> find_insertion_position(std::span<const std::byte> key) const;
 
@@ -177,7 +178,7 @@ namespace dandb::btree {
     }
 
     template<BTreePageByte Byte>
-    core::Result<storage::PageId> BTreeInternalPage<Byte>::child_page_id_for_key(std::span<const std::byte> key) const {
+    core::Result<std::uint16_t> BTreeInternalPage<Byte>::child_index_for_key(std::span<const std::byte> key) const {
 
         if(key.size() != key_size()) {
             return core::Status::InvalidArgument("Cannot find B+ tree internal page child: key size is invalid");
@@ -202,11 +203,24 @@ namespace dandb::btree {
             }
         }
 
-        if(left == 0) {
+        return left;
+
+    }
+
+    template<BTreePageByte Byte>
+    core::Result<storage::PageId> BTreeInternalPage<Byte>::child_page_id_for_key(std::span<const std::byte> key) const {
+
+        auto child_index_result = child_index_for_key(key);
+        if(!child_index_result.ok()) {
+            return child_index_result.status();
+        }
+
+        const auto child_index = child_index_result.value();
+        if(child_index == 0) {
             return first_child_page_id();
         }
 
-        return right_child_page_id_at(static_cast<std::uint16_t>(left-1));
+        return right_child_page_id_at(static_cast<std::uint16_t>(child_index-1));
 
     }
 
