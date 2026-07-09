@@ -310,6 +310,47 @@ namespace dandb::btree {
 
     }
 
+    core::Result<BTreeCursor> BTree::scan() const {
+
+        storage::PageId current_page_id = root_page_id_;
+
+        while(true) {
+
+            auto handle_result = pager_->get_page(current_page_id);
+            if(!handle_result.ok()) {
+                return handle_result.status();
+            }
+
+            auto& handle = handle_result.value();
+            const auto* page = handle.page();
+
+            auto page_view_result = BTreePage<const std::byte>::open(page->data());
+            if(!page_view_result.ok()) {
+                return page_view_result.status();
+            }
+
+            auto& page_view = page_view_result.value();
+
+            if(page_view.kind() == BTreePageKind::Internal) {
+                
+                auto internal_page_view_result = BTreeInternalPage<const std::byte>::open(page->data());
+                if(!internal_page_view_result.ok()) {
+                    return internal_page_view_result.status();
+                }
+
+                auto& internal_page_view = internal_page_view_result.value();
+
+                current_page_id = internal_page_view.first_child_page_id();
+                continue;
+
+            }
+
+            return BTreeCursor{ *pager_, current_page_id };
+
+        }
+
+    }
+
     storage::PageId BTree::root_page_id() const {
         return root_page_id_;
     }

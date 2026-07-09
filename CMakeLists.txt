@@ -41,6 +41,7 @@ add_library(dandb_core STATIC
     src/record/Value.cpp
     src/btree/BTreePage.cpp
     src/btree/BTree.cpp
+    src/btree/BTreeCursor.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)

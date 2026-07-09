@@ -24,16 +24,12 @@ namespace dandb::btree {
 
             BTreeCursor(
                 storage::Pager& pager,
-                storage::PageId current_leaf_page_id,
-                std::uint16_t key_size,
-                std::uint16_t value_size
+                storage::PageId current_leaf_page_id
             );
 
             storage::Pager* pager_;
             storage::PageId current_leaf_page_id_;
             std::uint16_t entry_index_;
-            std::uint16_t key_size_;
-            std::uint16_t value_size_;
     };
 
 }
