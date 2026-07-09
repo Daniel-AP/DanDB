@@ -29,6 +29,8 @@ namespace {
 
     constexpr std::uint16_t KEY_SIZE = 8;
     constexpr std::uint16_t VALUE_SIZE = 32;
+    constexpr std::uint16_t INDEX_KEY_SIZE = 4;
+    constexpr std::uint16_t PRIMARY_KEY_VALUE_SIZE = KEY_SIZE;
     constexpr std::uint16_t SMALL_LEAF_VALUE_SIZE = 2008;
     constexpr std::uint16_t SINGLE_ENTRY_LEAF_VALUE_SIZE = 4000;
 
@@ -48,6 +50,20 @@ namespace {
 
     std::vector<std::byte> make_value(std::uint16_t value_size, std::uint8_t value) {
         return std::vector<std::byte>(value_size, static_cast<std::byte>(value));
+    }
+
+    std::array<std::byte, INDEX_KEY_SIZE> make_index_key(std::uint8_t value) {
+        std::array<std::byte, INDEX_KEY_SIZE> key{};
+
+        key[INDEX_KEY_SIZE-1] = static_cast<std::byte>(value);
+        return key;
+    }
+
+    std::array<std::byte, PRIMARY_KEY_VALUE_SIZE> make_primary_key_value(std::uint8_t value) {
+        std::array<std::byte, PRIMARY_KEY_VALUE_SIZE> primary_key{};
+
+        primary_key[PRIMARY_KEY_VALUE_SIZE-1] = static_cast<std::byte>(value);
+        return primary_key;
     }
 
     PageId create_leaf_with_entry(Pager& pager, std::uint8_t key_value, std::uint8_t stored_value) {
@@ -144,6 +160,24 @@ namespace {
 
         REQUIRE(entry.key == std::vector<std::byte>{ expected_key.begin(), expected_key.end() });
         REQUIRE(entry.value == expected_value);
+    }
+
+    void require_next_index_scan_entry(
+        BTreeCursor& cursor,
+        std::uint8_t index_key_value,
+        std::uint8_t primary_key_value
+    ) {
+
+        auto entry_result = cursor.next();
+        REQUIRE(entry_result.ok());
+        REQUIRE(entry_result.value().has_value());
+
+        const auto& entry = entry_result.value().value();
+        const auto expected_key = make_index_key(index_key_value);
+        const auto expected_value = make_primary_key_value(primary_key_value);
+
+        REQUIRE(entry.key == std::vector<std::byte>{ expected_key.begin(), expected_key.end() });
+        REQUIRE(entry.value == std::vector<std::byte>{ expected_value.begin(), expected_value.end() });
     }
 
     void require_scan_finished(BTreeCursor& cursor) {
@@ -370,6 +404,69 @@ TEST_CASE("BTree scan returns one-leaf entries in key order", "[btree][tree]") {
     require_next_scan_entry(cursor, 10, VALUE_SIZE, 10);
     require_next_scan_entry(cursor, 20, VALUE_SIZE, 20);
     require_next_scan_entry(cursor, 30, VALUE_SIZE, 30);
+    require_scan_finished(cursor);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree stores index-like entries as secondary keys pointing to primary keys", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, INDEX_KEY_SIZE, PRIMARY_KEY_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto index_key = make_index_key(42);
+    auto primary_key = make_primary_key_value(7);
+    REQUIRE(tree.insert(index_key, primary_key).ok());
+
+    auto found_value = tree.find(index_key);
+    REQUIRE(found_value.ok());
+    REQUIRE(found_value.value() == std::vector<std::byte>{ primary_key.begin(), primary_key.end() });
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree scan returns index-like entries in secondary-key order", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, INDEX_KEY_SIZE, PRIMARY_KEY_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_30 = make_index_key(30);
+    auto primary_key_3 = make_primary_key_value(3);
+    REQUIRE(tree.insert(key_30, primary_key_3).ok());
+
+    auto key_10 = make_index_key(10);
+    auto primary_key_1 = make_primary_key_value(1);
+    REQUIRE(tree.insert(key_10, primary_key_1).ok());
+
+    auto key_20 = make_index_key(20);
+    auto primary_key_2 = make_primary_key_value(2);
+    REQUIRE(tree.insert(key_20, primary_key_2).ok());
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_index_scan_entry(cursor, 10, 1);
+    require_next_index_scan_entry(cursor, 20, 2);
+    require_next_index_scan_entry(cursor, 30, 3);
     require_scan_finished(cursor);
 
     REQUIRE(pager.rollback_transaction().ok());
