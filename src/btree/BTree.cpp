@@ -529,6 +529,69 @@ namespace dandb::btree {
 
     }
 
+    core::Result<bool> BTree::erase_from_internal(
+        storage::PageId page_id,
+        std::span<const std::byte> key
+    ) {
+
+        std::uint16_t child_index;
+        storage::PageId child_page_id;
+
+        {
+            auto page_handle_result = pager_->get_page(page_id);
+            if(!page_handle_result.ok()) {
+                return page_handle_result.status();
+            }
+
+            auto& page_handle = page_handle_result.value();
+            const auto* page = page_handle.page();
+            auto page_view_result = BTreeInternalPage<const std::byte>::open(page->data());
+            if(!page_view_result.ok()) {
+                return page_view_result.status();
+            }
+
+            const auto& page_view = page_view_result.value();
+            auto child_index_result = page_view.child_index_for_key(key);
+            if(!child_index_result.ok()) {
+                return child_index_result.status();
+            }
+
+            child_index = child_index_result.value();
+            if(child_index == 0) {
+                child_page_id = page_view.first_child_page_id();
+            } else {
+                auto child_page_id_result = page_view.right_child_page_id_at(
+                    static_cast<std::uint16_t>(child_index-1)
+                );
+                if(!child_page_id_result.ok()) {
+                    return child_page_id_result.status();
+                }
+
+                child_page_id = child_page_id_result.value();
+            }
+        }
+
+        auto erase_result = erase_from_subtree(child_page_id, key);
+        if(!erase_result.ok()) {
+            return erase_result.status();
+        }
+
+        if(erase_result.value()) {
+            auto rebalance_status = rebalance_child_after_erase(page_id, child_index);
+            if(!rebalance_status.ok()) {
+                return rebalance_status;
+            }
+        } else if(child_index > 0) {
+            auto refresh_status = refresh_child_separator(page_id, child_index);
+            if(!refresh_status.ok()) {
+                return refresh_status;
+            }
+        }
+
+        return page_is_underfull(page_id);
+
+    }
+
     core::Result<std::optional<SplitResult>> BTree::insert_into_leaf(
         storage::PageId page_id,
         std::span<const std::byte> key,
