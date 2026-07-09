@@ -41,6 +41,15 @@ namespace dandb::btree {
             ValidationState& state;
         };
 
+        core::Status validate_subtree(
+            ValidationContext& context,
+            storage::PageId page_id,
+            storage::PageId expected_parent_page_id,
+            const KeyRange& key_range,
+            std::size_t depth,
+            bool is_root
+        );
+
         core::Status validate_leaf(
             ValidationContext& context,
             const BTreeLeafPage<const std::byte>& leaf_page,
@@ -95,7 +104,7 @@ namespace dandb::btree {
 
                 last_key = key_copy;
                 previous_key = std::move(key_copy);
-                
+
             }
 
             if(!context.state.expected_leaf_depth.has_value()) {
@@ -124,7 +133,113 @@ namespace dandb::btree {
             const KeyRange& key_range,
             std::size_t depth,
             bool is_root
-        );
+        ) {
+
+            if(!is_root) {
+                const auto minimum_key_count = static_cast<std::uint16_t>(internal_page.capacity()/2);
+                if(internal_page.key_count() < minimum_key_count) {
+                    return core::Status::Corruption("Cannot validate B+ tree: non-root internal page is underfull");
+                }
+            }
+
+            if(!internal_page.first_child_page_id().is_valid()) {
+                return core::Status::Corruption("Cannot validate B+ tree: internal page first child page id is invalid");
+            }
+
+            std::optional<std::vector<std::byte>> previous_key;
+            std::vector<std::vector<std::byte>> separator_keys;
+            separator_keys.reserve(internal_page.key_count());
+
+            for(std::uint16_t key_index = 0; key_index < internal_page.key_count(); key_index++) {
+
+                auto key_result = internal_page.key_at(key_index);
+                if(!key_result.ok()) {
+                    return key_result.status();
+                }
+
+                const auto key = key_result.value();
+
+                if(previous_key.has_value()) {
+                    if(std::memcmp(previous_key->data(), key.data(), context.key_size) >= 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: internal page keys are not strictly sorted");
+                    }
+                }
+
+                if(key_range.lower_bound.has_value()) {
+                    if(std::memcmp(key.data(), key_range.lower_bound->data(), context.key_size) < 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: internal page key is below lower bound");
+                    }
+                }
+
+                if(key_range.upper_bound.has_value()) {
+                    if(std::memcmp(key.data(), key_range.upper_bound->data(), context.key_size) >= 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: internal page key is above upper bound");
+                    }
+                }
+
+                std::vector<std::byte> key_copy{ key.begin(), key.end() };
+                previous_key = key_copy;
+                separator_keys.push_back(std::move(key_copy));
+
+            }
+
+            KeyRange first_child_range{
+                key_range.lower_bound,
+                key_range.upper_bound
+            };
+
+            first_child_range.upper_bound = separator_keys[0];
+
+            auto status = validate_subtree(
+                context,
+                internal_page.first_child_page_id(),
+                page_id,
+                first_child_range,
+                depth+1,
+                false
+            );
+            if(!status.ok()) {
+                return status;
+            }
+
+            for(std::uint16_t entry_index = 0; entry_index < internal_page.key_count(); entry_index++) {
+
+                auto right_child_page_id_result = internal_page.right_child_page_id_at(entry_index);
+                if(!right_child_page_id_result.ok()) {
+                    return right_child_page_id_result.status();
+                }
+
+                const auto right_child_page_id = right_child_page_id_result.value();
+                if(!right_child_page_id.is_valid()) {
+                    return core::Status::Corruption("Cannot validate B+ tree: internal page right child page id is invalid");
+                }
+
+                KeyRange child_range;
+                child_range.lower_bound = separator_keys[entry_index];
+
+                if(static_cast<std::size_t>(entry_index)+1 < separator_keys.size()) {
+                    child_range.upper_bound = separator_keys[static_cast<std::size_t>(entry_index)+1];
+                } else {
+                    child_range.upper_bound = key_range.upper_bound;
+                }
+
+                status = validate_subtree(
+                    context,
+                    right_child_page_id,
+                    page_id,
+                    child_range,
+                    depth+1,
+                    false
+                );
+                if(!status.ok()) {
+                    return status;
+                }
+
+            }
+
+            return core::Status::Ok();
+
+        }
 
         core::Status validate_subtree(
             ValidationContext& context,
@@ -215,6 +330,7 @@ namespace dandb::btree {
             );
 
         }
+       
         core::Status validate_leaf_links(const ValidationState& state);
 
     }
