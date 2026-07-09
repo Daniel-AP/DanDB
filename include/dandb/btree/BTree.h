@@ -39,6 +39,7 @@ namespace dandb::btree {
             core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
             core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
             core::Result<BTreeCursor> scan() const;
+            core::Status validate() const;
 
             storage::PageId root_page_id() const;
             std::uint16_t key_size() const;

@@ -41,6 +41,7 @@ add_library(dandb_core STATIC
     src/record/Value.cpp
     src/btree/BTreePage.cpp
     src/btree/BTree.cpp
+    src/btree/BTreeValidator.cpp
     src/btree/BTreeCursor.cpp
 )
 
