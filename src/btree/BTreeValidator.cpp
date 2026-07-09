@@ -331,7 +331,51 @@ namespace dandb::btree {
 
         }
        
-        core::Status validate_leaf_links(const ValidationState& state);
+        core::Status validate_leaf_links(const ValidationState& state) {
+
+            if(state.leaves.empty()) {
+                return core::Status::Corruption("Cannot validate B+ tree: tree has no leaves");
+            }
+
+            for(std::size_t leaf_index = 0; leaf_index < state.leaves.size(); leaf_index++) {
+
+                const auto& leaf = state.leaves[leaf_index];
+
+                const auto expected_previous_leaf_page_id = leaf_index == 0
+                    ? storage::INVALID_PAGE_ID
+                    : state.leaves[leaf_index-1].page_id;
+
+                if(leaf.previous_leaf_page_id != expected_previous_leaf_page_id) {
+                    return core::Status::Corruption("Cannot validate B+ tree: leaf previous link is inconsistent");
+                }
+
+                const auto expected_next_leaf_page_id = leaf_index+1 == state.leaves.size()
+                    ? storage::INVALID_PAGE_ID
+                    : state.leaves[leaf_index+1].page_id;
+
+                if(leaf.next_leaf_page_id != expected_next_leaf_page_id) {
+                    return core::Status::Corruption("Cannot validate B+ tree: leaf next link is inconsistent");
+                }
+
+                if(leaf_index+1 < state.leaves.size()) {
+                    
+                    const auto& next_leaf = state.leaves[leaf_index+1];
+
+                    if(!leaf.last_key.has_value() || !next_leaf.first_key.has_value()) {
+                        return core::Status::Corruption("Cannot validate B+ tree: non-root leaf page is empty");
+                    }
+
+                    if(std::memcmp(leaf.last_key->data(), next_leaf.first_key->data(), leaf.last_key->size()) >= 0) {
+                        return core::Status::Corruption("Cannot validate B+ tree: leaf sibling keys are not strictly sorted");
+                    }
+
+                }
+
+            }
+
+            return core::Status::Ok();
+
+        }
 
     }
 
