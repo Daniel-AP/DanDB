@@ -1603,6 +1603,50 @@ namespace dandb::btree {
 
     }
 
+    core::Result<bool> BTree::page_is_underfull(storage::PageId page_id) const {
+
+        auto page_handle_result = pager_->get_page(page_id);
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        const auto* page = page_handle_result.value().page();
+        auto page_view_result = BTreePage<const std::byte>::open(page->data());
+        if(!page_view_result.ok()) {
+            return page_view_result.status();
+        }
+
+        const auto& page_view = page_view_result.value();
+        if(page_view.is_root()) {
+            return false;
+        }
+
+        if(page_view.kind() == BTreePageKind::Leaf) {
+
+            auto leaf_page_view_result = BTreeLeafPage<const std::byte>::open(page->data());
+            if(!leaf_page_view_result.ok()) {
+                return leaf_page_view_result.status();
+            }
+
+            const auto& leaf_page_view = leaf_page_view_result.value();
+            const auto minimum_key_count = static_cast<std::uint16_t>((leaf_page_view.capacity()+1)/2);
+
+            return leaf_page_view.key_count() < minimum_key_count;
+            
+        }
+
+        auto internal_page_view_result = BTreeInternalPage<const std::byte>::open(page->data());
+        if(!internal_page_view_result.ok()) {
+            return internal_page_view_result.status();
+        }
+
+        const auto& internal_page_view = internal_page_view_result.value();
+        const auto minimum_key_count = static_cast<std::uint16_t>(internal_page_view.capacity()/2);
+
+        return internal_page_view.key_count() < minimum_key_count;
+
+    }
+
     core::Status BTree::merge_adjacent_leaves(
         storage::PageId left_page_id,
         storage::PageId right_page_id
