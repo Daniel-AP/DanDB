@@ -946,6 +946,13 @@ namespace dandb::btree {
                     }
                 }
 
+                if(child_index > 0) {
+                    auto refresh_child_status = refresh_child_separator(parent_page_id, child_index);
+                    if(!refresh_child_status.ok()) {
+                        return refresh_child_status;
+                    }
+                }
+
                 auto refresh_status = refresh_child_separator(
                     parent_page_id,
                     static_cast<std::uint16_t>(child_index+1)
@@ -1088,6 +1095,13 @@ namespace dandb::btree {
                 }
 
                 right_sibling_page_id = right_sibling_page_id_result.value();
+            }
+        }
+
+        if(child_index > 0) {
+            auto refresh_status = refresh_child_separator(parent_page_id, child_index);
+            if(!refresh_status.ok()) {
+                return refresh_status;
             }
         }
 
