@@ -1,6 +1,7 @@
 #pragma once
 
 #include <dandb/btree/BTreePage.h>
+#include <dandb/core/Endian.h>
 
 #include <cstring>
 #include <cstdint>
@@ -350,6 +351,24 @@ namespace dandb::btree {
         }
 
         return page_.set_key_count(key_count);
+
+    }
+
+    template<BTreePageByte Byte>
+    core::Status BTreeInternalPage<Byte>::set_key_at(std::uint16_t entry_index, std::span<const std::byte> key) requires (!std::is_const_v<Byte>) {
+
+        if(entry_index >= key_count()) {
+            return core::Status::InvalidArgument("Cannot set B+ tree internal page key: entry index is out of bounds");
+        }
+
+        if(key.size() != key_size()) {
+            return core::Status::InvalidArgument("Cannot set B+ tree internal page key: invalid new key size");
+        }
+
+        const auto entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(entry_index)*entry_size();
+        std::memcpy(page_.bytes_.data()+entry_offset, key.data(), key_size());
+
+        return core::Status::Ok();
 
     }
 
