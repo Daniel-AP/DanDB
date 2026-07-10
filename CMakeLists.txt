@@ -43,6 +43,9 @@ add_library(dandb_core STATIC
     src/btree/BTree.cpp
     src/btree/BTreeValidator.cpp
     src/btree/BTreeCursor.cpp
+    src/catalog/TableDescriptor.cpp
+    src/catalog/ColumnDescriptor.cpp
+    src/catalog/IndexDescriptor.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -73,6 +76,10 @@ add_executable(dandb_tests
     tests/core/Checksum.cpp
     tests/catalog/TableId.cpp
     tests/catalog/IndexId.cpp
+    tests/catalog/ColumnId.cpp
+    tests/catalog/TableDescriptor.cpp
+    tests/catalog/ColumnDescriptor.cpp
+    tests/catalog/IndexDescriptor.cpp
     tests/record/Column.cpp
     tests/record/LiteralValue.cpp
     tests/record/LogicalType.cpp
