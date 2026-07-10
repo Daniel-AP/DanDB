@@ -116,6 +116,45 @@ TEST_CASE("BTree validate accepts a split tree", "[btree][validator]") {
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("BTree validate rejects a separator below its right subtree minimum", "[btree][validator]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 8);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 30, 10, 20 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    {
+        auto root_page_handle_result = pager.get_page(tree.root_page_id());
+        REQUIRE(root_page_handle_result.ok());
+
+        auto root_page_result = root_page_handle_result.value().mutable_page();
+        REQUIRE(root_page_result.ok());
+
+        auto root_page_view_result = BTreeInternalPage<std::byte>::open(root_page_result.value()->data());
+        REQUIRE(root_page_view_result.ok());
+
+        const auto invalid_separator = make_key(15);
+        REQUIRE(root_page_view_result.value().set_key_at(0, invalid_separator).ok());
+    }
+
+    require_corruption(tree.validate());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("BTree validate rejects unsorted leaf keys", "[btree][validator]") {
     const TempDir temp_dir;
 

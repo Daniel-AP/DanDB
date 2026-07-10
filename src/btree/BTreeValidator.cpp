@@ -2,6 +2,7 @@
 
 #include <dandb/btree/BTreeInternalPage.h>
 #include <dandb/btree/BTreeLeafPage.h>
+#include <dandb/core/Result.h>
 #include <dandb/storage/Pager.h>
 
 #include <cstddef>
@@ -41,7 +42,9 @@ namespace dandb::btree {
             ValidationState& state;
         };
 
-        core::Status validate_subtree(
+        using ValidateSubtreeResult = core::Result<std::optional<std::vector<std::byte>>>;
+
+        ValidateSubtreeResult validate_subtree(
             ValidationContext& context,
             storage::PageId page_id,
             storage::PageId expected_parent_page_id,
@@ -50,7 +53,7 @@ namespace dandb::btree {
             bool is_root
         );
 
-        core::Status validate_leaf(
+        ValidateSubtreeResult validate_leaf(
             ValidationContext& context,
             const BTreeLeafPage<const std::byte>& leaf_page,
             storage::PageId page_id,
@@ -113,6 +116,8 @@ namespace dandb::btree {
                 return core::Status::Corruption("Cannot validate B+ tree: leaves are not all at the same depth");
             }
 
+            const auto minimum_key = first_key;
+
             context.state.leaves.push_back(LeafInfo{
                 page_id,
                 leaf_page.previous_leaf_page_id(),
@@ -122,11 +127,11 @@ namespace dandb::btree {
                 depth
             });
 
-            return core::Status::Ok();
+            return minimum_key;
 
         }
 
-        core::Status validate_internal(
+        ValidateSubtreeResult validate_internal(
             ValidationContext& context,
             const BTreeInternalPage<const std::byte>& internal_page,
             storage::PageId page_id,
@@ -194,7 +199,7 @@ namespace dandb::btree {
 
             first_child_range.upper_bound = separator_keys[0];
 
-            auto status = validate_subtree(
+            auto first_child_result = validate_subtree(
                 context,
                 internal_page.first_child_page_id(),
                 page_id,
@@ -202,8 +207,13 @@ namespace dandb::btree {
                 depth+1,
                 false
             );
-            if(!status.ok()) {
-                return status;
+            if(!first_child_result.ok()) {
+                return first_child_result.status();
+            }
+
+            const auto minimum_key = first_child_result.value();
+            if(!minimum_key.has_value()) {
+                return core::Status::Corruption("Cannot validate B+ tree: internal page first child subtree has no keys");
             }
 
             for(std::uint16_t entry_index = 0; entry_index < internal_page.key_count(); entry_index++) {
@@ -227,7 +237,7 @@ namespace dandb::btree {
                     child_range.upper_bound = key_range.upper_bound;
                 }
 
-                status = validate_subtree(
+                auto child_result = validate_subtree(
                     context,
                     right_child_page_id,
                     page_id,
@@ -235,17 +245,26 @@ namespace dandb::btree {
                     depth+1,
                     false
                 );
-                if(!status.ok()) {
-                    return status;
+                if(!child_result.ok()) {
+                    return child_result.status();
+                }
+
+                const auto& child_minimum_key = child_result.value();
+                if(!child_minimum_key.has_value()) {
+                    return core::Status::Corruption("Cannot validate B+ tree: internal page right child subtree has no keys");
+                }
+
+                if(std::memcmp(separator_keys[entry_index].data(), child_minimum_key->data(), context.key_size) != 0) {
+                    return core::Status::Corruption("Cannot validate B+ tree: separator key does not match right child subtree minimum");
                 }
 
             }
 
-            return core::Status::Ok();
+            return minimum_key;
 
         }
 
-        core::Status validate_subtree(
+        ValidateSubtreeResult validate_subtree(
             ValidationContext& context,
             storage::PageId page_id,
             storage::PageId expected_parent_page_id,
@@ -411,7 +430,7 @@ namespace dandb::btree {
         };
 
         const KeyRange root_key_range;
-        auto status = validate_subtree(
+        auto subtree_result = validate_subtree(
             context,
             root_page_id,
             storage::INVALID_PAGE_ID,
@@ -419,8 +438,8 @@ namespace dandb::btree {
             0,
             true
         );
-        if(!status.ok()) {
-            return status;
+        if(!subtree_result.ok()) {
+            return subtree_result.status();
         }
 
         return validate_leaf_links(state);
