@@ -40,6 +40,10 @@ namespace dandb::btree {
             core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
             core::Status erase(std::span<const std::byte> key);
             core::Result<BTreeCursor> scan() const;
+            core::Result<BTreeCursor> scan_range(
+                std::optional<std::span<const std::byte>> lower_bound,
+                std::optional<std::span<const std::byte>> upper_bound
+            ) const;
             core::Status validate() const;
 
             storage::PageId root_page_id() const;
@@ -53,6 +57,10 @@ namespace dandb::btree {
                 std::uint16_t key_size,
                 std::uint16_t value_size
             );
+
+            core::Result<storage::PageId> find_leaf_page_id(
+                std::span<const std::byte> key
+            ) const;
 
             core::Result<std::optional<SplitResult>> insert_into_subtree(
                 storage::PageId page_id,
