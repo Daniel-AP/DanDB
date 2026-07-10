@@ -4,18 +4,25 @@
 #include <dandb/storage/PageId.h>
 #include <dandb/btree/BTreeLeafPage.h>
 
+#include <cstring>
 #include <utility>
 
 namespace dandb::btree {
 
     BTreeCursor::BTreeCursor(
         storage::Pager& pager,
-        storage::PageId current_leaf_page_id
+        storage::PageId current_leaf_page_id,
+        std::uint16_t entry_index,
+        std::optional<std::span<const std::byte>> upper_bound
     ) :
         pager_(&pager),
         current_leaf_page_id_(current_leaf_page_id),
-        entry_index_(0)
-    {}
+        entry_index_(entry_index)
+    {
+        if(upper_bound.has_value()) {
+            upper_bound_ = std::vector<std::byte>{ (*upper_bound).begin(), (*upper_bound).end() };
+        }
+    }
 
     core::Result<std::optional<BTreeEntry>> BTreeCursor::next() {
 
@@ -43,13 +50,21 @@ namespace dandb::btree {
                     return key_bytes_result.status();
                 }
 
+                const auto key_bytes = key_bytes_result.value();
+                const bool has_reached_upper_bound = upper_bound_.has_value()
+                    && std::memcmp(key_bytes.data(), (*upper_bound_).data(), (*upper_bound_).size()) >= 0;
+                if(has_reached_upper_bound) {
+                    current_leaf_page_id_ = storage::INVALID_PAGE_ID;
+                    return std::optional<BTreeEntry>{};
+                }
+
                 const auto value_bytes_result = page_view.value_at(entry_index_);
                 if(!value_bytes_result.ok()) {
                     return value_bytes_result.status();
                 }
 
                 BTreeEntry result;
-                result.key = std::vector<std::byte>(key_bytes_result.value().begin(), key_bytes_result.value().end());
+                result.key = std::vector<std::byte>(key_bytes.begin(), key_bytes.end());
                 result.value = std::vector<std::byte>(value_bytes_result.value().begin(), value_bytes_result.value().end());
 
                 entry_index_++;
