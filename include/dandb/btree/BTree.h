@@ -102,6 +102,12 @@ namespace dandb::btree {
                 storage::PageId right_page_id
             );
 
+            core::Status merge_adjacent_internals(
+                storage::PageId left_page_id,
+                std::span<const std::byte> separator_key,
+                storage::PageId right_page_id
+            );
+
             core::Status rebalance_internal_child_after_erase(
                 storage::PageId parent_page_id,
                 std::uint16_t child_index
