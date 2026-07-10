@@ -116,6 +116,55 @@ namespace dandb::btree {
             return core::Status::InvalidArgument("Cannot find B+ tree key: key size is invalid");
         }
 
+        const auto leaf_page_id_result = find_leaf_page_id(key);
+        if(!leaf_page_id_result.ok()) {
+            return leaf_page_id_result.status();
+        }
+
+        const auto page_handle_result = pager_->get_page(leaf_page_id_result.value());
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        const auto* page = page_handle_result.value().page();
+        auto leaf_page_result = BTreeLeafPage<const std::byte>::open(page->data());
+        if(!leaf_page_result.ok()) {
+            return leaf_page_result.status();
+        }
+
+        const auto& leaf_page = leaf_page_result.value();
+        auto position_result = leaf_page.find_insertion_position(key);
+        if(!position_result.ok()) {
+            return position_result.status();
+        }
+
+        const auto position = position_result.value();
+        if(position == leaf_page.key_count()) {
+            return core::Status::NotFound("Cannot find B+ tree key: key was not found");
+        }
+
+        auto stored_key_result = leaf_page.key_at(position);
+        if(!stored_key_result.ok()) {
+            return stored_key_result.status();
+        }
+
+        const auto stored_key = stored_key_result.value();
+        if(std::memcmp(stored_key.data(), key.data(), key_size_) != 0) {
+            return core::Status::NotFound("Cannot find B+ tree key: key was not found");
+        }
+
+        auto stored_value_result = leaf_page.value_at(position);
+        if(!stored_value_result.ok()) {
+            return stored_value_result.status();
+        }
+
+        const auto stored_value = stored_value_result.value();
+        return std::vector<std::byte>{ stored_value.begin(), stored_value.end() };
+
+    }
+
+    core::Result<storage::PageId> BTree::find_leaf_page_id(std::span<const std::byte> key) const {
+
         auto current_page_id = root_page_id_;
 
         while(true) {
@@ -132,43 +181,8 @@ namespace dandb::btree {
             }
 
             const auto& btree_page = btree_page_result.value();
-
             if(btree_page.kind() == BTreePageKind::Leaf) {
-
-                auto leaf_page_result = BTreeLeafPage<const std::byte>::open(page->data());
-                if(!leaf_page_result.ok()) {
-                    return leaf_page_result.status();
-                }
-
-                const auto& leaf_page = leaf_page_result.value();
-                auto position_result = leaf_page.find_insertion_position(key);
-                if(!position_result.ok()) {
-                    return position_result.status();
-                }
-
-                const auto position = position_result.value();
-                if(position == leaf_page.key_count()) {
-                    return core::Status::NotFound("Cannot find B+ tree key: key was not found");
-                }
-
-                auto stored_key_result = leaf_page.key_at(position);
-                if(!stored_key_result.ok()) {
-                    return stored_key_result.status();
-                }
-
-                const auto stored_key = stored_key_result.value();
-                if(std::memcmp(stored_key.data(), key.data(), key_size_) != 0) {
-                    return core::Status::NotFound("Cannot find B+ tree key: key was not found");
-                }
-
-                auto stored_value_result = leaf_page.value_at(position);
-                if(!stored_value_result.ok()) {
-                    return stored_value_result.status();
-                }
-
-                const auto stored_value = stored_value_result.value();
-                return std::vector<std::byte>{ stored_value.begin(), stored_value.end() };
-
+                return current_page_id;
             }
 
             auto internal_page_result = BTreeInternalPage<const std::byte>::open(page->data());
@@ -386,6 +400,51 @@ namespace dandb::btree {
 
     core::Result<BTreeCursor> BTree::scan() const {
 
+        return scan_range(std::nullopt, std::nullopt);
+
+    }
+
+    core::Result<BTreeCursor> BTree::scan_range(
+        std::optional<std::span<const std::byte>> lower_bound,
+        std::optional<std::span<const std::byte>> upper_bound
+    ) const {
+
+        if(lower_bound.has_value() && (*lower_bound).size() != key_size_) {
+            return core::Status::InvalidArgument("Cannot range scan B+ tree: lower bound key size is invalid");
+        }
+
+        if(upper_bound.has_value() && (*upper_bound).size() != key_size_) {
+            return core::Status::InvalidArgument("Cannot range scan B+ tree: upper bound key size is invalid");
+        }
+
+        if(lower_bound.has_value()) {
+
+            const auto leaf_page_id_result = find_leaf_page_id(*lower_bound);
+            if(!leaf_page_id_result.ok()) {
+                return leaf_page_id_result.status();
+            }
+
+            const auto leaf_page_id = leaf_page_id_result.value();
+            const auto page_handle_result = pager_->get_page(leaf_page_id);
+            if(!page_handle_result.ok()) {
+                return page_handle_result.status();
+            }
+
+            const auto* page = page_handle_result.value().page();
+            auto leaf_page_result = BTreeLeafPage<const std::byte>::open(page->data());
+            if(!leaf_page_result.ok()) {
+                return leaf_page_result.status();
+            }
+
+            const auto position_result = leaf_page_result.value().find_insertion_position(*lower_bound);
+            if(!position_result.ok()) {
+                return position_result.status();
+            }
+
+            return BTreeCursor{ *pager_, leaf_page_id, position_result.value(), upper_bound };
+            
+        }
+
         storage::PageId current_page_id = root_page_id_;
 
         while(true) {
@@ -419,7 +478,7 @@ namespace dandb::btree {
 
             }
 
-            return BTreeCursor{ *pager_, current_page_id };
+            return BTreeCursor{ *pager_, current_page_id, 0, upper_bound };
 
         }
 
