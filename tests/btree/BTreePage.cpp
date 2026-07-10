@@ -995,6 +995,19 @@ TEST_CASE("B+ tree page initialization accepts a one-entry layout", "[btree][pag
     REQUIRE(result.value().capacity() == 1);
 }
 
+TEST_CASE("B+ tree internal page initialization rejects a one-entry layout", "[btree][page]") {
+    PageBytes bytes{};
+
+    const auto status = initialize_internal(
+        bytes,
+        static_cast<std::uint16_t>(BTREE_PAGE_ENTRY_AREA_SIZE/2),
+        8
+    );
+
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+}
+
 TEST_CASE("B+ tree typed page views reject mismatched page kinds", "[btree][page]") {
     auto leaf_bytes = make_leaf_page();
     auto internal_bytes = make_internal_page();
@@ -1061,6 +1074,17 @@ TEST_CASE("B+ tree page validation rejects invalid fixed header fields", "[btree
     SECTION("entry size is too large") {
         auto bytes = make_leaf_page();
         REQUIRE(write_u16_le(bytes, BTREE_PAGE_VALUE_SIZE_OFFSET, BTREE_PAGE_ENTRY_AREA_SIZE).ok());
+
+        require_corruption(bytes);
+    }
+
+    SECTION("internal page has capacity below two") {
+        auto bytes = make_internal_page();
+        REQUIRE(write_u16_le(
+            bytes,
+            BTREE_PAGE_KEY_SIZE_OFFSET,
+            static_cast<std::uint16_t>(BTREE_PAGE_ENTRY_AREA_SIZE/2)
+        ).ok());
 
         require_corruption(bytes);
     }

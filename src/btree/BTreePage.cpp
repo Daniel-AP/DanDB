@@ -21,8 +21,8 @@ namespace dandb::btree {
 
         const std::size_t entry_size = key_size+sizeof(std::uint64_t);
         const std::size_t capacity = BTREE_PAGE_ENTRY_AREA_SIZE/entry_size;
-        if(capacity == 0) {
-            return core::Status::InvalidArgument("Cannot initialize internal B+ tree page: entry size is too large");
+        if(capacity < 2) {
+            return core::Status::InvalidArgument("Cannot initialize internal B+ tree page: entry size must leave room for at least two entries");
         }
 
         for(std::size_t i = 0; i < bytes.size(); i++) {
@@ -203,6 +203,10 @@ namespace dandb::btree {
 
         if(capacity == 0) {
             return core::Status::Corruption("Cannot validate B+ tree page: entry size is too large");
+        }
+
+        if(page_kind == BTREE_INTERNAL_PAGE_KIND && capacity < 2) {
+            return core::Status::Corruption("Cannot validate B+ tree internal page: entry size must leave room for at least two entries");
         }
 
         if(stored_key_count > capacity) {
