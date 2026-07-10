@@ -443,6 +443,98 @@ TEST_CASE("BTree scan returns one-leaf entries in key order", "[btree][tree]") {
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("BTree range scan includes the lower bound and excludes the upper bound", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    const auto lower_bound = make_key(20);
+    const auto upper_bound = make_key(30);
+    auto cursor_result = tree.scan_range(lower_bound, upper_bound);
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 20, VALUE_SIZE, 20);
+    require_scan_finished(cursor);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree range scan stops at an upper bound without a lower bound", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    const auto upper_bound = make_key(20);
+    auto cursor_result = tree.scan_range(std::nullopt, upper_bound);
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 10, VALUE_SIZE, 10);
+    require_scan_finished(cursor);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree range scan returns no entries for an empty range", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    const auto bound = make_key(20);
+    auto cursor_result = tree.scan_range(bound, bound);
+    REQUIRE(cursor_result.ok());
+
+    require_scan_finished(cursor_result.value());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("BTree stores index-like entries as secondary keys pointing to primary keys", "[btree][tree]") {
     const TempDir temp_dir;
 
