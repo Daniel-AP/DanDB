@@ -1534,3 +1534,271 @@ TEST_CASE("BTree erase preserves a multi-level tree through a delete sequence", 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
 }
+
+TEST_CASE("BTree committed inserts survive Pager reopen", "[btree][tree][transaction]") {
+    const TempDir temp_dir;
+    PageId root_page_id;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        for(std::uint8_t key_value: { 30, 10, 20 }) {
+            auto key = make_key(key_value);
+            auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+            REQUIRE(tree.insert(key, value).ok());
+        }
+
+        root_page_id = tree.root_page_id();
+        REQUIRE(tree.validate().ok());
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_result = Pager::open(temp_dir.database_path(), 8);
+    REQUIRE(reopened_result.ok());
+
+    Pager& reopened_pager = reopened_result.value();
+    auto reopened_tree_result = BTree::open_existing(reopened_pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(reopened_tree_result.ok());
+
+    auto& reopened_tree = reopened_tree_result.value();
+    REQUIRE(reopened_tree.validate().ok());
+    require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_found_value(reopened_tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+
+    auto cursor_result = reopened_tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_next_scan_entry(cursor, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_next_scan_entry(cursor, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_scan_finished(cursor);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("BTree rolled back inserts do not survive Pager reopen", "[btree][tree][transaction]") {
+    const TempDir temp_dir;
+    PageId root_page_id;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        root_page_id = tree.root_page_id();
+
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.begin_transaction().ok());
+
+        for(std::uint8_t key_value: { 30, 10, 20 }) {
+            auto key = make_key(key_value);
+            auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+            REQUIRE(tree.insert(key, value).ok());
+        }
+
+        REQUIRE(tree.root_page_id() != root_page_id);
+        REQUIRE(tree.validate().ok());
+        REQUIRE(pager.rollback_transaction().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_result = Pager::open(temp_dir.database_path(), 8);
+    REQUIRE(reopened_result.ok());
+
+    Pager& reopened_pager = reopened_result.value();
+    auto reopened_tree_result = BTree::open_existing(reopened_pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(reopened_tree_result.ok());
+
+    auto& reopened_tree = reopened_tree_result.value();
+    REQUIRE(reopened_tree.validate().ok());
+    require_missing_key(reopened_tree, 10);
+    require_missing_key(reopened_tree, 20);
+    require_missing_key(reopened_tree, 30);
+
+    auto cursor_result = reopened_tree.scan();
+    REQUIRE(cursor_result.ok());
+    require_scan_finished(cursor_result.value());
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("BTree committed deletes survive Pager reopen", "[btree][tree][transaction]") {
+    const TempDir temp_dir;
+    PageId root_page_id;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        for(std::uint8_t key_value: { 10, 20, 30, 40, 50 }) {
+            auto key = make_key(key_value);
+            auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+            REQUIRE(tree.insert(key, value).ok());
+        }
+
+        root_page_id = tree.root_page_id();
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    {
+        auto pager_result = Pager::open(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::open_existing(pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        auto key_20 = make_key(20);
+        REQUIRE(tree.erase(key_20).ok());
+
+        root_page_id = tree.root_page_id();
+        REQUIRE(tree.validate().ok());
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_result = Pager::open(temp_dir.database_path(), 8);
+    REQUIRE(reopened_result.ok());
+
+    Pager& reopened_pager = reopened_result.value();
+    auto reopened_tree_result = BTree::open_existing(reopened_pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(reopened_tree_result.ok());
+
+    auto& reopened_tree = reopened_tree_result.value();
+    REQUIRE(reopened_tree.validate().ok());
+    require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_missing_key(reopened_tree, 20);
+    require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_found_value(reopened_tree, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_found_value(reopened_tree, 50, SMALL_LEAF_VALUE_SIZE, 50);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("BTree rolled back deletes do not survive Pager reopen", "[btree][tree][transaction]") {
+    const TempDir temp_dir;
+    PageId root_page_id;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        for(std::uint8_t key_value: { 10, 20, 30, 40, 50 }) {
+            auto key = make_key(key_value);
+            auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+            REQUIRE(tree.insert(key, value).ok());
+        }
+
+        root_page_id = tree.root_page_id();
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto key_20 = make_key(20);
+        REQUIRE(tree.erase(key_20).ok());
+        REQUIRE(tree.validate().ok());
+
+        REQUIRE(pager.rollback_transaction().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_result = Pager::open(temp_dir.database_path(), 8);
+    REQUIRE(reopened_result.ok());
+
+    Pager& reopened_pager = reopened_result.value();
+    auto reopened_tree_result = BTree::open_existing(reopened_pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(reopened_tree_result.ok());
+
+    auto& reopened_tree = reopened_tree_result.value();
+    REQUIRE(reopened_tree.validate().ok());
+    require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_found_value(reopened_tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_found_value(reopened_tree, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_found_value(reopened_tree, 50, SMALL_LEAF_VALUE_SIZE, 50);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("BTree checkpoint preserves committed tree changes after Pager reopen", "[btree][tree][transaction]") {
+    const TempDir temp_dir;
+    PageId root_page_id;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), 8);
+        REQUIRE(pager_result.ok());
+
+        Pager& pager = pager_result.value();
+        REQUIRE(pager.begin_transaction().ok());
+
+        auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+        REQUIRE(tree_result.ok());
+
+        auto& tree = tree_result.value();
+        for(std::uint8_t key_value: { 10, 20, 30, 40, 50 }) {
+            auto key = make_key(key_value);
+            auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+            REQUIRE(tree.insert(key, value).ok());
+        }
+
+        auto key_20 = make_key(20);
+        REQUIRE(tree.erase(key_20).ok());
+
+        root_page_id = tree.root_page_id();
+        REQUIRE(tree.validate().ok());
+        REQUIRE(pager.commit_transaction().ok());
+        REQUIRE(pager.checkpoint().ok());
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_result = Pager::open(temp_dir.database_path(), 8);
+    REQUIRE(reopened_result.ok());
+
+    Pager& reopened_pager = reopened_result.value();
+    auto reopened_tree_result = BTree::open_existing(reopened_pager, root_page_id, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(reopened_tree_result.ok());
+
+    auto& reopened_tree = reopened_tree_result.value();
+    REQUIRE(reopened_tree.validate().ok());
+    require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_missing_key(reopened_tree, 20);
+    require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_found_value(reopened_tree, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_found_value(reopened_tree, 50, SMALL_LEAF_VALUE_SIZE, 50);
+
+    REQUIRE(reopened_pager.close().ok());
+}
