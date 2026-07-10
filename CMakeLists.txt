@@ -46,6 +46,7 @@ add_library(dandb_core STATIC
     src/catalog/TableDescriptor.cpp
     src/catalog/ColumnDescriptor.cpp
     src/catalog/IndexDescriptor.cpp
+    src/catalog/SystemTables.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
