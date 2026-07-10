@@ -322,10 +322,63 @@ namespace dandb::btree {
             return erase_result.status();
         }
 
-        auto shrink_status = shrink_root_after_erase();
-        if(!shrink_status.ok()) {
-            return shrink_status;
+        storage::PageId new_root_page_id;
+
+        {
+            auto root_page_handle_result = pager_->get_page(root_page_id_);
+            if(!root_page_handle_result.ok()) {
+                return root_page_handle_result.status();
+            }
+
+            auto root_page_result = root_page_handle_result.value().mutable_page();
+            if(!root_page_result.ok()) {
+                return root_page_result.status();
+            }
+
+            auto root_page_view_result = BTreePage<std::byte>::open(root_page_result.value()->data());
+            if(!root_page_view_result.ok()) {
+                return root_page_view_result.status();
+            }
+
+            auto& root_page_view = root_page_view_result.value();
+
+            if(root_page_view.kind() == BTreePageKind::Leaf || root_page_view.key_count() > 0) {
+                return core::Status::Ok();
+            }
+
+            auto root_internal_page_view_result = BTreeInternalPage<std::byte>::open(root_page_result.value()->data());
+            if(!root_internal_page_view_result.ok()) {
+                return root_internal_page_view_result.status();
+            }
+
+            auto& root_internal_page_view = root_internal_page_view_result.value();
+            new_root_page_id = root_internal_page_view.first_child_page_id();
+            root_internal_page_view.set_root(false);
         }
+
+        {
+            auto new_root_page_handle_result = pager_->get_page(new_root_page_id);
+            if(!new_root_page_handle_result.ok()) {
+                return new_root_page_handle_result.status();
+            }
+
+            auto new_root_page_result = new_root_page_handle_result.value().mutable_page();
+            if(!new_root_page_result.ok()) {
+                return new_root_page_result.status();
+            }
+
+            auto new_root_page_view_result = BTreePage<std::byte>::open(new_root_page_result.value()->data());
+            if(!new_root_page_view_result.ok()) {
+                return new_root_page_view_result.status();
+            }
+
+            auto& new_root_page_view = new_root_page_view_result.value();
+            
+            new_root_page_view.set_root(true);
+            new_root_page_view.set_parent_page_id(storage::INVALID_PAGE_ID);
+        }
+
+        root_page_id_ = new_root_page_id;
 
         return core::Status::Ok();
 

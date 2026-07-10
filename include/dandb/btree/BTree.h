@@ -113,16 +113,10 @@ namespace dandb::btree {
                 std::uint16_t child_index
             );
 
-            core::Status shrink_root_after_erase();
-
             core::Status refresh_child_separator(
                 storage::PageId internal_page_id,
                 std::uint16_t child_index
             );
-
-            core::Result<std::vector<std::byte>> first_key_in_subtree(
-                storage::PageId page_id
-            ) const;
 
             core::Result<bool> page_is_underfull(
                 storage::PageId page_id
