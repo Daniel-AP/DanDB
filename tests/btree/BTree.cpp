@@ -32,7 +32,10 @@ namespace {
     constexpr std::uint16_t INDEX_KEY_SIZE = 4;
     constexpr std::uint16_t PRIMARY_KEY_VALUE_SIZE = KEY_SIZE;
     constexpr std::uint16_t SMALL_LEAF_VALUE_SIZE = 2008;
+    constexpr std::uint16_t LEAF_BORROW_VALUE_SIZE = 1000;
     constexpr std::uint16_t SINGLE_ENTRY_LEAF_VALUE_SIZE = 4000;
+    constexpr std::uint16_t SMALL_INTERNAL_KEY_SIZE = 2000;
+    constexpr std::uint16_t SMALL_INTERNAL_VALUE_SIZE = 2000;
 
     std::array<std::byte, KEY_SIZE> make_key(std::uint8_t value) {
         std::array<std::byte, KEY_SIZE> key{};
@@ -50,6 +53,36 @@ namespace {
 
     std::vector<std::byte> make_value(std::uint16_t value_size, std::uint8_t value) {
         return std::vector<std::byte>(value_size, static_cast<std::byte>(value));
+    }
+
+    std::vector<std::byte> make_sized_key(std::uint16_t key_size, std::uint8_t value) {
+        std::vector<std::byte> key(key_size);
+
+        key[key_size-1] = static_cast<std::byte>(value);
+        return key;
+    }
+
+    void insert_sized_entry(
+        BTree& tree,
+        std::uint16_t key_size,
+        std::uint16_t value_size,
+        std::uint8_t value
+    ) {
+        const auto key = make_sized_key(key_size, value);
+        const auto stored_value = make_value(value_size, value);
+
+        REQUIRE(tree.insert(key, stored_value).ok());
+    }
+
+    template<std::size_t N>
+    void require_key_equals(
+        std::span<const std::byte> actual,
+        const std::array<std::byte, N>& expected
+    ) {
+        REQUIRE(
+            std::vector<std::byte>{ actual.begin(), actual.end() }
+            == std::vector<std::byte>{ expected.begin(), expected.end() }
+        );
     }
 
     std::array<std::byte, INDEX_KEY_SIZE> make_index_key(std::uint8_t value) {
@@ -951,6 +984,460 @@ TEST_CASE("BTree find routes internal boundary keys to the correct child", "[btr
     require_found_value(tree, 10, 10);
     require_found_value(tree, 25, 25);
     require_found_value(tree, 40, 40);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase removes every entry from a root leaf", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_10 = make_key(10);
+    auto value_10 = make_value(10);
+    REQUIRE(tree.insert(key_10, value_10).ok());
+    REQUIRE(tree.erase(key_10).ok());
+
+    require_missing_key(tree, 10);
+    REQUIRE(tree.validate().ok());
+
+    {
+        auto root_page_result = pager.get_page(tree.root_page_id());
+        REQUIRE(root_page_result.ok());
+
+        auto root_leaf_result = BTreeLeafPage<const std::byte>::open(root_page_result.value().page()->data());
+        REQUIRE(root_leaf_result.ok());
+        REQUIRE(root_leaf_result.value().is_root());
+        REQUIRE(root_leaf_result.value().key_count() == 0);
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase reports a missing key without changing the tree", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_10 = make_key(10);
+    auto value_10 = make_value(10);
+    REQUIRE(tree.insert(key_10, value_10).ok());
+
+    auto key_20 = make_key(20);
+    const auto erase_status = tree.erase(key_20);
+    REQUIRE_FALSE(erase_status.ok());
+    REQUIRE(erase_status.code() == StatusCode::NotFound);
+
+    require_found_value(tree, 10, 10);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase rejects a key with an invalid size", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_10 = make_key(10);
+    auto value_10 = make_value(10);
+    REQUIRE(tree.insert(key_10, value_10).ok());
+
+    std::array<std::byte, KEY_SIZE-1> undersized_key{};
+    const auto erase_status = tree.erase(undersized_key);
+    REQUIRE_FALSE(erase_status.ok());
+    REQUIRE(erase_status.code() == StatusCode::InvalidArgument);
+
+    require_found_value(tree, 10, 10);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase refreshes a separator after removing a leaf first key", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto key_20 = make_key(20);
+    REQUIRE(tree.erase(key_20).ok());
+
+    require_found_value(tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_missing_key(tree, 20);
+    require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    REQUIRE(tree.validate().ok());
+
+    {
+        auto root_page_result = pager.get_page(tree.root_page_id());
+        REQUIRE(root_page_result.ok());
+
+        auto root_page_view_result = BTreeInternalPage<const std::byte>::open(root_page_result.value().page()->data());
+        REQUIRE(root_page_view_result.ok());
+
+        auto separator_key_result = root_page_view_result.value().key_at(0);
+        REQUIRE(separator_key_result.ok());
+        require_key_equals(separator_key_result.value(), make_key(30));
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase borrows from the right leaf sibling", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto key_10 = make_key(10);
+    REQUIRE(tree.erase(key_10).ok());
+
+    require_missing_key(tree, 10);
+    require_found_value(tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    REQUIRE(tree.validate().ok());
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 20, SMALL_LEAF_VALUE_SIZE, 20);
+    require_next_scan_entry(cursor, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_scan_finished(cursor);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase borrows from the left leaf sibling", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 15 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto key_30 = make_key(30);
+    auto key_20 = make_key(20);
+    REQUIRE(tree.erase(key_30).ok());
+    REQUIRE(tree.erase(key_20).ok());
+
+    require_found_value(tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_found_value(tree, 15, SMALL_LEAF_VALUE_SIZE, 15);
+    require_missing_key(tree, 20);
+    require_missing_key(tree, 30);
+    REQUIRE(tree.validate().ok());
+
+    {
+        auto root_page_result = pager.get_page(tree.root_page_id());
+        REQUIRE(root_page_result.ok());
+
+        auto root_page_view_result = BTreeInternalPage<const std::byte>::open(root_page_result.value().page()->data());
+        REQUIRE(root_page_view_result.ok());
+
+        auto separator_key_result = root_page_view_result.value().key_at(0);
+        REQUIRE(separator_key_result.ok());
+        require_key_equals(separator_key_result.value(), make_key(15));
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase merges leaves and preserves scan order", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 8);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, SMALL_LEAF_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40, 50 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(SMALL_LEAF_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto key_20 = make_key(20);
+    REQUIRE(tree.erase(key_20).ok());
+
+    require_found_value(tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_missing_key(tree, 20);
+    require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_found_value(tree, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_found_value(tree, 50, SMALL_LEAF_VALUE_SIZE, 50);
+    REQUIRE(tree.validate().ok());
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+
+    auto& cursor = cursor_result.value();
+    require_next_scan_entry(cursor, 10, SMALL_LEAF_VALUE_SIZE, 10);
+    require_next_scan_entry(cursor, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    require_next_scan_entry(cursor, 40, SMALL_LEAF_VALUE_SIZE, 40);
+    require_next_scan_entry(cursor, 50, SMALL_LEAF_VALUE_SIZE, 50);
+    require_scan_finished(cursor);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase refreshes a middle leaf separator after borrowing from the right", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 8);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, LEAF_BORROW_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40, 50, 60, 70 }) {
+        auto key = make_key(key_value);
+        auto value = make_value(LEAF_BORROW_VALUE_SIZE, key_value);
+        REQUIRE(tree.insert(key, value).ok());
+    }
+
+    auto key_30 = make_key(30);
+    REQUIRE(tree.erase(key_30).ok());
+
+    require_missing_key(tree, 30);
+    require_found_value(tree, 40, LEAF_BORROW_VALUE_SIZE, 40);
+    require_found_value(tree, 50, LEAF_BORROW_VALUE_SIZE, 50);
+    require_found_value(tree, 60, LEAF_BORROW_VALUE_SIZE, 60);
+    require_found_value(tree, 70, LEAF_BORROW_VALUE_SIZE, 70);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase borrows from the right internal sibling", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 16);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40, 50 }) {
+        insert_sized_entry(tree, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE, key_value);
+    }
+
+    const auto root_before_erase = tree.root_page_id();
+    const auto key_10 = make_sized_key(SMALL_INTERNAL_KEY_SIZE, 10);
+    REQUIRE(tree.erase(key_10).ok());
+
+    for(std::uint8_t key_value: { 20, 30, 40, 50 }) {
+        const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
+        const auto found_value = tree.find(key);
+        REQUIRE(found_value.ok());
+        REQUIRE(found_value.value() == make_value(SMALL_INTERNAL_VALUE_SIZE, key_value));
+    }
+
+    const auto erased_value = tree.find(key_10);
+    REQUIRE_FALSE(erased_value.ok());
+    REQUIRE(erased_value.status().code() == StatusCode::NotFound);
+    REQUIRE(tree.root_page_id() == root_before_erase);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase merges internal children and shrinks the root", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 16);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40 }) {
+        insert_sized_entry(tree, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE, key_value);
+    }
+
+    const auto old_root_page_id = tree.root_page_id();
+    const auto key_10 = make_sized_key(SMALL_INTERNAL_KEY_SIZE, 10);
+    REQUIRE(tree.erase(key_10).ok());
+
+    for(std::uint8_t key_value: { 20, 30, 40 }) {
+        const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
+        const auto found_value = tree.find(key);
+        REQUIRE(found_value.ok());
+        REQUIRE(found_value.value() == make_value(SMALL_INTERNAL_VALUE_SIZE, key_value));
+    }
+
+    REQUIRE(tree.root_page_id() != old_root_page_id);
+    REQUIRE(tree.validate().ok());
+
+    {
+        auto root_page_result = pager.get_page(tree.root_page_id());
+        REQUIRE(root_page_result.ok());
+
+        auto root_page_view_result = BTreeInternalPage<const std::byte>::open(root_page_result.value().page()->data());
+        REQUIRE(root_page_view_result.ok());
+        REQUIRE(root_page_view_result.value().is_root());
+        REQUIRE(root_page_view_result.value().key_count() == 2);
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase refreshes an internal separator before merging a child", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 32);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 }) {
+        insert_sized_entry(tree, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE, key_value);
+    }
+
+    for(std::uint8_t key_value: { 40, 10, 70 }) {
+        const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
+        REQUIRE(tree.erase(key).ok());
+    }
+
+    REQUIRE(tree.validate().ok());
+
+    for(std::uint8_t key_value: { 20, 30, 50, 60, 80, 90, 100 }) {
+        const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
+        REQUIRE(tree.find(key).ok());
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree erase preserves a multi-level tree through a delete sequence", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 32);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    for(std::uint8_t key_value: { 10, 20, 30, 40, 50, 60, 70, 80, 90, 100 }) {
+        insert_sized_entry(tree, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE, key_value);
+    }
+
+    REQUIRE(tree.validate().ok());
+
+    for(std::uint8_t key_value: { 40, 10, 70, 20, 80, 30, 60, 50, 90, 100 }) {
+        const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
+        REQUIRE(tree.erase(key).ok());
+
+        const auto erased_value = tree.find(key);
+        REQUIRE_FALSE(erased_value.ok());
+        REQUIRE(erased_value.status().code() == StatusCode::NotFound);
+
+        const auto validation_status = tree.validate();
+        CAPTURE(key_value);
+        INFO(validation_status.message());
+        REQUIRE(validation_status.ok());
+    }
+
+    auto cursor_result = tree.scan();
+    REQUIRE(cursor_result.ok());
+    require_scan_finished(cursor_result.value());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
