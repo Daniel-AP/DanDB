@@ -9,8 +9,7 @@ namespace dandb::catalog {
     core::Result<TableDescriptor> TableDescriptor::create(
         TableId table_id,
         std::string name,
-        storage::PageId root_page_id,
-        ColumnId primary_key_column_id
+        storage::PageId root_page_id
     ) {
         
         if(!table_id.is_valid()) {
@@ -29,15 +28,10 @@ namespace dandb::catalog {
             return core::Status::InvalidArgument("Cannot create table descriptor: root page id cannot be the database header page");
         }
 
-        if(!primary_key_column_id.is_valid()) {
-            return core::Status::InvalidArgument("Cannot create table descriptor: primary key column id cannot be invalid");
-        }
-
         return TableDescriptor(
             table_id,
             std::move(name),
-            root_page_id,
-            primary_key_column_id
+            root_page_id
         );
 
     }
@@ -45,13 +39,11 @@ namespace dandb::catalog {
     TableDescriptor::TableDescriptor(
         TableId table_id,
         std::string name,
-        storage::PageId root_page_id,
-        ColumnId primary_key_column_id
+        storage::PageId root_page_id
     ) :
         table_id_(table_id),
         name_(std::move(name)),
-        root_page_id_(root_page_id),
-        primary_key_column_id_(primary_key_column_id)
+        root_page_id_(root_page_id)
     {}
 
     TableId TableDescriptor::table_id() const {
@@ -64,10 +56,6 @@ namespace dandb::catalog {
 
     storage::PageId TableDescriptor::root_page_id() const {
         return root_page_id_;
-    }
-
-    ColumnId TableDescriptor::primary_key_column_id() const {
-        return primary_key_column_id_;
     }
 
 }
