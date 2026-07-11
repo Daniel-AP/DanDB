@@ -1,7 +1,9 @@
 #pragma once
 
-#include <limits>
+#include <cstddef>
 #include <cstdint>
+#include <functional>
+#include <limits>
 
 namespace dandb::catalog {
 
@@ -15,5 +17,16 @@ namespace dandb::catalog {
     };
 
     inline constexpr ColumnId INVALID_COLUMN_ID{ std::numeric_limits<std::uint64_t>::max() };
+
+}
+
+namespace std {
+
+    template<>
+    struct hash<dandb::catalog::ColumnId> {
+        std::size_t operator()(const dandb::catalog::ColumnId& column_id) const noexcept {
+            return std::hash<std::uint64_t>{}(column_id.id);
+        }
+    };
 
 }
