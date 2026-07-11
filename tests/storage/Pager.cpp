@@ -36,7 +36,9 @@ using dandb::wal::WalManager;
 namespace {
 
     constexpr std::uint64_t TRANSACTION_ID = 42;
-    constexpr PageId PAGE_ID{ 1 };
+    constexpr std::size_t TEST_BPM_CAPACITY = 10;
+    constexpr PageId PAGE_ID{ 8 };
+    constexpr PageId NEXT_PAGE_ID{ 9 };
 
     Page make_page(PageId page_id, std::uint8_t seed) {
         Page page(page_id);
@@ -98,7 +100,7 @@ TEST_CASE("Pager exposes the stable Day 5 storage API", "[storage][pager]") {
 TEST_CASE("Pager can create storage files and close them", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
 
     REQUIRE(created.ok());
     REQUIRE(std::filesystem::exists(temp_dir.database_path()));
@@ -110,7 +112,7 @@ TEST_CASE("Pager can open an existing database", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
         REQUIRE(created.value().close().ok());
     }
@@ -124,7 +126,7 @@ TEST_CASE("Pager can open an existing database", "[storage][pager]") {
 TEST_CASE("Pager create holds an exclusive database lock until close", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto first = Pager::create(temp_dir.database_path(), 2);
+    auto first = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(first.ok());
 
     auto second = Pager::open(temp_dir.database_path(), 2);
@@ -142,7 +144,7 @@ TEST_CASE("Pager open holds an exclusive database lock until close", "[storage][
     const dandb::testutil::TempDir temp_dir;
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
         REQUIRE(created.value().close().ok());
     }
@@ -164,7 +166,7 @@ TEST_CASE("Pager open holds an exclusive database lock until close", "[storage][
 TEST_CASE("Pager rejects page allocation without an active transaction", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 1);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -188,7 +190,7 @@ TEST_CASE("Pager rejects page allocation without an active transaction", "[stora
 TEST_CASE("Pager allocates append-only zero-filled pages", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -198,14 +200,14 @@ TEST_CASE("Pager allocates append-only zero-filled pages", "[storage][pager]") {
         auto first_page = pager.new_page();
         REQUIRE(first_page.ok());
         REQUIRE(first_page.value().page() != nullptr);
-        REQUIRE(first_page.value().page()->id() == PageId{ 1 });
+        REQUIRE(first_page.value().page()->id() == PAGE_ID);
         REQUIRE(page_is_zero_filled(*first_page.value().page()));
         REQUIRE(first_page.value().is_dirty());
 
         auto second_page = pager.new_page();
         REQUIRE(second_page.ok());
         REQUIRE(second_page.value().page() != nullptr);
-        REQUIRE(second_page.value().page()->id() == PageId{ 2 });
+        REQUIRE(second_page.value().page()->id() == NEXT_PAGE_ID);
         REQUIRE(page_is_zero_filled(*second_page.value().page()));
         REQUIRE(second_page.value().is_dirty());
     }
@@ -219,7 +221,7 @@ TEST_CASE("Pager reads committed WAL page images after open", "[storage][pager]"
     const Page wal_page = make_page(PAGE_ID, 7);
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
         REQUIRE(created.value().close().ok());
     }
@@ -258,7 +260,7 @@ TEST_CASE("Pager restores committed page count from WAL header after open", "[st
     const dandb::testutil::TempDir temp_dir;
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
 
         Pager& pager = created.value();
@@ -267,7 +269,7 @@ TEST_CASE("Pager restores committed page count from WAL header after open", "[st
         {
             auto allocated = pager.new_page();
             REQUIRE(allocated.ok());
-            REQUIRE(allocated.value().page()->id() == PageId{ 1 });
+            REQUIRE(allocated.value().page()->id() == PAGE_ID);
         }
 
         REQUIRE(pager.commit_transaction().ok());
@@ -282,7 +284,7 @@ TEST_CASE("Pager restores committed page count from WAL header after open", "[st
 
     auto allocated = pager.new_page();
     REQUIRE(allocated.ok());
-    REQUIRE(allocated.value().page()->id() == PageId{ 2 });
+    REQUIRE(allocated.value().page()->id() == NEXT_PAGE_ID);
 
     REQUIRE(pager.close().ok());
 }
@@ -292,7 +294,7 @@ TEST_CASE("Pager commit makes dirty page data visible after reopen", "[storage][
     const Page expected_page = make_page(PAGE_ID, 11);
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
 
         Pager& pager = created.value();
@@ -325,7 +327,7 @@ TEST_CASE("Pager rejects marking a page dirty without an active transaction", "[
     const dandb::testutil::TempDir temp_dir;
     const Page committed_page = make_page(PAGE_ID, 20);
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -359,7 +361,7 @@ TEST_CASE("Pager commit rejects dirty pinned pages", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 21);
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -391,7 +393,7 @@ TEST_CASE("Pager does not recover dirty page data without commit", "[storage][pa
     const Page uncommitted_page = make_page(PAGE_ID, 13);
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
 
         Pager& pager = created.value();
@@ -443,7 +445,7 @@ TEST_CASE("Pager commit sync failure leaves transaction unresolved", "[storage][
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 14);
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -498,7 +500,7 @@ TEST_CASE("Pager rollback restores modified existing page data", "[storage][page
     const Page committed_page = make_page(PAGE_ID, 15);
     const Page uncommitted_page = make_page(PAGE_ID, 16);
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -541,7 +543,7 @@ TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
     const Page committed_page = make_page(PAGE_ID, 21);
     const Page uncommitted_page = make_page(PAGE_ID, 22);
 
-    auto created = Pager::create(temp_dir.database_path(), 1);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -572,10 +574,10 @@ TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.begin_transaction().ok());
 
-    {
-        auto allocated_after_rollback = pager.new_page();
-        REQUIRE(allocated_after_rollback.ok());
-        REQUIRE(allocated_after_rollback.value().page()->id() == PageId{ 2 });
+    for(std::size_t page_offset = 1; page_offset <= TEST_BPM_CAPACITY; page_offset++) {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PageId{ PAGE_ID.id+page_offset });
     }
 
     REQUIRE(pager.rollback_transaction().ok());
@@ -585,7 +587,7 @@ TEST_CASE("Pager rollback makes restored pages evictable", "[storage][pager]") {
 TEST_CASE("Pager rollback restores page count after page allocation", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -612,7 +614,7 @@ TEST_CASE("Pager rollback restores page count after page allocation", "[storage]
 TEST_CASE("Pager rollback clears failed transaction state", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -632,7 +634,7 @@ TEST_CASE("Pager checkpoint persists committed pages to the main database and re
     std::uint64_t database_id = 0;
 
     {
-        auto created = Pager::create(temp_dir.database_path(), 2);
+        auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
         REQUIRE(created.ok());
 
         Pager& pager = created.value();
@@ -658,7 +660,7 @@ TEST_CASE("Pager checkpoint persists committed pages to the main database and re
 
     auto header_result = disk_manager_result.value().read_header();
     REQUIRE(header_result.ok());
-    REQUIRE(header_result.value().page_count() == 2);
+    REQUIRE(header_result.value().page_count() == NEXT_PAGE_ID.id);
     database_id = header_result.value().database_id();
 
     auto disk_page = disk_manager_result.value().read_page(PAGE_ID);
@@ -674,7 +676,7 @@ TEST_CASE("Pager checkpoint persists committed pages to the main database and re
 TEST_CASE("Pager checkpoint rejects active transactions", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -693,7 +695,7 @@ TEST_CASE("Pager commit makes cached committed pages evictable before checkpoint
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 18);
 
-    auto created = Pager::create(temp_dir.database_path(), 1);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();
@@ -713,10 +715,10 @@ TEST_CASE("Pager commit makes cached committed pages evictable before checkpoint
 
     REQUIRE(pager.begin_transaction().ok());
 
-    {
-        auto allocated_after_checkpoint = pager.new_page();
-        REQUIRE(allocated_after_checkpoint.ok());
-        REQUIRE(allocated_after_checkpoint.value().page()->id() == PageId{ 2 });
+    for(std::size_t page_offset = 1; page_offset <= TEST_BPM_CAPACITY; page_offset++) {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PageId{ PAGE_ID.id+page_offset });
     }
 
     REQUIRE(pager.rollback_transaction().ok());
@@ -727,7 +729,7 @@ TEST_CASE("Pager checkpoint keeps WAL when main database sync fails", "[storage]
     const dandb::testutil::TempDir temp_dir;
     const Page expected_page = make_page(PAGE_ID, 19);
 
-    auto created = Pager::create(temp_dir.database_path(), 2);
+    auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
 
     Pager& pager = created.value();

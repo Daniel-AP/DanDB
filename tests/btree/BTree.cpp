@@ -225,7 +225,7 @@ namespace {
 TEST_CASE("BTree create_new initializes an empty leaf root", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -260,7 +260,7 @@ TEST_CASE("BTree create_new initializes an empty leaf root", "[btree][tree]") {
 TEST_CASE("BTree open_existing accepts a matching root page", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -285,7 +285,7 @@ TEST_CASE("BTree open_existing accepts a matching root page", "[btree][tree]") {
 TEST_CASE("BTree open_existing rejects a non-root page", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -315,7 +315,7 @@ TEST_CASE("BTree open_existing rejects a non-root page", "[btree][tree]") {
 TEST_CASE("BTree open_existing rejects mismatched root layout", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -345,7 +345,7 @@ TEST_CASE("BTree open_existing rejects mismatched root layout", "[btree][tree]")
 TEST_CASE("BTree find reports not found in an empty root leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -363,7 +363,7 @@ TEST_CASE("BTree find reports not found in an empty root leaf", "[btree][tree]")
 TEST_CASE("BTree scan returns no entries for an empty tree", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -384,7 +384,7 @@ TEST_CASE("BTree scan returns no entries for an empty tree", "[btree][tree]") {
 TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -408,7 +408,7 @@ TEST_CASE("BTree find returns values from a one-page leaf", "[btree][tree]") {
 TEST_CASE("BTree scan returns one-leaf entries in key order", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -446,7 +446,7 @@ TEST_CASE("BTree scan returns one-leaf entries in key order", "[btree][tree]") {
 TEST_CASE("BTree range scan includes the lower bound and excludes the upper bound", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -478,7 +478,7 @@ TEST_CASE("BTree range scan includes the lower bound and excludes the upper boun
 TEST_CASE("BTree range scan stops at an upper bound without a lower bound", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -509,7 +509,7 @@ TEST_CASE("BTree range scan stops at an upper bound without a lower bound", "[bt
 TEST_CASE("BTree range scan returns no entries for an empty range", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -538,7 +538,7 @@ TEST_CASE("BTree range scan returns no entries for an empty range", "[btree][tre
 TEST_CASE("BTree stores index-like entries as secondary keys pointing to primary keys", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -563,7 +563,7 @@ TEST_CASE("BTree stores index-like entries as secondary keys pointing to primary
 TEST_CASE("BTree scan returns index-like entries in secondary-key order", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -601,7 +601,7 @@ TEST_CASE("BTree scan returns index-like entries in secondary-key order", "[btre
 TEST_CASE("BTree insert stores values in a one-page root leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -646,7 +646,7 @@ TEST_CASE("BTree insert stores values in a one-page root leaf", "[btree][tree]")
 TEST_CASE("BTree insert rejects duplicate keys", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -674,7 +674,7 @@ TEST_CASE("BTree insert rejects duplicate keys", "[btree][tree]") {
 TEST_CASE("BTree insert rejects invalid key and value sizes", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -716,7 +716,7 @@ TEST_CASE("BTree insert rejects invalid key and value sizes", "[btree][tree]") {
 TEST_CASE("BTree insert splits a full root leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -811,7 +811,7 @@ TEST_CASE("BTree insert splits a full root leaf", "[btree][tree]") {
 TEST_CASE("BTree insert rejects duplicate keys after a root leaf split", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -959,7 +959,7 @@ TEST_CASE("BTree insert splits an internal root when separators no longer fit", 
 TEST_CASE("BTree find rejects invalid key sizes", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -985,7 +985,7 @@ TEST_CASE("BTree find rejects invalid key sizes", "[btree][tree]") {
 TEST_CASE("BTree find routes equal separator keys to the right child", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1036,7 +1036,7 @@ TEST_CASE("BTree find routes equal separator keys to the right child", "[btree][
 TEST_CASE("BTree find routes internal boundary keys to the correct child", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1084,7 +1084,7 @@ TEST_CASE("BTree find routes internal boundary keys to the correct child", "[btr
 TEST_CASE("BTree erase removes every entry from a root leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1119,7 +1119,7 @@ TEST_CASE("BTree erase removes every entry from a root leaf", "[btree][tree]") {
 TEST_CASE("BTree erase reports a missing key without changing the tree", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1148,7 +1148,7 @@ TEST_CASE("BTree erase reports a missing key without changing the tree", "[btree
 TEST_CASE("BTree erase rejects a key with an invalid size", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 3);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1177,7 +1177,7 @@ TEST_CASE("BTree erase rejects a key with an invalid size", "[btree][tree]") {
 TEST_CASE("BTree erase refreshes a separator after removing a leaf first key", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1220,7 +1220,7 @@ TEST_CASE("BTree erase refreshes a separator after removing a leaf first key", "
 TEST_CASE("BTree erase borrows from the right leaf sibling", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -1259,7 +1259,7 @@ TEST_CASE("BTree erase borrows from the right leaf sibling", "[btree][tree]") {
 TEST_CASE("BTree erase borrows from the left leaf sibling", "[btree][tree]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();

@@ -76,7 +76,7 @@ namespace {
 TEST_CASE("BTree validate accepts an empty tree", "[btree][validator]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -158,7 +158,7 @@ TEST_CASE("BTree validate rejects a separator below its right subtree minimum", 
 TEST_CASE("BTree validate rejects unsorted leaf keys", "[btree][validator]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();
@@ -245,7 +245,7 @@ TEST_CASE("BTree validate rejects broken leaf sibling links", "[btree][validator
 TEST_CASE("BTree validate rejects an internal page with no separator keys", "[btree][validator]") {
     const TempDir temp_dir;
 
-    auto pager_result = Pager::create(temp_dir.database_path(), 6);
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
     REQUIRE(pager_result.ok());
 
     Pager& pager = pager_result.value();

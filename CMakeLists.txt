@@ -84,10 +84,13 @@ add_executable(dandb_tests
     tests/catalog/TableDescriptor.cpp
     tests/catalog/ColumnDescriptor.cpp
     tests/catalog/IndexDescriptor.cpp
+    tests/catalog/IndexNames.cpp
     tests/catalog/SystemTables.cpp
+    tests/catalog/CatalogInitializer.cpp
     tests/record/Column.cpp
     tests/record/LiteralValue.cpp
     tests/record/LogicalType.cpp
+    tests/record/LogicalTypeCodec.cpp
     tests/record/KeyCodec.cpp
     tests/record/Row.cpp
     tests/record/RowCodec.cpp
