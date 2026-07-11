@@ -309,7 +309,7 @@ TEST_CASE("RowHelpers extracts primary key bytes", "[record][row-helpers]") {
     auto schema = make_schema();
     auto row = make_row();
 
-    auto key = RowHelpers::primary_key(schema, row);
+    auto key = RowHelpers::primary_key_bytes(schema, row);
 
     REQUIRE(key.ok());
     REQUIRE(key.value() == std::vector<std::byte>{
@@ -328,7 +328,7 @@ TEST_CASE("RowHelpers encodes an indexed key from a selected column", "[record][
     auto schema = make_schema();
     auto row = make_row();
 
-    auto key = RowHelpers::indexed_key(schema, row, 1);
+    auto key = RowHelpers::indexed_key_bytes(schema, row, 1);
 
     REQUIRE(key.ok());
     REQUIRE(key.value() == std::vector<std::byte>{
@@ -348,7 +348,7 @@ TEST_CASE("RowHelpers rejects invalid indexed keys", "[record][row-helpers]") {
         auto schema = make_schema();
         auto row = make_row();
 
-        auto key = RowHelpers::indexed_key(schema, row, 3);
+        auto key = RowHelpers::indexed_key_bytes(schema, row, 3);
 
         REQUIRE_FALSE(key.ok());
         REQUIRE(key.status().code() == StatusCode::InvalidArgument);
@@ -363,7 +363,7 @@ TEST_CASE("RowHelpers rejects invalid indexed keys", "[record][row-helpers]") {
             Value::boolean(true)
         });
 
-        auto key = RowHelpers::indexed_key(schema, row, 1);
+        auto key = RowHelpers::indexed_key_bytes(schema, row, 1);
 
         REQUIRE_FALSE(key.ok());
         REQUIRE(key.status().code() == StatusCode::InvalidArgument);
@@ -377,7 +377,7 @@ TEST_CASE("RowHelpers rejects invalid indexed keys", "[record][row-helpers]") {
             Value::float64(1.5)
         });
 
-        auto key = RowHelpers::indexed_key(schema, row, 1);
+        auto key = RowHelpers::indexed_key_bytes(schema, row, 1);
 
         REQUIRE_FALSE(key.ok());
         REQUIRE(key.status().code() == StatusCode::InvalidArgument);

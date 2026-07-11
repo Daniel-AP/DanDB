@@ -37,12 +37,12 @@ namespace dandb::record {
                 const std::vector<Value>& values
             );
 
-            static core::Result<std::vector<std::byte>> primary_key(
+            static core::Result<std::vector<std::byte>> primary_key_bytes(
                 const Schema& schema,
                 const Row& row
             );
 
-            static core::Result<std::vector<std::byte>> indexed_key(
+            static core::Result<std::vector<std::byte>> indexed_key_bytes(
                 const Schema& schema,
                 const Row& row,
                 std::size_t ordinal

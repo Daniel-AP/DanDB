@@ -22,6 +22,10 @@ namespace dandb::platform {
     class FileFaultInjector;
 }
 
+namespace dandb::catalog {
+    class CatalogInitializer;
+}
+
 namespace dandb::storage {
 
     class Pager {
@@ -49,6 +53,7 @@ namespace dandb::storage {
             void set_disk_fault_injector(platform::FileFaultInjector* fault_injector);
 
         private:
+            friend class catalog::CatalogInitializer;
             friend class PageHandle;
 
             Pager(

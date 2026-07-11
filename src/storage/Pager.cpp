@@ -1,5 +1,6 @@
 #include <dandb/storage/Pager.h>
 
+#include <dandb/catalog/CatalogInitializer.h>
 #include <dandb/core/Status.h>
 #include <dandb/platform/FileHandle.h>
 #include <dandb/wal/WalPageFrame.h>
@@ -85,7 +86,7 @@ namespace dandb::storage {
 
         buffer::BufferPoolManager bpm(bpm_capacity);
 
-        return Pager{
+        Pager pager{
             std::move(file_lock),
             std::move(disk_manager),
             std::move(wal_manager),
@@ -94,6 +95,18 @@ namespace dandb::storage {
             std::move(db_header),
             std::unordered_map<PageId, Page>{}
         };
+
+        auto initialize_catalog_status = catalog::CatalogInitializer::initialize(pager);
+        if(!initialize_catalog_status.ok()) {
+            auto close_status = pager.close();
+            if(!close_status.ok()) {
+                return close_status;
+            }
+
+            return initialize_catalog_status;
+        }
+
+        return pager;
 
     }
 

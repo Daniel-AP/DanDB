@@ -38,6 +38,7 @@ add_library(dandb_core STATIC
     src/record/RowHelpers.cpp
     src/record/LiteralValue.cpp
     src/record/LogicalType.cpp
+    src/record/LogicalTypeCodec.cpp
     src/record/Value.cpp
     src/btree/BTreePage.cpp
     src/btree/BTree.cpp
@@ -46,7 +47,9 @@ add_library(dandb_core STATIC
     src/catalog/TableDescriptor.cpp
     src/catalog/ColumnDescriptor.cpp
     src/catalog/IndexDescriptor.cpp
+    src/catalog/IndexNames.cpp
     src/catalog/SystemTables.cpp
+    src/catalog/CatalogInitializer.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)

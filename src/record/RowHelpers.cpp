@@ -116,14 +116,14 @@ namespace dandb::record {
 
     }
 
-    core::Result<std::vector<std::byte>> RowHelpers::primary_key(
+    core::Result<std::vector<std::byte>> RowHelpers::primary_key_bytes(
         const Schema& schema,
         const Row& row
     ) {
-        return indexed_key(schema, row, schema.primary_key_ordinal());
+        return indexed_key_bytes(schema, row, schema.primary_key_ordinal());
     }
 
-    core::Result<std::vector<std::byte>> RowHelpers::indexed_key(
+    core::Result<std::vector<std::byte>> RowHelpers::indexed_key_bytes(
         const Schema& schema,
         const Row& row,
         std::size_t ordinal
