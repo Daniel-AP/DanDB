@@ -4,6 +4,7 @@
 #include <dandb/catalog/TableId.h>
 
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <type_traits>
 
@@ -38,4 +39,10 @@ TEST_CASE("IndexId validity distinguishes invalid sentinel from real ids", "[cat
 TEST_CASE("IndexId equality compares wrapped values", "[catalog][index-id]") {
     REQUIRE(IndexId{ 7 } == IndexId{ 7 });
     REQUIRE_FALSE(IndexId{ 7 } == IndexId{ 8 });
+}
+
+TEST_CASE("IndexId hashes its wrapped value", "[catalog][index-id]") {
+    const IndexId index_id{ 42 };
+
+    REQUIRE(std::hash<IndexId>{}(index_id) == std::hash<std::uint64_t>{}(index_id.id));
 }
