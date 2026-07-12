@@ -31,14 +31,18 @@ namespace dandb::catalog {
         private:
             struct TableInfo {
                 TableDescriptor table_descriptor;
-                record::Schema schema;
                 std::vector<ColumnDescriptor> columns;
                 std::vector<IndexDescriptor> indexes;
             };
 
-            Catalog(std::unordered_map<TableId, TableInfo> table_by_id, std::unordered_map<std::string, TableId> table_id_by_name);
+            Catalog(
+                std::unordered_map<TableId, TableInfo> table_by_id,
+                std::unordered_map<TableId, record::Schema> table_schema_by_id,
+                std::unordered_map<std::string, TableId> table_id_by_name
+            );
 
             std::unordered_map<TableId, TableInfo> table_by_id_;
+            std::unordered_map<TableId, record::Schema> table_schema_by_id_;
             std::unordered_map<std::string, TableId> table_id_by_name_;
     };
 
