@@ -198,8 +198,7 @@ namespace dandb::catalog {
         record::Row tables_row(std::vector<record::Value>{
             record::Value::int64(static_cast<std::int64_t>(DANDB_TABLES_ID.id)),
             std::move(tables_name_result.value()),
-            record::Value::int64(static_cast<std::int64_t>(tables_tree.root_page_id().id)),
-            record::Value::int64(static_cast<std::int64_t>(primary_key_column_ids[0].id))
+            record::Value::int64(static_cast<std::int64_t>(tables_tree.root_page_id().id))
         });
 
         auto insert_status = insert_row(tables_tree, tables_schema, tables_row);
@@ -217,8 +216,7 @@ namespace dandb::catalog {
         record::Row columns_row(std::vector<record::Value>{
             record::Value::int64(static_cast<std::int64_t>(DANDB_COLUMNS_ID.id)),
             std::move(columns_name_result.value()),
-            record::Value::int64(static_cast<std::int64_t>(columns_tree.root_page_id().id)),
-            record::Value::int64(static_cast<std::int64_t>(primary_key_column_ids[1].id))
+            record::Value::int64(static_cast<std::int64_t>(columns_tree.root_page_id().id))
         });
 
         insert_status = insert_row(tables_tree, tables_schema, columns_row);
@@ -236,8 +234,7 @@ namespace dandb::catalog {
         record::Row indexes_row(std::vector<record::Value>{
             record::Value::int64(static_cast<std::int64_t>(DANDB_INDEXES_ID.id)),
             std::move(indexes_name_result.value()),
-            record::Value::int64(static_cast<std::int64_t>(indexes_tree.root_page_id().id)),
-            record::Value::int64(static_cast<std::int64_t>(primary_key_column_ids[2].id))
+            record::Value::int64(static_cast<std::int64_t>(indexes_tree.root_page_id().id))
         });
 
         insert_status = insert_row(tables_tree, tables_schema, indexes_row);
@@ -255,8 +252,7 @@ namespace dandb::catalog {
         record::Row index_columns_row(std::vector<record::Value>{
             record::Value::int64(static_cast<std::int64_t>(DANDB_INDEX_COLUMNS_ID.id)),
             std::move(index_columns_name_result.value()),
-            record::Value::int64(static_cast<std::int64_t>(index_columns_tree.root_page_id().id)),
-            record::Value::int64(static_cast<std::int64_t>(primary_key_column_ids[3].id))
+            record::Value::int64(static_cast<std::int64_t>(index_columns_tree.root_page_id().id))
         });
 
         insert_status = insert_row(tables_tree, tables_schema, index_columns_row);

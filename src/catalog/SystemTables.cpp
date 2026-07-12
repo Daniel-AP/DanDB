@@ -65,11 +65,6 @@ namespace dandb::catalog {
             return status;
         }
 
-        status = append_column(columns, "primary_key_column_id", record::LogicalType::int64(), false, false, false);
-        if(!status.ok()) {
-            return status;
-        }
-
         return record::Schema::create(std::move(columns));
 
     }

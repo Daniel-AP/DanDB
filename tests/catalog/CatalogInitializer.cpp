@@ -211,6 +211,7 @@ TEST_CASE("System tables describe the complete system catalog", "[catalog][initi
     for(std::size_t table_index = 0; table_index < system_table_schemas.size(); table_index++) {
         const auto& [table_id, schema] = system_table_schemas[table_index];
 
+        REQUIRE(table_rows[table_index].value_count() == 3);
         REQUIRE(table_rows[table_index].value(0).as_integer() == static_cast<std::int64_t>(table_id.id));
         REQUIRE(table_rows[table_index].value(2).as_integer() == static_cast<std::int64_t>(system_table_roots[table_index].id));
 
@@ -241,8 +242,6 @@ TEST_CASE("System tables describe the complete system catalog", "[catalog][initi
 
             column_row_index++;
         }
-
-        REQUIRE(table_rows[table_index].value(3).as_integer() == primary_key_column_ids[table_index]);
 
         const Row& index_row = index_rows[table_index];
         REQUIRE(index_row.value(0).as_integer() == static_cast<std::int64_t>(primary_index_ids[table_index].id));

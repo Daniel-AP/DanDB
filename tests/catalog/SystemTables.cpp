@@ -53,14 +53,13 @@ TEST_CASE("SystemTables defines dandb_tables schema", "[catalog][system-tables]"
     auto schema = SystemTables::tables_schema();
 
     REQUIRE(schema.ok());
-    REQUIRE(schema.value().column_count() == 4);
+    REQUIRE(schema.value().column_count() == 3);
     REQUIRE(schema.value().primary_key_ordinal() == 0);
     REQUIRE(schema.value().primary_key_column().name() == "table_id");
 
     require_column(schema.value(), 0, "table_id", LogicalType::Kind::Int64, false, true, true);
     require_column(schema.value(), 1, "name", LogicalType::Kind::String, false, false, true, CATALOG_NAME_CAPACITY);
     require_column(schema.value(), 2, "root_page_id", LogicalType::Kind::Int64, false, false, false);
-    require_column(schema.value(), 3, "primary_key_column_id", LogicalType::Kind::Int64, false, false, false);
 }
 
 TEST_CASE("SystemTables defines dandb_columns schema", "[catalog][system-tables]") {
