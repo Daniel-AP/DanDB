@@ -91,7 +91,6 @@ TEST_CASE("DiskManager creates a database file and reopens its header", "[storag
     REQUIRE(reopened_header.ok());
     REQUIRE(reopened_header.value().database_id() == DATABASE_ID);
     REQUIRE(reopened_header.value().page_count() == INITIAL_DATABASE_PAGE_COUNT);
-    REQUIRE(reopened_header.value().catalog_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(reopened_header.value().system_tables_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(reopened_header.value().system_columns_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(reopened_header.value().system_indexes_root_page_id() == INVALID_PAGE_ID);
@@ -149,9 +148,9 @@ TEST_CASE("DiskManager open_existing rejects header page count that does not mat
     REQUIRE_FALSE(opened.status().message().empty());
 }
 
-TEST_CASE("DiskManager persists an updated database header catalog root page id", "[storage][disk-manager]") {
+TEST_CASE("DiskManager persists an updated database header system tables root page id", "[storage][disk-manager]") {
     const dandb::testutil::TempDir temp_dir;
-    const auto path = temp_dir.path() / "updated_catalog_root.ddb";
+    const auto path = temp_dir.path() / "updated_system_tables_root.ddb";
     auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
     initial_header.set_page_count(2);
 
@@ -162,7 +161,7 @@ TEST_CASE("DiskManager persists an updated database header catalog root page id"
     REQUIRE(header_result.ok());
 
     auto header = header_result.value();
-    header.set_catalog_root_page_id(PageId{ 1 });
+    header.set_system_tables_root_page_id(PageId{ 1 });
 
     const auto write_status = created.value().write_header(header);
     REQUIRE(write_status.ok());
@@ -174,7 +173,7 @@ TEST_CASE("DiskManager persists an updated database header catalog root page id"
     REQUIRE(reopened_header.ok());
     REQUIRE(reopened_header.value().database_id() == DATABASE_ID);
     REQUIRE(reopened_header.value().page_count() == 2);
-    REQUIRE(reopened_header.value().catalog_root_page_id() == PageId{ 1 });
+    REQUIRE(reopened_header.value().system_tables_root_page_id() == PageId{ 1 });
 }
 
 TEST_CASE("DiskManager open_existing fails for an empty file", "[storage][disk-manager]") {

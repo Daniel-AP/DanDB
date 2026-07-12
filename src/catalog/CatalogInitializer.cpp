@@ -413,7 +413,7 @@ namespace dandb::catalog {
             return rollback_status.ok() ? insert_status : rollback_status;
         }
 
-        // Store catalog roots in db header
+        // Store system table roots in database header
 
         auto mark_header_dirty_status = pager.mark_dirty(storage::HEADER_PAGE_ID);
         if(!mark_header_dirty_status.ok()) {
@@ -421,7 +421,6 @@ namespace dandb::catalog {
             return rollback_status.ok() ? mark_header_dirty_status : rollback_status;
         }
 
-        pager.db_header_.set_catalog_root_page_id(tables_tree.root_page_id());
         pager.db_header_.set_system_tables_root_page_id(tables_tree.root_page_id());
         pager.db_header_.set_system_columns_root_page_id(columns_tree.root_page_id());
         pager.db_header_.set_system_indexes_root_page_id(indexes_tree.root_page_id());

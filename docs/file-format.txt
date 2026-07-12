@@ -28,12 +28,11 @@ database header page
     offset 12, 4 bytes: header size
     offset 16, 8 bytes: database id
     offset 24, 8 bytes: page count
-    offset 32, 8 bytes: catalog root page id
-    offset 40, 8 bytes: dandb_tables root page id
-    offset 48, 8 bytes: dandb_columns root page id
-    offset 56, 8 bytes: dandb_indexes root page id
-    offset 64, 8 bytes: dandb_index_columns root page id
-    offset 72, 48 bytes: reserved
+    offset 32, 8 bytes: dandb_tables root page id
+    offset 40, 8 bytes: dandb_columns root page id
+    offset 48, 8 bytes: dandb_indexes root page id
+    offset 56, 8 bytes: dandb_index_columns root page id
+    offset 64, 56 bytes: reserved
     offset 120, 8 bytes: header checksum
     offset 128, 3968 bytes: unused
 

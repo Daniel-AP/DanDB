@@ -105,12 +105,10 @@ TEST_CASE("Creating a database stores valid system table roots", "[catalog][init
 
     const DatabaseHeader header = create_and_read_header(temp_dir);
 
-    REQUIRE(header.catalog_root_page_id().is_valid());
     REQUIRE(header.system_tables_root_page_id().is_valid());
     REQUIRE(header.system_columns_root_page_id().is_valid());
     REQUIRE(header.system_indexes_root_page_id().is_valid());
     REQUIRE(header.system_index_columns_root_page_id().is_valid());
-    REQUIRE(header.catalog_root_page_id() == header.system_tables_root_page_id());
 }
 
 TEST_CASE("Reopened databases expose dandb_tables rows", "[catalog][initializer]") {

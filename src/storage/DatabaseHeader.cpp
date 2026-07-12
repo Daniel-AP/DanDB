@@ -21,7 +21,6 @@ namespace dandb::storage {
     DatabaseHeader::DatabaseHeader(
         std::uint64_t database_id,
         std::uint64_t page_count,
-        PageId catalog_root_page_id,
         PageId system_tables_root_page_id,
         PageId system_columns_root_page_id,
         PageId system_indexes_root_page_id,
@@ -29,7 +28,6 @@ namespace dandb::storage {
     ) :
         database_id_(database_id),
         page_count_(page_count),
-        catalog_root_page_id_(catalog_root_page_id),
         system_tables_root_page_id_(system_tables_root_page_id),
         system_columns_root_page_id_(system_columns_root_page_id),
         system_indexes_root_page_id_(system_indexes_root_page_id),
@@ -106,18 +104,6 @@ namespace dandb::storage {
             return core::Status::Corruption("Cannot decode database header: page count cannot be zero");
         }
 
-        // Decode catalog root page id
-        auto stored_catalog_root_page_id_result = core::read_u64_le(page, DATABASE_CATALOG_ROOT_PAGE_ID_OFFSET);
-        if(!stored_catalog_root_page_id_result.ok()) {
-            return stored_catalog_root_page_id_result.status();
-        }
-
-        const auto stored_catalog_root_page_id = PageId{ stored_catalog_root_page_id_result.value() };
-
-        if(!root_page_id_is_valid(stored_catalog_root_page_id, stored_page_count)) {
-            return core::Status::Corruption("Cannot decode database header: catalog root page id is outside database page range");
-        }
-
         // Decode system tables root page id
         auto stored_system_tables_root_page_id_result = core::read_u64_le(page, DATABASE_SYSTEM_TABLES_ROOT_PAGE_ID_OFFSET);
         if(!stored_system_tables_root_page_id_result.ok()) {
@@ -189,7 +175,6 @@ namespace dandb::storage {
         return DatabaseHeader{
             stored_database_id,
             stored_page_count,
-            stored_catalog_root_page_id,
             stored_system_tables_root_page_id,
             stored_system_columns_root_page_id,
             stored_system_indexes_root_page_id,
@@ -203,7 +188,6 @@ namespace dandb::storage {
         return DatabaseHeader{
             database_id,
             INITIAL_DATABASE_PAGE_COUNT,
-            INVALID_PAGE_ID,
             INVALID_PAGE_ID,
             INVALID_PAGE_ID,
             INVALID_PAGE_ID,
@@ -257,16 +241,6 @@ namespace dandb::storage {
 
         // Encode page count
         status = core::write_u64_le(page, DATABASE_PAGE_COUNT_OFFSET, page_count_);
-        if(!status.ok()) {
-            return status;
-        }
-
-        // Encode catalog root page id
-        if(!root_page_id_is_valid(catalog_root_page_id_, page_count_)) {
-            return core::Status::InvalidArgument("Cannot encode database header: catalog root page id is outside database page range");
-        }
-
-        status = core::write_u64_le(page, DATABASE_CATALOG_ROOT_PAGE_ID_OFFSET, catalog_root_page_id_.id);
         if(!status.ok()) {
             return status;
         }
@@ -332,10 +306,6 @@ namespace dandb::storage {
         return page_count_;
     }
 
-    PageId DatabaseHeader::catalog_root_page_id() const {
-        return catalog_root_page_id_;
-    }
-
     PageId DatabaseHeader::system_tables_root_page_id() const {
         return system_tables_root_page_id_;
     }
@@ -354,10 +324,6 @@ namespace dandb::storage {
 
     void DatabaseHeader::set_page_count(std::uint64_t page_count) {
         page_count_ = page_count;
-    }
-
-    void DatabaseHeader::set_catalog_root_page_id(PageId page_id) {
-        catalog_root_page_id_ = page_id;
     }
 
     void DatabaseHeader::set_system_tables_root_page_id(PageId page_id) {

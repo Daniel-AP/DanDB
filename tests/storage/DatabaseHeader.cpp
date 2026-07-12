@@ -41,30 +41,25 @@ namespace {
         RootSetter set;
     };
 
-    const std::array<RootField, 5> ROOT_FIELDS{{
-        {
-            "catalog root",
-            32,
-            [](DatabaseHeader& header, PageId page_id) { header.set_catalog_root_page_id(page_id); }
-        },
+    const std::array<RootField, 4> ROOT_FIELDS{{
         {
             "system tables root",
-            40,
+            32,
             [](DatabaseHeader& header, PageId page_id) { header.set_system_tables_root_page_id(page_id); }
         },
         {
             "system columns root",
-            48,
+            40,
             [](DatabaseHeader& header, PageId page_id) { header.set_system_columns_root_page_id(page_id); }
         },
         {
             "system indexes root",
-            56,
+            48,
             [](DatabaseHeader& header, PageId page_id) { header.set_system_indexes_root_page_id(page_id); }
         },
         {
             "system index columns root",
-            64,
+            56,
             [](DatabaseHeader& header, PageId page_id) { header.set_system_index_columns_root_page_id(page_id); }
         },
     }};
@@ -73,11 +68,10 @@ namespace {
         auto header = DatabaseHeader::create_new(DATABASE_ID);
 
         header.set_page_count(PAGE_COUNT_WITH_ROOTS);
-        header.set_catalog_root_page_id({ 1 });
-        header.set_system_tables_root_page_id({ 2 });
-        header.set_system_columns_root_page_id({ 3 });
-        header.set_system_indexes_root_page_id({ 4 });
-        header.set_system_index_columns_root_page_id({ 5 });
+        header.set_system_tables_root_page_id({ 1 });
+        header.set_system_columns_root_page_id({ 2 });
+        header.set_system_indexes_root_page_id({ 3 });
+        header.set_system_index_columns_root_page_id({ 4 });
 
         return header;
     }
@@ -111,7 +105,6 @@ TEST_CASE("create_new initializes an empty database header", "[storage][database
 
     REQUIRE(header.database_id() == DATABASE_ID);
     REQUIRE(header.page_count() == INITIAL_DATABASE_PAGE_COUNT);
-    REQUIRE(header.catalog_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(header.system_tables_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(header.system_columns_root_page_id() == INVALID_PAGE_ID);
     REQUIRE(header.system_indexes_root_page_id() == INVALID_PAGE_ID);
@@ -122,18 +115,16 @@ TEST_CASE("database header setters update in-memory fields", "[storage][database
     auto header = DatabaseHeader::create_new(DATABASE_ID);
 
     header.set_page_count(PAGE_COUNT_WITH_ROOTS);
-    header.set_catalog_root_page_id({ 1 });
-    header.set_system_tables_root_page_id({ 2 });
-    header.set_system_columns_root_page_id({ 3 });
-    header.set_system_indexes_root_page_id({ 4 });
-    header.set_system_index_columns_root_page_id({ 5 });
+    header.set_system_tables_root_page_id({ 1 });
+    header.set_system_columns_root_page_id({ 2 });
+    header.set_system_indexes_root_page_id({ 3 });
+    header.set_system_index_columns_root_page_id({ 4 });
 
     REQUIRE(header.page_count() == PAGE_COUNT_WITH_ROOTS);
-    REQUIRE(header.catalog_root_page_id() == PageId{ 1 });
-    REQUIRE(header.system_tables_root_page_id() == PageId{ 2 });
-    REQUIRE(header.system_columns_root_page_id() == PageId{ 3 });
-    REQUIRE(header.system_indexes_root_page_id() == PageId{ 4 });
-    REQUIRE(header.system_index_columns_root_page_id() == PageId{ 5 });
+    REQUIRE(header.system_tables_root_page_id() == PageId{ 1 });
+    REQUIRE(header.system_columns_root_page_id() == PageId{ 2 });
+    REQUIRE(header.system_indexes_root_page_id() == PageId{ 3 });
+    REQUIRE(header.system_index_columns_root_page_id() == PageId{ 4 });
 }
 
 TEST_CASE("database header encodes a new header into the documented page zero layout", "[storage][database-header]") {
@@ -170,14 +161,14 @@ TEST_CASE("database header encodes a new header into the documented page zero la
     REQUIRE(page_count.ok());
     REQUIRE(page_count.value() == INITIAL_DATABASE_PAGE_COUNT);
 
-    for(std::size_t offset = 32; offset <= 64; offset += sizeof(std::uint64_t)) {
+    for(std::size_t offset = 32; offset <= 56; offset += sizeof(std::uint64_t)) {
         const auto page_id = read_u64_le(page, offset);
 
         REQUIRE(page_id.ok());
         REQUIRE(page_id.value() == INVALID_PAGE_ID.id);
     }
 
-    for(std::size_t offset = 72; offset < 120; offset++) {
+    for(std::size_t offset = 64; offset < 120; offset++) {
         REQUIRE(page[offset] == std::byte{ 0 });
     }
 
@@ -193,6 +184,11 @@ TEST_CASE("database header encodes a new header into the documented page zero la
 TEST_CASE("database header encode and decode preserve real root page ids", "[storage][database-header]") {
     const auto page = encode_header(create_header_with_real_roots());
 
+    REQUIRE(read_u64_le(page, 32).value() == 1);
+    REQUIRE(read_u64_le(page, 40).value() == 2);
+    REQUIRE(read_u64_le(page, 48).value() == 3);
+    REQUIRE(read_u64_le(page, 56).value() == 4);
+
     const auto result = DatabaseHeader::decode(page);
 
     REQUIRE(result.ok());
@@ -201,11 +197,10 @@ TEST_CASE("database header encode and decode preserve real root page ids", "[sto
 
     REQUIRE(header.database_id() == DATABASE_ID);
     REQUIRE(header.page_count() == PAGE_COUNT_WITH_ROOTS);
-    REQUIRE(header.catalog_root_page_id() == PageId{ 1 });
-    REQUIRE(header.system_tables_root_page_id() == PageId{ 2 });
-    REQUIRE(header.system_columns_root_page_id() == PageId{ 3 });
-    REQUIRE(header.system_indexes_root_page_id() == PageId{ 4 });
-    REQUIRE(header.system_index_columns_root_page_id() == PageId{ 5 });
+    REQUIRE(header.system_tables_root_page_id() == PageId{ 1 });
+    REQUIRE(header.system_columns_root_page_id() == PageId{ 2 });
+    REQUIRE(header.system_indexes_root_page_id() == PageId{ 3 });
+    REQUIRE(header.system_index_columns_root_page_id() == PageId{ 4 });
 }
 
 TEST_CASE("database header refuses buffers that are not exactly one page", "[storage][database-header]") {
@@ -339,7 +334,7 @@ TEST_CASE("database header rejects decoded root page ids outside the database pa
 TEST_CASE("database header rejects nonzero reserved bytes", "[storage][database-header]") {
     auto page = encode_header(DatabaseHeader::create_new(DATABASE_ID));
 
-    page[72] = std::byte{ 0x01 };
+    page[64] = std::byte{ 0x01 };
     rewrite_header_checksum(page);
 
     require_corruption(page);
