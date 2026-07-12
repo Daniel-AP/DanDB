@@ -1,0 +1,47 @@
+system tables
+
+dandb_tables
+    table id: 1
+    primary index id: 1
+
+    column with ordinal 0, name table_id, type INT64, nullable false, primary key true, unique true
+    column with ordinal 1, name name, type STRING(256), nullable false, primary key false, unique true
+    column with ordinal 2, name root_page_id, type INT64, nullable false, primary key false, unique false
+
+dandb_columns
+    table id: 2
+    primary index id: 2
+
+    column with ordinal 0, name column_id, type INT64, nullable false, primary key true, unique true
+    column with ordinal 1, name table_id, type INT64, nullable false, primary key false, unique false
+    column with ordinal 2, name name, type STRING(256), nullable false, primary key false, unique false
+    column with ordinal 3, name type_kind, type INT8, nullable false, primary key false, unique false
+    column with ordinal 4, name type_capacity, type INT64, nullable true, primary key false, unique false
+    column with ordinal 5, name ordinal, type INT64, nullable false, primary key false, unique false
+    column with ordinal 6, name nullable, type BOOL, nullable false, primary key false, unique false
+    column with ordinal 7, name primary_key, type BOOL, nullable false, primary key false, unique false
+    column with ordinal 8, name unique, type BOOL, nullable false, primary key false, unique false
+
+dandb_indexes
+    table id: 3
+    primary index id: 3
+
+    column with ordinal 0, name index_id, type INT64, nullable false, primary key true, unique true
+    column with ordinal 1, name table_id, type INT64, nullable false, primary key false, unique false
+    column with ordinal 2, name name, type STRING(256), nullable false, primary key false, unique false
+    column with ordinal 3, name root_page_id, type INT64, nullable false, primary key false, unique false
+    column with ordinal 4, name unique, type BOOL, nullable false, primary key false, unique false
+    column with ordinal 5, name primary, type BOOL, nullable false, primary key false, unique false
+    column with ordinal 6, name internal, type BOOL, nullable false, primary key false, unique false
+
+dandb_index_columns
+    table id: 4
+    primary index id: 4
+
+    column with ordinal 0, name index_id, type INT64, nullable false, primary key true, unique true
+    column with ordinal 1, name column_id, type INT64, nullable false, primary key false, unique false
+    column with ordinal 2, name ordinal, type INT64, nullable false, primary key false, unique false
+
+index column rules
+    each index has exactly one dandb_index_columns row
+    dandb_index_columns.ordinal is 0
