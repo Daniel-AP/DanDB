@@ -325,6 +325,10 @@ namespace dandb::storage {
 
     }
 
+    const DatabaseHeader& Pager::database_header() const {
+        return db_header_;
+    }
+
     core::Status Pager::begin_transaction() {
 
         if(closed_) {

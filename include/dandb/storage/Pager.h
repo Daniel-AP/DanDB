@@ -41,6 +41,8 @@ namespace dandb::storage {
             core::Result<PageHandle> get_page(PageId page_id);
             core::Result<PageHandle> new_page();
 
+            const DatabaseHeader& database_header() const;
+
             core::Status begin_transaction();
             core::Status commit_transaction();
             core::Status rollback_transaction();
