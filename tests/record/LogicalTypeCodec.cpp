@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 using dandb::core::StatusCode;
@@ -38,4 +39,34 @@ TEST_CASE("LogicalTypeCodec rejects unknown type codes", "[record][logical-type-
 
     REQUIRE_FALSE(decoded_kind_result.ok());
     REQUIRE(decoded_kind_result.status().code() == StatusCode::InvalidArgument);
+}
+
+TEST_CASE("LogicalTypeCodec decodes complete non-string logical types", "[record][logical-type-codec]") {
+    auto logical_type_result = LogicalTypeCodec::decode(4, std::nullopt);
+
+    REQUIRE(logical_type_result.ok());
+    REQUIRE(logical_type_result.value().kind() == LogicalType::Kind::Int64);
+    REQUIRE_FALSE(logical_type_result.value().capacity().has_value());
+}
+
+TEST_CASE("LogicalTypeCodec decodes string logical types with capacity", "[record][logical-type-codec]") {
+    auto logical_type_result = LogicalTypeCodec::decode(6, 256);
+
+    REQUIRE(logical_type_result.ok());
+    REQUIRE(logical_type_result.value().kind() == LogicalType::Kind::String);
+    REQUIRE(logical_type_result.value().capacity() == 256);
+}
+
+TEST_CASE("LogicalTypeCodec requires capacity for string logical types", "[record][logical-type-codec]") {
+    auto logical_type_result = LogicalTypeCodec::decode(6, std::nullopt);
+
+    REQUIRE_FALSE(logical_type_result.ok());
+    REQUIRE(logical_type_result.status().code() == StatusCode::InvalidArgument);
+}
+
+TEST_CASE("LogicalTypeCodec rejects capacity for non-string logical types", "[record][logical-type-codec]") {
+    auto logical_type_result = LogicalTypeCodec::decode(4, 256);
+
+    REQUIRE_FALSE(logical_type_result.ok());
+    REQUIRE(logical_type_result.status().code() == StatusCode::InvalidArgument);
 }

@@ -48,4 +48,46 @@ namespace dandb::record {
         }
     }
 
+    core::Result<LogicalType> LogicalTypeCodec::decode(std::uint8_t kind_code,std::optional<std::size_t> capacity) {
+
+        auto kind_result = decode_kind(kind_code);
+        if(!kind_result.ok()) {
+            return kind_result.status();
+        }
+
+        const auto kind = kind_result.value();
+
+        if(kind == LogicalType::Kind::String) {
+            if(!capacity.has_value()) {
+                return core::Status::InvalidArgument("Cannot decode logical type: string type requires capacity");
+            }
+
+            return LogicalType::string(capacity.value());
+        }
+
+        if(capacity.has_value()) {
+            return core::Status::InvalidArgument("Cannot decode logical type: non-string type cannot have capacity");
+        }
+
+        switch(kind) {
+            case LogicalType::Kind::Int8:
+                return LogicalType::int8();
+            case LogicalType::Kind::Int16:
+                return LogicalType::int16();
+            case LogicalType::Kind::Int32:
+                return LogicalType::int32();
+            case LogicalType::Kind::Int64:
+                return LogicalType::int64();
+            case LogicalType::Kind::Float64:
+                return LogicalType::float64();
+            case LogicalType::Kind::Boolean:
+                return LogicalType::boolean();
+            case LogicalType::Kind::String:
+                return core::Status::InternalError("Cannot decode logical type: string type reached non-string branch");
+        }
+
+        return core::Status::InternalError("Cannot decode logical type: unknown logical type kind");
+
+    }
+
 }
