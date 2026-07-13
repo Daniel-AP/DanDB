@@ -52,7 +52,7 @@ namespace dandb::catalog {
             return status;
         }
 
-        return Catalog{ std::move(state.table_by_id), std::move(state.table_schema_by_id), std::move(state.table_id_by_name) };
+        return Catalog{ pager, std::move(state.table_by_id), std::move(state.table_schema_by_id), std::move(state.table_id_by_name) };
 
     }
 

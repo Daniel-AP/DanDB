@@ -42,11 +42,13 @@ namespace dandb::catalog {
             };
 
             Catalog(
+                storage::Pager& pager,
                 std::unordered_map<TableId, TableInfo> table_by_id,
                 std::unordered_map<TableId, record::Schema> table_schema_by_id,
                 std::unordered_map<std::string, TableId> table_id_by_name
             );
 
+            storage::Pager* pager_;
             std::unordered_map<TableId, TableInfo> table_by_id_;
             std::unordered_map<TableId, record::Schema> table_schema_by_id_;
             std::unordered_map<std::string, TableId> table_id_by_name_;
