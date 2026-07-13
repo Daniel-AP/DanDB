@@ -195,6 +195,51 @@ TEST_CASE("Catalog finds every system table by name", "[catalog][loader]") {
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("Catalog loads system metadata after reopening the database", "[catalog][loader]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    REQUIRE(pager_result.value().close().ok());
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(catalog_result.ok());
+
+    const Catalog& catalog = catalog_result.value();
+    const auto* tables = catalog.find_table(DANDB_TABLES_NAME);
+    REQUIRE(tables != nullptr);
+    REQUIRE(tables->table_id() == DANDB_TABLES_ID);
+    REQUIRE(catalog.schema_for_table(DANDB_TABLES_ID) != nullptr);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("Catalog lookups return no metadata for unknown tables and columns", "[catalog][loader]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+    const Catalog& catalog = catalog_result.value();
+    const TableId unknown_table_id{ 999 };
+
+    REQUIRE(catalog.find_table("unknown_table") == nullptr);
+    REQUIRE(catalog.find_table(unknown_table_id) == nullptr);
+    REQUIRE(catalog.schema_for_table(unknown_table_id) == nullptr);
+    REQUIRE(catalog.find_column(DANDB_TABLES_ID, "unknown_column") == nullptr);
+    REQUIRE(catalog.find_column(unknown_table_id, "table_id") == nullptr);
+    REQUIRE(catalog.indexes_for_table(unknown_table_id).empty());
+
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Catalog load rejects duplicate table names", "[catalog][loader][corruption]") {
     const TempDir temp_dir;
 
