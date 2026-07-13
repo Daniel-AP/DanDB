@@ -3,6 +3,8 @@
 #include "CatalogInitializer.h"
 #include "CatalogLoader.h"
 
+#include <cstdint>
+#include <limits>
 #include <utility>
 
 namespace dandb::catalog {
@@ -71,9 +73,42 @@ namespace dandb::catalog {
         std::unordered_map<std::string, TableId> table_id_by_name
     ) :
         pager_(&pager),
+        next_table_id_(INVALID_TABLE_ID),
+        next_column_id_(INVALID_COLUMN_ID),
+        next_index_id_(INVALID_INDEX_ID),
         table_by_id_(std::move(table_by_id)),
         table_schema_by_id_(std::move(table_schema_by_id)),
         table_id_by_name_(std::move(table_id_by_name))
-    {}
+    {
+
+        std::uint64_t maximum_table_id = 0;
+        std::uint64_t maximum_column_id = 0;
+        std::uint64_t maximum_index_id = 0;
+
+        for(const auto& [table_id, table_info]: table_by_id_) {
+
+            if(table_id.id > maximum_table_id) {
+                maximum_table_id = table_id.id;
+            }
+
+            for(const auto& column: table_info.columns) {
+                if(column.column_id().id > maximum_column_id) {
+                    maximum_column_id = column.column_id().id;
+                }
+            }
+
+            for(const auto& index: table_info.indexes) {
+                if(index.index_id().id > maximum_index_id) {
+                    maximum_index_id = index.index_id().id;
+                }
+            }
+
+        }
+
+        next_table_id_ = TableId{ maximum_table_id+1 };
+        next_column_id_ = ColumnId{ maximum_column_id+1 };
+        next_index_id_ = IndexId{ maximum_index_id+1 };
+
+    }
 
 }

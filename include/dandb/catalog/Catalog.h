@@ -49,6 +49,9 @@ namespace dandb::catalog {
             );
 
             storage::Pager* pager_;
+            TableId next_table_id_;
+            ColumnId next_column_id_;
+            IndexId next_index_id_;
             std::unordered_map<TableId, TableInfo> table_by_id_;
             std::unordered_map<TableId, record::Schema> table_schema_by_id_;
             std::unordered_map<std::string, TableId> table_id_by_name_;
