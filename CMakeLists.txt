@@ -51,6 +51,7 @@ add_library(dandb_core STATIC
     src/catalog/SystemTables.cpp
     src/catalog/Catalog.cpp
     src/catalog/CatalogInitializer.cpp
+    src/catalog/CatalogLoader.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)

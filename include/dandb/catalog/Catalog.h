@@ -19,6 +19,8 @@ namespace dandb::storage {
 
 namespace dandb::catalog {
 
+    class CatalogLoader;
+
     class Catalog {
         public:
             static core::Status initialize(storage::Pager& pager);
@@ -31,6 +33,8 @@ namespace dandb::catalog {
             std::span<const IndexDescriptor> indexes_for_table(TableId table_id) const;
 
         private:
+            friend class CatalogLoader;
+
             struct TableInfo {
                 TableDescriptor table_descriptor;
                 std::vector<ColumnDescriptor> columns;
