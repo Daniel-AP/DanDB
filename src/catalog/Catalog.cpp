@@ -3,6 +3,8 @@
 #include "CatalogInitializer.h"
 #include "CatalogLoader.h"
 
+#include <dandb/storage/Pager.h>
+
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -21,6 +23,18 @@ namespace dandb::catalog {
         if(staged_state_.has_value()) return staged_state_.value();
 
         return committed_state_;
+    }
+
+    core::Status Catalog::handle_mutation_failure(core::Status failure_status, bool owns_transaction) {
+
+        if(!owns_transaction) return failure_status;
+
+        auto rollback_status = pager_->rollback_transaction();
+        if(!rollback_status.ok()) return rollback_status;
+
+        staged_state_.reset();
+        return failure_status;
+
     }
 
     const TableDescriptor* Catalog::find_table(std::string_view name) const {

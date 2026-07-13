@@ -59,6 +59,7 @@ namespace dandb::catalog {
             );
 
             const CatalogState& visible_state() const;
+            core::Status handle_mutation_failure(core::Status failure_status, bool owns_transaction);
 
             storage::Pager* pager_;
             CatalogState committed_state_;
