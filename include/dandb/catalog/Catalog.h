@@ -8,6 +8,7 @@
 #include <dandb/record/Schema.h>
 
 #include <span>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -41,6 +42,15 @@ namespace dandb::catalog {
                 std::vector<IndexDescriptor> indexes;
             };
 
+            struct CatalogState {
+                TableId next_table_id_;
+                ColumnId next_column_id_;
+                IndexId next_index_id_;
+                std::unordered_map<TableId, TableInfo> table_by_id_;
+                std::unordered_map<TableId, record::Schema> table_schema_by_id_;
+                std::unordered_map<std::string, TableId> table_id_by_name_;
+            };
+
             Catalog(
                 storage::Pager& pager,
                 std::unordered_map<TableId, TableInfo> table_by_id,
@@ -48,13 +58,11 @@ namespace dandb::catalog {
                 std::unordered_map<std::string, TableId> table_id_by_name
             );
 
+            const CatalogState& visible_state() const;
+
             storage::Pager* pager_;
-            TableId next_table_id_;
-            ColumnId next_column_id_;
-            IndexId next_index_id_;
-            std::unordered_map<TableId, TableInfo> table_by_id_;
-            std::unordered_map<TableId, record::Schema> table_schema_by_id_;
-            std::unordered_map<std::string, TableId> table_id_by_name_;
+            CatalogState committed_state_;
+            std::optional<CatalogState> staged_state_;
     };
 
 }
