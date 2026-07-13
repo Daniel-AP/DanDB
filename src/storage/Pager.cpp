@@ -1,6 +1,6 @@
 #include <dandb/storage/Pager.h>
 
-#include <dandb/catalog/CatalogInitializer.h>
+#include <dandb/catalog/Catalog.h>
 #include <dandb/core/Status.h>
 #include <dandb/platform/FileHandle.h>
 #include <dandb/wal/WalPageFrame.h>
@@ -96,7 +96,7 @@ namespace dandb::storage {
             std::unordered_map<PageId, Page>{}
         };
 
-        auto initialize_catalog_status = catalog::CatalogInitializer::initialize(pager);
+        auto initialize_catalog_status = catalog::Catalog::initialize(pager);
         if(!initialize_catalog_status.ok()) {
             auto close_status = pager.close();
             if(!close_status.ok()) {

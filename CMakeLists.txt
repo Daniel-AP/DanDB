@@ -49,6 +49,7 @@ add_library(dandb_core STATIC
     src/catalog/IndexDescriptor.cpp
     src/catalog/IndexNames.cpp
     src/catalog/SystemTables.cpp
+    src/catalog/Catalog.cpp
     src/catalog/CatalogInitializer.cpp
 )
 

@@ -2,8 +2,10 @@
 
 #include <dandb/btree/BTree.h>
 #include <dandb/btree/BTreeCursor.h>
+#include <dandb/catalog/Catalog.h>
 #include <dandb/catalog/IndexNames.h>
 #include <dandb/catalog/SystemTables.h>
+#include <dandb/core/Status.h>
 #include <dandb/record/LogicalTypeCodec.h>
 #include <dandb/record/RowCodec.h>
 #include <dandb/storage/DatabaseHeader.h>
@@ -14,10 +16,12 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
 using dandb::btree::BTree;
+using dandb::catalog::Catalog;
 using dandb::catalog::CATALOG_NAME_CAPACITY;
 using dandb::catalog::DANDB_COLUMNS_ID;
 using dandb::catalog::DANDB_COLUMNS_NAME;
@@ -98,6 +102,13 @@ namespace {
         return rows;
     }
 
+}
+
+TEST_CASE("Catalog exposes the system catalog initialization entry point", "[catalog][initializer]") {
+    STATIC_REQUIRE(std::is_same_v<
+        decltype(Catalog::initialize(std::declval<Pager&>())),
+        dandb::core::Status
+    >);
 }
 
 TEST_CASE("Creating a database stores valid system table roots", "[catalog][initializer]") {

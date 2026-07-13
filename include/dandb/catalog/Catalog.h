@@ -4,6 +4,7 @@
 #include <dandb/catalog/IndexDescriptor.h>
 #include <dandb/catalog/TableDescriptor.h>
 #include <dandb/core/Result.h>
+#include <dandb/core/Status.h>
 #include <dandb/record/Schema.h>
 
 #include <span>
@@ -20,6 +21,7 @@ namespace dandb::catalog {
 
     class Catalog {
         public:
+            static core::Status initialize(storage::Pager& pager);
             static core::Result<Catalog> load(storage::Pager& pager);
 
             const TableDescriptor* find_table(std::string_view name) const;
