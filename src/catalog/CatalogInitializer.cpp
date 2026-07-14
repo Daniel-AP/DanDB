@@ -136,8 +136,8 @@ namespace dandb::catalog {
 
         auto tables_tree_result = btree::BTree::create_new(
             pager_,
-            static_cast<std::uint16_t>(tables_schema.primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(tables_schema.row_size())
+            tables_schema.primary_key_column().logical_type().fixed_size(),
+            tables_schema.row_size()
         );
         if(!tables_tree_result.ok()) {
             return tables_tree_result.status();
@@ -147,8 +147,8 @@ namespace dandb::catalog {
 
         auto columns_tree_result = btree::BTree::create_new(
             pager_,
-            static_cast<std::uint16_t>(columns_schema.primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(columns_schema.row_size())
+            columns_schema.primary_key_column().logical_type().fixed_size(),
+            columns_schema.row_size()
         );
         if(!columns_tree_result.ok()) {
             return columns_tree_result.status();
@@ -158,8 +158,8 @@ namespace dandb::catalog {
 
         auto indexes_tree_result = btree::BTree::create_new(
             pager_,
-            static_cast<std::uint16_t>(indexes_schema.primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(indexes_schema.row_size())
+            indexes_schema.primary_key_column().logical_type().fixed_size(),
+            indexes_schema.row_size()
         );
         if(!indexes_tree_result.ok()) {
             return indexes_tree_result.status();
@@ -169,8 +169,8 @@ namespace dandb::catalog {
 
         auto index_columns_tree_result = btree::BTree::create_new(
             pager_,
-            static_cast<std::uint16_t>(index_columns_schema.primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(index_columns_schema.row_size())
+            index_columns_schema.primary_key_column().logical_type().fixed_size(),
+            index_columns_schema.row_size()
         );
         if(!index_columns_tree_result.ok()) {
             return index_columns_tree_result.status();

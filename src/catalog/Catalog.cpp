@@ -15,7 +15,6 @@
 #include <dandb/storage/Pager.h>
 
 #include <cstdint>
-#include <limits>
 #include <utility>
 #include <vector>
 
@@ -131,10 +130,6 @@ namespace dandb::catalog {
             if(column.name().size() > CATALOG_NAME_CAPACITY) {
                 return core::Status::InvalidArgument("Cannot create table: column name exceeds the catalog capacity");
             }
-        }
-
-        if(schema.primary_key_column().logical_type().fixed_size() > std::numeric_limits<std::uint16_t>::max() || schema.row_size() > std::numeric_limits<std::uint16_t>::max()) {
-            return core::Status::InvalidArgument("Cannot create table: schema exceeds B+ tree size limits");
         }
 
         // Get the system table schemas
@@ -257,8 +252,8 @@ namespace dandb::catalog {
         // Create storage for the new table
         auto new_table_storage_tree_result = btree::BTree::create_new(
             *pager_,
-            static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(schema.row_size())
+            schema.primary_key_column().logical_type().fixed_size(),
+            schema.row_size()
         );
         if(!new_table_storage_tree_result.ok()) {
             return handle_mutation_failure(new_table_storage_tree_result.status(), owns_transaction);
@@ -301,8 +296,8 @@ namespace dandb::catalog {
 
             auto new_table_internal_unique_index_tree_result = btree::BTree::create_new(
                 *pager_,
-                static_cast<std::uint16_t>(new_table_column_descriptor.logical_type().fixed_size()),
-                static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
+                new_table_column_descriptor.logical_type().fixed_size(),
+                schema.primary_key_column().logical_type().fixed_size()
             );
             if(!new_table_internal_unique_index_tree_result.ok()) {
                 return handle_mutation_failure(new_table_internal_unique_index_tree_result.status(), owns_transaction);
