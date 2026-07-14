@@ -413,3 +413,105 @@ TEST_CASE("Catalog publishes staged table metadata after the caller commits", "[
 
     REQUIRE(pager.close().ok());
 }
+
+TEST_CASE("Catalog drops table metadata that remains absent after reopening", "[catalog][drop-table]") {
+    const TempDir temp_dir;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+        REQUIRE(pager_result.ok());
+        Pager& pager = pager_result.value();
+
+        auto catalog_result = Catalog::load(pager);
+        REQUIRE(catalog_result.ok());
+        Catalog& catalog = catalog_result.value();
+
+        REQUIRE(catalog.create_table("users", make_schema()).ok());
+        REQUIRE(catalog.drop_table("users").ok());
+        REQUIRE(catalog.find_table("users") == nullptr);
+
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    REQUIRE(reopened_catalog_result.value().find_table("users") == nullptr);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("Catalog drop_table rejects a missing table", "[catalog][drop-table]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+
+    const auto status = catalog_result.value().drop_table("users");
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::NotFound);
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Catalog drop_table rejects a system table", "[catalog][drop-table]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+    Catalog& catalog = catalog_result.value();
+
+    const auto status = catalog.drop_table(dandb::catalog::DANDB_TABLES_NAME);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+    REQUIRE(catalog.find_table(dandb::catalog::DANDB_TABLES_NAME) != nullptr);
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Catalog drop_table removes internal index metadata", "[catalog][drop-table]") {
+    const TempDir temp_dir;
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+        REQUIRE(pager_result.ok());
+        Pager& pager = pager_result.value();
+
+        auto catalog_result = Catalog::load(pager);
+        REQUIRE(catalog_result.ok());
+        Catalog& catalog = catalog_result.value();
+
+        REQUIRE(catalog.create_table("users", make_schema_with_unique_column()).ok());
+
+        const auto* table = catalog.find_table("users");
+        REQUIRE(table != nullptr);
+        const auto table_id = table->table_id();
+        REQUIRE(catalog.indexes_for_table(table_id).size() == 2);
+
+        REQUIRE(catalog.drop_table("users").ok());
+        REQUIRE(catalog.indexes_for_table(table_id).empty());
+
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    REQUIRE(reopened_catalog_result.value().find_table("users") == nullptr);
+
+    REQUIRE(reopened_pager.close().ok());
+}
