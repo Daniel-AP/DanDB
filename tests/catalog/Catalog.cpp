@@ -300,6 +300,47 @@ TEST_CASE("Catalog creates an internal index for a unique column", "[catalog][cr
     REQUIRE(unique_tree_result.value().validate().ok());
 
     REQUIRE(pager.close().ok());
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    const Catalog& reopened_catalog = reopened_catalog_result.value();
+
+    const auto* reopened_table = reopened_catalog.find_table("users");
+    REQUIRE(reopened_table != nullptr);
+
+    const auto* reopened_email_column = reopened_catalog.find_column(reopened_table->table_id(), "email");
+    REQUIRE(reopened_email_column != nullptr);
+
+    const auto reopened_indexes = reopened_catalog.indexes_for_table(reopened_table->table_id());
+    REQUIRE(reopened_indexes.size() == 2);
+
+    const dandb::catalog::IndexDescriptor* reopened_unique_index = nullptr;
+    for(const auto& index: reopened_indexes) {
+        if(!index.primary()) {
+            reopened_unique_index = &index;
+        }
+    }
+
+    REQUIRE(reopened_unique_index != nullptr);
+    REQUIRE(reopened_unique_index->internal());
+    REQUIRE(reopened_unique_index->unique());
+    REQUIRE(reopened_unique_index->indexed_column_id() == reopened_email_column->column_id());
+    REQUIRE(reopened_unique_index->root_page_id() != reopened_table->root_page_id());
+
+    auto reopened_unique_tree_result = BTree::open_existing(
+        reopened_pager,
+        reopened_unique_index->root_page_id(),
+        static_cast<std::uint16_t>(reopened_email_column->logical_type().fixed_size()),
+        static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
+    );
+    REQUIRE(reopened_unique_tree_result.ok());
+    REQUIRE(reopened_unique_tree_result.value().validate().ok());
+
+    REQUIRE(reopened_pager.close().ok());
 }
 
 TEST_CASE("Catalog discards staged table metadata after the caller rolls back", "[catalog][create-table]") {
@@ -322,6 +363,16 @@ TEST_CASE("Catalog discards staged table metadata after the caller rolls back", 
     REQUIRE(catalog.find_table("users") == nullptr);
 
     REQUIRE(pager.close().ok());
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    REQUIRE(reopened_catalog_result.value().find_table("users") == nullptr);
+
+    REQUIRE(reopened_pager.close().ok());
 }
 
 TEST_CASE("Catalog publishes staged table metadata after the caller commits", "[catalog][create-table]") {
