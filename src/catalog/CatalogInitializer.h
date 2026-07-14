@@ -39,12 +39,6 @@ namespace dandb::catalog {
             core::Status insert_table_metadata(InitializationState& state);
             core::Status insert_index_metadata(InitializationState& state);
             core::Status insert_index_column_metadata(InitializationState& state);
-            static core::Status insert_row(
-                btree::BTree& tree,
-                const record::Schema& schema,
-                const record::Row& row
-            );
-
             storage::Pager& pager_;
     };
 

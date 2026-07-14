@@ -16,6 +16,30 @@
 
 namespace dandb::catalog {
 
+    namespace {
+
+        core::Status insert_row(
+            btree::BTree& tree,
+            const record::Schema& schema,
+            const record::Row& row
+        ) {
+
+            auto primary_key_result = record::RowHelpers::primary_key_bytes(schema, row);
+            if(!primary_key_result.ok()) {
+                return primary_key_result.status();
+            }
+
+            auto row_bytes_result = record::RowCodec::encode(schema, row);
+            if(!row_bytes_result.ok()) {
+                return row_bytes_result.status();
+            }
+
+            return tree.insert(primary_key_result.value(), row_bytes_result.value());
+
+        }
+
+    }
+
     CatalogInitializer::CatalogInitializer(storage::Pager& pager) :
         pager_(pager)
     {}
@@ -470,26 +494,6 @@ namespace dandb::catalog {
         }
 
         return core::Status::Ok();
-
-    }
-
-    core::Status CatalogInitializer::insert_row(
-        btree::BTree& tree,
-        const record::Schema& schema,
-        const record::Row& row
-    ) {
-
-        auto primary_key_result = record::RowHelpers::primary_key_bytes(schema, row);
-        if(!primary_key_result.ok()) {
-            return primary_key_result.status();
-        }
-
-        auto row_bytes_result = record::RowCodec::encode(schema, row);
-        if(!row_bytes_result.ok()) {
-            return row_bytes_result.status();
-        }
-
-        return tree.insert(primary_key_result.value(), row_bytes_result.value());
 
     }
 
