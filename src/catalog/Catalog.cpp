@@ -15,6 +15,7 @@
 #include <dandb/storage/Pager.h>
 
 #include <cstdint>
+#include <limits>
 #include <utility>
 #include <vector>
 
@@ -440,6 +441,222 @@ namespace dandb::catalog {
         }
 
         // Commit before updating the catalog state
+        auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return commit_status;
+        }
+
+        committed_state_ = std::move(next_catalog_state);
+        return core::Status::Ok();
+
+    }
+
+    core::Status Catalog::create_index(
+        TableId table_id,
+        std::string new_index_name,
+        ColumnId column_id,
+        bool new_index_unique
+    ) {
+
+        if(!table_id.is_valid()) {
+            return core::Status::InvalidArgument("Cannot create index: table id cannot be invalid");
+        }
+
+        const auto& state = visible_state();
+        const auto table_it = state.table_by_id_.find(table_id);
+
+        if(table_it == state.table_by_id_.end()) {
+            return core::Status::NotFound("Cannot create index: table was not found");
+        }
+
+        const bool is_system_table = (
+            table_id == DANDB_TABLES_ID ||
+            table_id == DANDB_COLUMNS_ID ||
+            table_id == DANDB_INDEXES_ID ||
+            table_id == DANDB_INDEX_COLUMNS_ID
+        );
+        if(is_system_table) {
+            return core::Status::InvalidArgument("Cannot create index: system tables cannot be indexed");
+        }
+
+        if(!column_id.is_valid()) {
+            return core::Status::InvalidArgument("Cannot create index: column id cannot be invalid");
+        }
+
+        const ColumnDescriptor* new_indexed_column = nullptr;
+        const ColumnDescriptor* primary_key_column = nullptr;
+        
+        for(const auto& column: table_it->second.columns) {
+            if(column.column_id() == column_id) new_indexed_column = &column;
+            if(column.primary_key()) primary_key_column = &column;
+        }
+
+        if(new_indexed_column == nullptr) {
+            return core::Status::InvalidArgument("Cannot create index: column does not belong to the table");
+        }
+
+        if(primary_key_column == nullptr) {
+            return core::Status::InternalError("Cannot create index: table has no primary key column");
+        }
+
+        if(new_index_name.empty()) {
+            return core::Status::InvalidArgument("Cannot create index: name cannot be empty");
+        }
+
+        if(new_index_name.size() > CATALOG_NAME_CAPACITY) {
+            return core::Status::InvalidArgument("Cannot create index: name exceeds the catalog capacity");
+        }
+
+        if(has_reserved_catalog_prefix(new_index_name)) {
+            return core::Status::InvalidArgument("Cannot create index: name uses the reserved catalog prefix");
+        }
+
+        if(find_index(new_index_name) != nullptr) {
+            return core::Status::AlreadyExists("Cannot create index: an index with this name already exists");
+        }
+
+        for(const auto& index: table_it->second.indexes) {
+            if(index.indexed_column_id() == column_id) {
+                return core::Status::InvalidArgument("Cannot create index: column already has an index");
+            }
+        }
+
+        if(!new_indexed_column->logical_type().can_be_indexed()) {
+            return core::Status::InvalidArgument("Cannot create index: column type cannot be indexed");
+        }
+
+        if(new_indexed_column->nullable()) {
+            return core::Status::InvalidArgument("Cannot create index: nullable columns cannot be indexed");
+        }
+
+        const std::size_t new_indexed_column_size = new_indexed_column->logical_type().fixed_size();
+        const std::size_t primary_key_size = primary_key_column->logical_type().fixed_size();
+        std::size_t new_index_key_size = new_indexed_column_size;
+
+        if(!new_index_unique) {
+            if(new_indexed_column_size > std::numeric_limits<std::size_t>::max()-primary_key_size) {
+                return core::Status::InvalidArgument("Cannot create index: key size overflows");
+            }
+
+            new_index_key_size += primary_key_size;
+        }
+
+        auto indexes_schema_result = SystemTables::indexes_schema();
+        if(!indexes_schema_result.ok()) {
+            return indexes_schema_result.status();
+        }
+
+        auto index_columns_schema_result = SystemTables::index_columns_schema();
+        if(!index_columns_schema_result.ok()) {
+            return index_columns_schema_result.status();
+        }
+
+        const auto& indexes_schema = indexes_schema_result.value();
+        const auto& index_columns_schema = index_columns_schema_result.value();
+
+        auto indexes_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_indexes_root_page_id(),
+            static_cast<std::uint16_t>(indexes_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(indexes_schema.row_size())
+        );
+        if(!indexes_tree_result.ok()) {
+            return indexes_tree_result.status();
+        }
+
+        auto index_columns_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_index_columns_root_page_id(),
+            static_cast<std::uint16_t>(index_columns_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(index_columns_schema.row_size())
+        );
+        if(!index_columns_tree_result.ok()) {
+            return index_columns_tree_result.status();
+        }
+
+        btree::BTree indexes_tree = std::move(indexes_tree_result.value());
+        btree::BTree index_columns_tree = std::move(index_columns_tree_result.value());
+
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+            auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return begin_status;
+            }
+        }
+
+        CatalogState next_catalog_state = visible_state();
+
+        auto new_index_tree_result = btree::BTree::create_new(*pager_, new_index_key_size, primary_key_size);
+        if(!new_index_tree_result.ok()) {
+            return handle_mutation_failure(new_index_tree_result.status(), owns_transaction);
+        }
+
+        const IndexId new_index_id = next_catalog_state.next_index_id_;
+        next_catalog_state.next_index_id_ = IndexId{ new_index_id.id+1 };
+
+        auto new_index_descriptor_result = IndexDescriptor::create(
+            new_index_id,
+            table_id,
+            new_index_name,
+            new_index_tree_result.value().root_page_id(),
+            new_index_unique,
+            false,
+            false,
+            column_id
+        );
+        if(!new_index_descriptor_result.ok()) {
+            return handle_mutation_failure(new_index_descriptor_result.status(), owns_transaction);
+        }
+
+        IndexDescriptor new_index_descriptor = std::move(new_index_descriptor_result.value());
+
+        auto new_index_name_value_result = record::Value::string(new_index_descriptor.name(), CATALOG_NAME_CAPACITY);
+        if(!new_index_name_value_result.ok()) {
+            return handle_mutation_failure(new_index_name_value_result.status(), owns_transaction);
+        }
+
+        record::Row new_index_metadata_row(std::vector<record::Value>{
+            record::Value::int64(static_cast<std::int64_t>(new_index_descriptor.index_id().id)),
+            record::Value::int64(static_cast<std::int64_t>(table_id.id)),
+            std::move(new_index_name_value_result.value()),
+            record::Value::int64(static_cast<std::int64_t>(new_index_descriptor.root_page_id().id)),
+            record::Value::boolean(new_index_descriptor.unique()),
+            record::Value::boolean(new_index_descriptor.primary()),
+            record::Value::boolean(new_index_descriptor.internal())
+        });
+
+        auto insert_status = insert_row(indexes_tree, indexes_schema, new_index_metadata_row);
+        if(!insert_status.ok()) {
+            return handle_mutation_failure(insert_status, owns_transaction);
+        }
+
+        record::Row new_index_column_metadata_row(std::vector<record::Value>{
+            record::Value::int64(static_cast<std::int64_t>(new_index_descriptor.index_id().id)),
+            record::Value::int64(static_cast<std::int64_t>(column_id.id)),
+            record::Value::int64(0)
+        });
+
+        insert_status = insert_row(index_columns_tree, index_columns_schema, new_index_column_metadata_row);
+        if(!insert_status.ok()) {
+            return handle_mutation_failure(insert_status, owns_transaction);
+        }
+
+        const auto next_table_it = next_catalog_state.table_by_id_.find(table_id);
+        if(next_table_it == next_catalog_state.table_by_id_.end()) {
+            return handle_mutation_failure(
+                core::Status::InternalError("Cannot create index: table is missing from the catalog state"),
+                owns_transaction
+            );
+        }
+
+        next_table_it->second.indexes.push_back(std::move(new_index_descriptor));
+
+        if(!owns_transaction) {
+            staged_state_ = std::move(next_catalog_state);
+            return core::Status::Ok();
+        }
+
         auto commit_status = pager_->commit_transaction();
         if(!commit_status.ok()) {
             return commit_status;

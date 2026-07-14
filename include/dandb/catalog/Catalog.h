@@ -28,6 +28,12 @@ namespace dandb::catalog {
             static core::Result<Catalog> load(storage::Pager& pager);
 
             core::Status create_table(std::string name, const record::Schema& schema);
+            core::Status create_index(
+                TableId table_id,
+                std::string new_index_name,
+                ColumnId column_id,
+                bool new_index_unique
+            );
             core::Status drop_table(std::string name);
             core::Status on_transaction_committed();
             core::Status on_transaction_rolled_back();
