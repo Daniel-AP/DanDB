@@ -11,10 +11,51 @@
 
 #include <cstring>
 #include <cstddef>
+#include <limits>
 #include <utility>
 #include <vector>
 
 namespace dandb::btree {
+
+    namespace {
+
+        struct ValidatedLayout {
+            std::uint16_t key_size;
+            std::uint16_t value_size;
+        };
+
+        core::Result<ValidatedLayout> validate_layout(std::size_t key_size, std::size_t value_size) {
+
+            if(key_size == 0) {
+                return core::Status::InvalidArgument("Cannot create B+ tree: key size must be greater than 0");
+            }
+
+            if(value_size == 0) {
+                return core::Status::InvalidArgument("Cannot create B+ tree: value size must be greater than 0");
+            }
+
+            if(key_size > std::numeric_limits<std::uint16_t>::max() || value_size > std::numeric_limits<std::uint16_t>::max()) {
+                return core::Status::InvalidArgument("Cannot create B+ tree: key or value size exceeds the page-header limit");
+            }
+
+            const std::size_t leaf_entry_size = key_size+value_size;
+            if(BTREE_PAGE_ENTRY_AREA_SIZE/leaf_entry_size == 0) {
+                return core::Status::InvalidArgument("Cannot create B+ tree: leaf entry size is too large");
+            }
+
+            const std::size_t internal_entry_size = key_size+sizeof(std::uint64_t);
+            if(BTREE_PAGE_ENTRY_AREA_SIZE/internal_entry_size < 2) {
+                return core::Status::InvalidArgument("Cannot create B+ tree: internal page must hold at least two entries");
+            }
+
+            return ValidatedLayout{
+                static_cast<std::uint16_t>(key_size),
+                static_cast<std::uint16_t>(value_size)
+            };
+
+        }
+
+    }
 
     BTree::BTree(
         storage::Pager& pager,
@@ -30,9 +71,16 @@ namespace dandb::btree {
 
     core::Result<BTree> BTree::create_new(
         storage::Pager& pager,
-        std::uint16_t key_size,
-        std::uint16_t value_size
+        std::size_t key_size,
+        std::size_t value_size
     ) {
+
+        auto layout_result = validate_layout(key_size, value_size);
+        if(!layout_result.ok()) {
+            return layout_result.status();
+        }
+
+        const auto layout = layout_result.value();
 
         auto page_handle_result = pager.new_page();
         if(!page_handle_result.ok()) {
@@ -49,7 +97,7 @@ namespace dandb::btree {
 
         auto& page = *mutable_page_result.value();
 
-        auto status = initialize_leaf(page.data(), key_size, value_size);
+        auto status = initialize_leaf(page.data(), layout.key_size, layout.value_size);
         if(!status.ok()) {
             return status;
         }
@@ -64,8 +112,8 @@ namespace dandb::btree {
         return BTree{
             pager,
             root_page_id,
-            key_size,
-            value_size
+            layout.key_size,
+            layout.value_size
         };
 
     }

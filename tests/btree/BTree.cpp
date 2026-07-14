@@ -12,6 +12,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <vector>
 
 using dandb::btree::BTree;
@@ -251,6 +252,44 @@ TEST_CASE("BTree create_new initializes an empty leaf root", "[btree][tree]") {
         REQUIRE(leaf_page.key_count() == 0);
         REQUIRE(leaf_page.key_size() == KEY_SIZE);
         REQUIRE(leaf_page.value_size() == VALUE_SIZE);
+    }
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree create_new rejects invalid layouts before page allocation", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+    const auto page_count_before = pager.database_header().page_count();
+
+    SECTION("layout size cannot be represented in the page header") {
+        auto tree_result = BTree::create_new(
+            pager,
+            static_cast<std::size_t>(std::numeric_limits<std::uint16_t>::max())+1,
+            VALUE_SIZE
+        );
+
+        REQUIRE_FALSE(tree_result.ok());
+        REQUIRE(tree_result.status().code() == StatusCode::InvalidArgument);
+        REQUIRE(pager.database_header().page_count() == page_count_before);
+    }
+
+    SECTION("internal pages cannot hold two entries") {
+        auto tree_result = BTree::create_new(
+            pager,
+            dandb::btree::BTREE_PAGE_ENTRY_AREA_SIZE/2,
+            1
+        );
+
+        REQUIRE_FALSE(tree_result.ok());
+        REQUIRE(tree_result.status().code() == StatusCode::InvalidArgument);
+        REQUIRE(pager.database_header().page_count() == page_count_before);
     }
 
     REQUIRE(pager.rollback_transaction().ok());

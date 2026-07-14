@@ -25,8 +25,8 @@ namespace dandb::btree {
         public:
             static core::Result<BTree> create_new(
                 storage::Pager& pager,
-                std::uint16_t key_size,
-                std::uint16_t value_size
+                std::size_t key_size,
+                std::size_t value_size
             );
 
             static core::Result<BTree> open_existing(
