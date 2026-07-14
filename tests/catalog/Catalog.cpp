@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <string>
 #include <utility>
+#include <vector>
 
 using dandb::btree::BTree;
 using dandb::catalog::Catalog;
@@ -90,6 +91,59 @@ namespace {
         REQUIRE(primary_key_result.ok());
 
         auto schema_result = Schema::create({ std::move(primary_key_result.value()) });
+        REQUIRE(schema_result.ok());
+
+        return std::move(schema_result.value());
+    }
+
+    Column make_column(
+        std::string name,
+        LogicalType logical_type,
+        bool nullable = false,
+        bool primary_key = false,
+        bool unique = false
+    ) {
+        auto column_result = Column::create(
+            std::move(name),
+            logical_type,
+            nullable,
+            primary_key,
+            unique
+        );
+        REQUIRE(column_result.ok());
+
+        return std::move(column_result.value());
+    }
+
+    Schema make_schema_with_indexable_columns() {
+        std::vector<Column> columns;
+        columns.push_back(make_column("id", LogicalType::int64(), false, true, true));
+        columns.push_back(make_column("age", LogicalType::int64()));
+        columns.push_back(make_column("active", LogicalType::boolean()));
+
+        auto schema_result = Schema::create(std::move(columns));
+        REQUIRE(schema_result.ok());
+
+        return std::move(schema_result.value());
+    }
+
+    Schema make_schema_with_nullable_column() {
+        std::vector<Column> columns;
+        columns.push_back(make_column("id", LogicalType::int64(), false, true, true));
+        columns.push_back(make_column("active", LogicalType::boolean(), true));
+
+        auto schema_result = Schema::create(std::move(columns));
+        REQUIRE(schema_result.ok());
+
+        return std::move(schema_result.value());
+    }
+
+    Schema make_schema_with_float_column() {
+        std::vector<Column> columns;
+        columns.push_back(make_column("id", LogicalType::int64(), false, true, true));
+        columns.push_back(make_column("score", LogicalType::float64()));
+
+        auto schema_result = Schema::create(std::move(columns));
         REQUIRE(schema_result.ok());
 
         return std::move(schema_result.value());
@@ -392,6 +446,265 @@ TEST_CASE("Catalog finds indexes by name", "[catalog][find-index]") {
     REQUIRE(unique_index->unique());
 
     REQUIRE(catalog.find_index("missing_index") == nullptr);
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Catalog creates secondary index metadata that survives reopening", "[catalog][create-index]") {
+    const TempDir temp_dir;
+    const Schema schema = make_schema_with_indexable_columns();
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+        REQUIRE(pager_result.ok());
+        Pager& pager = pager_result.value();
+
+        auto catalog_result = Catalog::load(pager);
+        REQUIRE(catalog_result.ok());
+        Catalog& catalog = catalog_result.value();
+
+        REQUIRE(catalog.create_table("users", schema).ok());
+
+        const auto* table = catalog.find_table("users");
+        REQUIRE(table != nullptr);
+
+        const auto* age_column = catalog.find_column(table->table_id(), "age");
+        REQUIRE(age_column != nullptr);
+
+        REQUIRE(catalog.create_index(
+            table->table_id(),
+            "users_by_age",
+            age_column->column_id(),
+            false
+        ).ok());
+
+        const auto* index = catalog.find_index("users_by_age");
+        REQUIRE(index != nullptr);
+        REQUIRE(index->index_id().is_valid());
+        REQUIRE(index->table_id() == table->table_id());
+        REQUIRE(index->indexed_column_id() == age_column->column_id());
+        REQUIRE_FALSE(index->unique());
+        REQUIRE_FALSE(index->primary());
+        REQUIRE_FALSE(index->internal());
+
+        auto index_tree_result = BTree::open_existing(
+            pager,
+            index->root_page_id(),
+            static_cast<std::uint16_t>(
+                age_column->logical_type().fixed_size()+schema.primary_key_column().logical_type().fixed_size()
+            ),
+            static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
+        );
+        REQUIRE(index_tree_result.ok());
+        REQUIRE(index_tree_result.value().validate().ok());
+
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+
+    const auto* reopened_index = reopened_catalog_result.value().find_index("users_by_age");
+    REQUIRE(reopened_index != nullptr);
+    REQUIRE_FALSE(reopened_index->unique());
+    REQUIRE_FALSE(reopened_index->primary());
+    REQUIRE_FALSE(reopened_index->internal());
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("Catalog create_index validates its request", "[catalog][create-index]") {
+    const TempDir temp_dir;
+    const Schema schema = make_schema_with_indexable_columns();
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+    Catalog& catalog = catalog_result.value();
+
+    REQUIRE(catalog.create_table("users", schema).ok());
+
+    const auto* users_table = catalog.find_table("users");
+    REQUIRE(users_table != nullptr);
+
+    const auto* age_column = catalog.find_column(users_table->table_id(), "age");
+    REQUIRE(age_column != nullptr);
+
+    const auto* active_column = catalog.find_column(users_table->table_id(), "active");
+    REQUIRE(active_column != nullptr);
+
+    SECTION("invalid and missing table ids") {
+        auto status = catalog.create_index(
+            dandb::catalog::INVALID_TABLE_ID,
+            "users_by_age",
+            age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        status = catalog.create_index(
+            dandb::catalog::TableId{ 999 },
+            "users_by_age",
+            age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::NotFound);
+    }
+
+    SECTION("system tables") {
+        const auto status = catalog.create_index(
+            dandb::catalog::DANDB_TABLES_ID,
+            "system_index",
+            age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("invalid and foreign column ids") {
+        auto status = catalog.create_index(
+            users_table->table_id(),
+            "users_by_age",
+            dandb::catalog::INVALID_COLUMN_ID,
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        REQUIRE(catalog.create_table("orders", schema).ok());
+        const auto* orders_table = catalog.find_table("orders");
+        REQUIRE(orders_table != nullptr);
+        const auto* orders_age_column = catalog.find_column(orders_table->table_id(), "age");
+        REQUIRE(orders_age_column != nullptr);
+
+        status = catalog.create_index(
+            users_table->table_id(),
+            "users_by_age",
+            orders_age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("invalid index names") {
+        auto status = catalog.create_index(users_table->table_id(), "", age_column->column_id(), false);
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        status = catalog.create_index(
+            users_table->table_id(),
+            std::string(dandb::catalog::CATALOG_NAME_CAPACITY+1, 'a'),
+            age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        status = catalog.create_index(users_table->table_id(), "dandb_users_by_age", age_column->column_id(), false);
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("duplicate index name") {
+        REQUIRE(catalog.create_index(users_table->table_id(), "by_age", age_column->column_id(), false).ok());
+        REQUIRE(catalog.create_table("orders", schema).ok());
+
+        const auto* orders_table = catalog.find_table("orders");
+        REQUIRE(orders_table != nullptr);
+        const auto* orders_age_column = catalog.find_column(orders_table->table_id(), "age");
+        REQUIRE(orders_age_column != nullptr);
+
+        const auto status = catalog.create_index(
+            orders_table->table_id(),
+            "by_age",
+            orders_age_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::AlreadyExists);
+    }
+
+    SECTION("already indexed columns") {
+        const auto primary_indexes = catalog.indexes_for_table(users_table->table_id());
+        REQUIRE(primary_indexes.size() == 1);
+
+        auto status = catalog.create_index(
+            users_table->table_id(),
+            "users_by_id",
+            primary_indexes[0].indexed_column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        REQUIRE(catalog.create_index(users_table->table_id(), "users_by_age", age_column->column_id(), false).ok());
+
+        status = catalog.create_index(users_table->table_id(), "users_by_age_again", age_column->column_id(), false);
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        REQUIRE(catalog.create_table("accounts", make_schema_with_unique_column()).ok());
+        const auto* accounts_table = catalog.find_table("accounts");
+        REQUIRE(accounts_table != nullptr);
+        const auto* email_column = catalog.find_column(accounts_table->table_id(), "email");
+        REQUIRE(email_column != nullptr);
+
+        status = catalog.create_index(accounts_table->table_id(), "accounts_by_email", email_column->column_id(), false);
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("non-indexable and nullable columns") {
+        REQUIRE(catalog.create_table("scores", make_schema_with_float_column()).ok());
+        const auto* scores_table = catalog.find_table("scores");
+        REQUIRE(scores_table != nullptr);
+        const auto* score_column = catalog.find_column(scores_table->table_id(), "score");
+        REQUIRE(score_column != nullptr);
+
+        auto status = catalog.create_index(scores_table->table_id(), "scores_by_score", score_column->column_id(), false);
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+        REQUIRE(catalog.create_table("flags", make_schema_with_nullable_column()).ok());
+        const auto* flags_table = catalog.find_table("flags");
+        REQUIRE(flags_table != nullptr);
+        const auto* nullable_active_column = catalog.find_column(flags_table->table_id(), "active");
+        REQUIRE(nullable_active_column != nullptr);
+
+        status = catalog.create_index(
+            flags_table->table_id(),
+            "flags_by_active",
+            nullable_active_column->column_id(),
+            false
+        );
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::InvalidArgument);
+    }
+
+    SECTION("unique secondary index metadata") {
+        const auto status = catalog.create_index(
+            users_table->table_id(),
+            "users_by_active",
+            active_column->column_id(),
+            true
+        );
+        REQUIRE(status.ok());
+
+        const auto* index = catalog.find_index("users_by_active");
+        REQUIRE(index != nullptr);
+        REQUIRE(index->unique());
+    }
 
     REQUIRE(pager.close().ok());
 }
