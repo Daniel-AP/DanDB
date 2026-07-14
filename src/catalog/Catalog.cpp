@@ -687,6 +687,20 @@ namespace dandb::catalog {
 
     }
 
+    const IndexDescriptor* Catalog::find_index(std::string_view name) const {
+
+        const auto& state = visible_state();
+
+        for(const auto& table_entry: state.table_by_id_) {
+            for(const auto& index: table_entry.second.indexes) {
+                if(index.name() == name) return &index;
+            }
+        }
+
+        return nullptr;
+
+    }
+
     std::span<const IndexDescriptor> Catalog::indexes_for_table(TableId table_id) const {
 
         const auto& state = visible_state();

@@ -36,6 +36,7 @@ namespace dandb::catalog {
             const TableDescriptor* find_table(TableId table_id) const;
             const record::Schema* schema_for_table(TableId table_id) const;
             const ColumnDescriptor* find_column(TableId table_id, std::string_view name) const;
+            const IndexDescriptor* find_index(std::string_view name) const;
             std::span<const IndexDescriptor> indexes_for_table(TableId table_id) const;
 
         private:

@@ -360,6 +360,42 @@ TEST_CASE("Catalog creates an internal index for a unique column", "[catalog][cr
     REQUIRE(reopened_pager.close().ok());
 }
 
+TEST_CASE("Catalog finds indexes by name", "[catalog][find-index]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+    Catalog& catalog = catalog_result.value();
+
+    REQUIRE(catalog.create_table("users", make_schema_with_unique_column()).ok());
+
+    const auto* table = catalog.find_table("users");
+    REQUIRE(table != nullptr);
+
+    const auto* email_column = catalog.find_column(table->table_id(), "email");
+    REQUIRE(email_column != nullptr);
+
+    const auto* primary_index = catalog.find_index(
+        dandb::catalog::internal_primary_index_name(table->table_id())
+    );
+    REQUIRE(primary_index != nullptr);
+    REQUIRE(primary_index->primary());
+
+    const auto* unique_index = catalog.find_index(
+        dandb::catalog::internal_unique_index_name(table->table_id(), email_column->column_id())
+    );
+    REQUIRE(unique_index != nullptr);
+    REQUIRE(unique_index->unique());
+
+    REQUIRE(catalog.find_index("missing_index") == nullptr);
+
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Catalog discards staged table metadata after the caller rolls back", "[catalog][create-table]") {
     const TempDir temp_dir;
 
