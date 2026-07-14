@@ -3,6 +3,7 @@
 #include <dandb/btree/BTree.h>
 #include <dandb/btree/BTreeCursor.h>
 #include <dandb/catalog/Catalog.h>
+#include <dandb/catalog/IndexNames.h>
 #include <dandb/catalog/SystemTables.h>
 #include <dandb/core/Status.h>
 #include <dandb/record/Row.h>
@@ -257,6 +258,38 @@ TEST_CASE("Catalog load rejects duplicate table names", "[catalog][loader][corru
     REQUIRE(duplicate_name_result.ok());
     auto replacement_values = stored_row.row.values();
     replacement_values[1] = std::move(duplicate_name_result.value());
+
+    REQUIRE(pager.begin_transaction().ok());
+    replace_row(tree, schema, stored_row, std::move(replacement_values));
+    REQUIRE(pager.commit_transaction().ok());
+
+    const auto catalog_result = Catalog::load(pager);
+    REQUIRE_FALSE(catalog_result.ok());
+    REQUIRE(catalog_result.status().code() == StatusCode::Corruption);
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Catalog load rejects duplicate index names", "[catalog][loader][corruption]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto schema_result = SystemTables::indexes_schema();
+    REQUIRE(schema_result.ok());
+    const Schema& schema = schema_result.value();
+    auto tree = open_tree(pager, pager.database_header().system_indexes_root_page_id(), schema);
+    const auto stored_row = find_row(tree, schema, static_cast<std::int64_t>(DANDB_COLUMNS_PRIMARY_INDEX_ID.id));
+
+    auto duplicate_name_result = Value::string(
+        dandb::catalog::internal_primary_index_name(DANDB_TABLES_ID),
+        CATALOG_NAME_CAPACITY
+    );
+    REQUIRE(duplicate_name_result.ok());
+    auto replacement_values = stored_row.row.values();
+    replacement_values[2] = std::move(duplicate_name_result.value());
 
     REQUIRE(pager.begin_transaction().ok());
     replace_row(tree, schema, stored_row, std::move(replacement_values));

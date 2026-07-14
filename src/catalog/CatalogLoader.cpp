@@ -17,6 +17,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -496,6 +497,7 @@ namespace dandb::catalog {
         }
 
         auto cursor = std::move(cursor_result.value());
+        std::unordered_set<std::string> index_names;
 
         while(true) {
 
@@ -533,6 +535,10 @@ namespace dandb::catalog {
             const auto stored_table_id = row.value(1).as_integer();
             const auto& index_name = row.value(2).as_string();
             const auto stored_root_page_id = row.value(3).as_integer();
+
+            if(!index_names.insert(index_name).second) {
+                return core::Status::Corruption("Cannot load catalog: duplicate index name");
+            }
 
             if(stored_index_id < 0 || stored_table_id < 0) {
                 return core::Status::Corruption("Cannot load catalog: index and table ids cannot be negative");
