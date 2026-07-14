@@ -326,6 +326,34 @@ TEST_CASE("Catalog load rejects a missing required system table row", "[catalog]
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("Catalog load rejects an index missing its column mapping", "[catalog][loader][corruption]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto schema_result = SystemTables::index_columns_schema();
+    REQUIRE(schema_result.ok());
+    const Schema& schema = schema_result.value();
+    auto tree = open_tree(pager, pager.database_header().system_index_columns_root_page_id(), schema);
+    const auto stored_row = find_row(
+        tree,
+        schema,
+        static_cast<std::int64_t>(DANDB_TABLES_PRIMARY_INDEX_ID.id)
+    );
+
+    REQUIRE(pager.begin_transaction().ok());
+    REQUIRE(tree.erase(stored_row.key).ok());
+    REQUIRE(pager.commit_transaction().ok());
+
+    const auto catalog_result = Catalog::load(pager);
+    REQUIRE_FALSE(catalog_result.ok());
+    REQUIRE(catalog_result.status().code() == StatusCode::Corruption);
+
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Catalog load rejects a table root outside the database page range", "[catalog][loader][corruption]") {
     const TempDir temp_dir;
 
