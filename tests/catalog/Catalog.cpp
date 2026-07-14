@@ -131,6 +131,23 @@ TEST_CASE("Catalog create_table rejects an empty name", "[catalog][create-table]
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("Catalog create_table rejects a name with the reserved prefix", "[catalog][create-table]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+
+    const auto status = catalog_result.value().create_table("dandb_users", make_schema());
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("Catalog create_table rejects a name longer than the catalog capacity", "[catalog][create-table]") {
     const TempDir temp_dir;
 

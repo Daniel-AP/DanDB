@@ -4,6 +4,7 @@
 #include "CatalogLoader.h"
 
 #include <dandb/btree/BTree.h>
+#include <dandb/catalog/CatalogNames.h>
 #include <dandb/catalog/IndexNames.h>
 #include <dandb/catalog/SystemTables.h>
 #include <dandb/record/LogicalTypeCodec.h>
@@ -108,6 +109,10 @@ namespace dandb::catalog {
 
         if(find_table(name) != nullptr) {
             return core::Status::AlreadyExists("Cannot create table: a table with this name already exists");
+        }
+
+        if(has_reserved_catalog_prefix(name)) {
+            return core::Status::InvalidArgument("Cannot create table: name uses the reserved catalog prefix");
         }
 
         for(const auto& column: schema.columns()) {

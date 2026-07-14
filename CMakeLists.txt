@@ -87,6 +87,7 @@ add_executable(dandb_tests
     tests/catalog/ColumnDescriptor.cpp
     tests/catalog/IndexDescriptor.cpp
     tests/catalog/IndexNames.cpp
+    tests/catalog/CatalogNames.cpp
     tests/catalog/SystemTables.cpp
     tests/catalog/CatalogInitializer.cpp
     tests/catalog/CatalogLoader.cpp
