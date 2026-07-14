@@ -517,6 +517,68 @@ TEST_CASE("Catalog creates secondary index metadata that survives reopening", "[
     REQUIRE(reopened_pager.close().ok());
 }
 
+TEST_CASE("Catalog creates multiple secondary indexes on different columns", "[catalog][create-index]") {
+    const TempDir temp_dir;
+    const Schema schema = make_schema_with_indexable_columns();
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+        REQUIRE(pager_result.ok());
+        Pager& pager = pager_result.value();
+
+        auto catalog_result = Catalog::load(pager);
+        REQUIRE(catalog_result.ok());
+        Catalog& catalog = catalog_result.value();
+
+        REQUIRE(catalog.create_table("users", schema).ok());
+
+        const auto* table = catalog.find_table("users");
+        REQUIRE(table != nullptr);
+
+        const auto* age_column = catalog.find_column(table->table_id(), "age");
+        REQUIRE(age_column != nullptr);
+
+        const auto* active_column = catalog.find_column(table->table_id(), "active");
+        REQUIRE(active_column != nullptr);
+
+        const auto table_id = table->table_id();
+        const auto age_column_id = age_column->column_id();
+        const auto active_column_id = active_column->column_id();
+
+        REQUIRE(catalog.create_index(table_id, "users_by_age", age_column_id, false).ok());
+        REQUIRE(catalog.create_index(table_id, "users_by_active", active_column_id, false).ok());
+
+        const auto indexes = catalog.indexes_for_table(table_id);
+        REQUIRE(indexes.size() == 3);
+
+        const auto* age_index = catalog.find_index("users_by_age");
+        REQUIRE(age_index != nullptr);
+        REQUIRE(age_index->indexed_column_id() == age_column_id);
+
+        const auto* active_index = catalog.find_index("users_by_active");
+        REQUIRE(active_index != nullptr);
+        REQUIRE(active_index->indexed_column_id() == active_column_id);
+
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    const Catalog& reopened_catalog = reopened_catalog_result.value();
+
+    const auto* reopened_table = reopened_catalog.find_table("users");
+    REQUIRE(reopened_table != nullptr);
+    REQUIRE(reopened_catalog.indexes_for_table(reopened_table->table_id()).size() == 3);
+    REQUIRE(reopened_catalog.find_index("users_by_age") != nullptr);
+    REQUIRE(reopened_catalog.find_index("users_by_active") != nullptr);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
 TEST_CASE("Catalog create_index validates its request", "[catalog][create-index]") {
     const TempDir temp_dir;
     const Schema schema = make_schema_with_indexable_columns();
@@ -704,6 +766,93 @@ TEST_CASE("Catalog create_index validates its request", "[catalog][create-index]
         const auto* index = catalog.find_index("users_by_active");
         REQUIRE(index != nullptr);
         REQUIRE(index->unique());
+    }
+
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("Catalog drops secondary index metadata that remains absent after reopening", "[catalog][drop-index]") {
+    const TempDir temp_dir;
+    const Schema schema = make_schema_with_indexable_columns();
+
+    {
+        auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+        REQUIRE(pager_result.ok());
+        Pager& pager = pager_result.value();
+
+        auto catalog_result = Catalog::load(pager);
+        REQUIRE(catalog_result.ok());
+        Catalog& catalog = catalog_result.value();
+
+        REQUIRE(catalog.create_table("users", schema).ok());
+
+        const auto* table = catalog.find_table("users");
+        REQUIRE(table != nullptr);
+
+        const auto* age_column = catalog.find_column(table->table_id(), "age");
+        REQUIRE(age_column != nullptr);
+
+        REQUIRE(catalog.create_index(
+            table->table_id(),
+            "users_by_age",
+            age_column->column_id(),
+            false
+        ).ok());
+
+        const auto* new_index = catalog.find_index("users_by_age");
+        REQUIRE(new_index != nullptr);
+
+        REQUIRE(catalog.drop_index("users_by_age").ok());
+        REQUIRE(catalog.find_index("users_by_age") == nullptr);
+        REQUIRE(catalog.indexes_for_table(table->table_id()).size() == 1);
+
+        REQUIRE(pager.close().ok());
+    }
+
+    auto reopened_pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(reopened_pager_result.ok());
+    Pager& reopened_pager = reopened_pager_result.value();
+
+    auto reopened_catalog_result = Catalog::load(reopened_pager);
+    REQUIRE(reopened_catalog_result.ok());
+    const Catalog& reopened_catalog = reopened_catalog_result.value();
+
+    REQUIRE(reopened_catalog.find_index("users_by_age") == nullptr);
+
+    const auto* reopened_table = reopened_catalog.find_table("users");
+    REQUIRE(reopened_table != nullptr);
+    REQUIRE(reopened_catalog.indexes_for_table(reopened_table->table_id()).size() == 1);
+
+    REQUIRE(reopened_pager.close().ok());
+}
+
+TEST_CASE("Catalog drop_index rejects missing and internal indexes", "[catalog][drop-index]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+    Pager& pager = pager_result.value();
+
+    auto catalog_result = Catalog::load(pager);
+    REQUIRE(catalog_result.ok());
+    Catalog& catalog = catalog_result.value();
+
+    const auto missing_index_status = catalog.drop_index("missing_index");
+    REQUIRE_FALSE(missing_index_status.ok());
+    REQUIRE(missing_index_status.code() == StatusCode::NotFound);
+
+    REQUIRE(catalog.create_table("users", make_schema_with_unique_column()).ok());
+
+    const auto* table = catalog.find_table("users");
+    REQUIRE(table != nullptr);
+
+    const auto indexes = catalog.indexes_for_table(table->table_id());
+    REQUIRE(indexes.size() == 2);
+
+    for(const auto& index: indexes) {
+        const auto internal_index_status = catalog.drop_index(index.name());
+        REQUIRE_FALSE(internal_index_status.ok());
+        REQUIRE(internal_index_status.code() == StatusCode::InvalidArgument);
     }
 
     REQUIRE(pager.close().ok());
