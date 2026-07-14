@@ -90,6 +90,7 @@ add_executable(dandb_tests
     tests/catalog/SystemTables.cpp
     tests/catalog/CatalogInitializer.cpp
     tests/catalog/CatalogLoader.cpp
+    tests/catalog/Catalog.cpp
     tests/record/Column.cpp
     tests/record/LiteralValue.cpp
     tests/record/LogicalType.cpp
