@@ -14,6 +14,7 @@
 #include <dandb/record/Value.h>
 #include <dandb/storage/Pager.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <limits>
 #include <utility>
@@ -651,6 +652,116 @@ namespace dandb::catalog {
         }
 
         next_table_it->second.indexes.push_back(std::move(new_index_descriptor));
+
+        if(!owns_transaction) {
+            staged_state_ = std::move(next_catalog_state);
+            return core::Status::Ok();
+        }
+
+        auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return commit_status;
+        }
+
+        committed_state_ = std::move(next_catalog_state);
+        return core::Status::Ok();
+
+    }
+
+    core::Status Catalog::drop_index(std::string_view index_name) {
+
+        const IndexDescriptor* index_to_drop = find_index(index_name);
+        if(index_to_drop == nullptr) {
+            return core::Status::NotFound("Cannot drop index: index was not found");
+        }
+
+        if(index_to_drop->internal()) {
+            return core::Status::InvalidArgument("Cannot drop index: internal indexes cannot be dropped");
+        }
+
+        const IndexId index_to_drop_id = index_to_drop->index_id();
+        const TableId index_to_drop_table_id = index_to_drop->table_id();
+
+        auto indexes_schema_result = SystemTables::indexes_schema();
+        if(!indexes_schema_result.ok()) {
+            return indexes_schema_result.status();
+        }
+
+        auto index_columns_schema_result = SystemTables::index_columns_schema();
+        if(!index_columns_schema_result.ok()) {
+            return index_columns_schema_result.status();
+        }
+
+        const auto& indexes_schema = indexes_schema_result.value();
+        const auto& index_columns_schema = index_columns_schema_result.value();
+
+        auto indexes_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_indexes_root_page_id(),
+            static_cast<std::uint16_t>(indexes_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(indexes_schema.row_size())
+        );
+        if(!indexes_tree_result.ok()) {
+            return indexes_tree_result.status();
+        }
+
+        auto index_columns_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_index_columns_root_page_id(),
+            static_cast<std::uint16_t>(index_columns_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(index_columns_schema.row_size())
+        );
+        if(!index_columns_tree_result.ok()) {
+            return index_columns_tree_result.status();
+        }
+
+        btree::BTree indexes_tree = std::move(indexes_tree_result.value());
+        btree::BTree index_columns_tree = std::move(index_columns_tree_result.value());
+
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+            auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return begin_status;
+            }
+        }
+
+        CatalogState next_catalog_state = visible_state();
+
+        auto erase_status = erase_row(index_columns_tree, index_to_drop_id.id);
+        if(!erase_status.ok()) {
+            return handle_mutation_failure(erase_status, owns_transaction);
+        }
+
+        erase_status = erase_row(indexes_tree, index_to_drop_id.id);
+        if(!erase_status.ok()) {
+            return handle_mutation_failure(erase_status, owns_transaction);
+        }
+
+        const auto table_it = next_catalog_state.table_by_id_.find(index_to_drop_table_id);
+        if(table_it == next_catalog_state.table_by_id_.end()) {
+            return handle_mutation_failure(
+                core::Status::InternalError("Cannot drop index: table is missing from the catalog state"),
+                owns_transaction
+            );
+        }
+
+        auto& index_descriptors = table_it->second.indexes;
+        const auto index_it = std::find_if(
+            index_descriptors.begin(),
+            index_descriptors.end(),
+            [index_to_drop_id](const IndexDescriptor& index_descriptor) {
+                return index_descriptor.index_id() == index_to_drop_id;
+            }
+        );
+        if(index_it == index_descriptors.end()) {
+            return handle_mutation_failure(
+                core::Status::InternalError("Cannot drop index: index is missing from the catalog state"),
+                owns_transaction
+            );
+        }
+
+        index_descriptors.erase(index_it);
 
         if(!owns_transaction) {
             staged_state_ = std::move(next_catalog_state);
