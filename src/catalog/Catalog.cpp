@@ -7,6 +7,7 @@
 #include <dandb/catalog/CatalogNames.h>
 #include <dandb/catalog/IndexNames.h>
 #include <dandb/catalog/SystemTables.h>
+#include <dandb/record/KeyCodec.h>
 #include <dandb/record/LogicalTypeCodec.h>
 #include <dandb/record/RowCodec.h>
 #include <dandb/record/RowHelpers.h>
@@ -39,6 +40,17 @@ namespace dandb::catalog {
 
             return tree.insert(primary_key_result.value(), row_bytes_result.value());
         }
+
+        core::Status erase_row(btree::BTree& tree, std::uint64_t object_id) {
+            auto key_result = record::KeyCodec::encode(
+                record::Value::int64(static_cast<std::int64_t>(object_id))
+            );
+            if(!key_result.ok()) {
+                return key_result.status();
+            }
+
+            return tree.erase(key_result.value());
+        };
 
     }
 
@@ -425,6 +437,168 @@ namespace dandb::catalog {
         );
         next_catalog_state.table_schema_by_id_.emplace(new_table_id, schema);
         next_catalog_state.table_id_by_name_.emplace(std::move(name), new_table_id);
+
+        // Keep the state staged for the caller's transaction
+        if(!owns_transaction) {
+            staged_state_ = std::move(next_catalog_state);
+            return core::Status::Ok();
+        }
+
+        // Commit before updating the catalog state
+        auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return commit_status;
+        }
+
+        committed_state_ = std::move(next_catalog_state);
+        return core::Status::Ok();
+
+    }
+
+    core::Status Catalog::drop_table(std::string name) {
+
+        const TableDescriptor* table_descriptor = find_table(name);
+        if(table_descriptor == nullptr) {
+            return core::Status::NotFound("Cannot drop table: table was not found");
+        }
+
+        const TableId table_id = table_descriptor->table_id();
+        bool is_system_table = (
+            table_id == DANDB_TABLES_ID ||
+            table_id == DANDB_COLUMNS_ID ||
+            table_id == DANDB_INDEXES_ID ||
+            table_id == DANDB_INDEX_COLUMNS_ID
+        );
+
+        if(is_system_table) {
+            return core::Status::InvalidArgument("Cannot drop table: system tables cannot be dropped");
+        }
+
+        // Get the system table schemas
+        auto tables_schema_result = SystemTables::tables_schema();
+        if(!tables_schema_result.ok()) {
+            return tables_schema_result.status();
+        }
+
+        auto columns_schema_result = SystemTables::columns_schema();
+        if(!columns_schema_result.ok()) {
+            return columns_schema_result.status();
+        }
+
+        auto indexes_schema_result = SystemTables::indexes_schema();
+        if(!indexes_schema_result.ok()) {
+            return indexes_schema_result.status();
+        }
+
+        auto index_columns_schema_result = SystemTables::index_columns_schema();
+        if(!index_columns_schema_result.ok()) {
+            return index_columns_schema_result.status();
+        }
+
+        const auto& tables_schema = tables_schema_result.value();
+        const auto& columns_schema = columns_schema_result.value();
+        const auto& indexes_schema = indexes_schema_result.value();
+        const auto& index_columns_schema = index_columns_schema_result.value();
+
+        // Open the system B+ trees
+        auto tables_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_tables_root_page_id(),
+            static_cast<std::uint16_t>(tables_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(tables_schema.row_size())
+        );
+        if(!tables_tree_result.ok()) {
+            return tables_tree_result.status();
+        }
+
+        auto columns_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_columns_root_page_id(),
+            static_cast<std::uint16_t>(columns_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(columns_schema.row_size())
+        );
+        if(!columns_tree_result.ok()) {
+            return columns_tree_result.status();
+        }
+
+        auto indexes_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_indexes_root_page_id(),
+            static_cast<std::uint16_t>(indexes_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(indexes_schema.row_size())
+        );
+        if(!indexes_tree_result.ok()) {
+            return indexes_tree_result.status();
+        }
+
+        auto index_columns_tree_result = btree::BTree::open_existing(
+            *pager_,
+            pager_->database_header().system_index_columns_root_page_id(),
+            static_cast<std::uint16_t>(index_columns_schema.primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(index_columns_schema.row_size())
+        );
+        if(!index_columns_tree_result.ok()) {
+            return index_columns_tree_result.status();
+        }
+
+        btree::BTree tables_tree = std::move(tables_tree_result.value());
+        btree::BTree columns_tree = std::move(columns_tree_result.value());
+        btree::BTree indexes_tree = std::move(indexes_tree_result.value());
+        btree::BTree index_columns_tree = std::move(index_columns_tree_result.value());
+
+        // Start a transaction only if needed
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+            auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return begin_status;
+            }
+        }
+
+        // Copy the visible state before removing metadata
+        CatalogState next_catalog_state = visible_state();
+        const auto table_it = next_catalog_state.table_by_id_.find(table_id);
+        if(table_it == next_catalog_state.table_by_id_.end()) {
+            return handle_mutation_failure(
+                core::Status::InternalError("Cannot drop table: table is missing from the catalog state"),
+                owns_transaction
+            );
+        }
+
+        const auto& table_info = table_it->second;
+        const std::string table_name = table_info.table_descriptor.name();
+
+        // Remove index metadata before the table metadata it references
+        for(const auto& index_descriptor: table_info.indexes) {
+            auto erase_status = erase_row(index_columns_tree, index_descriptor.index_id().id);
+            if(!erase_status.ok()) {
+                return handle_mutation_failure(erase_status, owns_transaction);
+            }
+
+            erase_status = erase_row(indexes_tree, index_descriptor.index_id().id);
+            if(!erase_status.ok()) {
+                return handle_mutation_failure(erase_status, owns_transaction);
+            }
+        }
+
+        // Remove column metadata
+        for(const auto& column_descriptor: table_info.columns) {
+            auto erase_status = erase_row(columns_tree, column_descriptor.column_id().id);
+            if(!erase_status.ok()) {
+                return handle_mutation_failure(erase_status, owns_transaction);
+            }
+        }
+
+        // Remove table metadata
+        auto erase_status = erase_row(tables_tree, table_id.id);
+        if(!erase_status.ok()) {
+            return handle_mutation_failure(erase_status, owns_transaction);
+        }
+
+        // Remove the table from the next catalog state
+        next_catalog_state.table_id_by_name_.erase(table_name);
+        next_catalog_state.table_schema_by_id_.erase(table_id);
+        next_catalog_state.table_by_id_.erase(table_id);
 
         // Keep the state staged for the caller's transaction
         if(!owns_transaction) {
