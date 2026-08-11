@@ -26,12 +26,14 @@ namespace dandb::sql {
             std::vector<Token> tokens_;
 
             core::Status tokenize_next();
-            core::Status tokenize_identifier_or_keyword();
+            core::Status tokenize_identifier_or_reserved_word();
             core::Status tokenize_number();
             core::Status tokenize_string();
 
             bool is_at_end() const;
             char consume_char();
+            void add_token(TokenKind kind, std::string_view lexeme, SourceLocation location);
+            void add_current_token(TokenKind kind);
             std::optional<char> peek_char() const;
             std::optional<char> peek_next_char() const;
             bool match_char(char expected);
