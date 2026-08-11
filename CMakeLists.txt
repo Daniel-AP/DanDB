@@ -123,6 +123,7 @@ add_executable(dandb_tests
     tests/wal/WalCommitRecord.cpp
     tests/wal/WalManager.cpp
     tests/wal/WalScanner.cpp
+    tests/sql/Token.cpp
 )
 
 target_link_libraries(dandb_tests

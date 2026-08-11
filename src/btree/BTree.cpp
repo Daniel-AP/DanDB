@@ -275,7 +275,7 @@ namespace dandb::btree {
         const auto right_child_page_id = split->right_child_page_id;
         storage::PageId new_root_page_id;
 
-        // Create the new internal root.
+        // Create the new internal root
         {
             auto new_root_handle_result = pager_->new_page();
             if(!new_root_handle_result.ok()) {
@@ -313,7 +313,7 @@ namespace dandb::btree {
             }
         }
 
-        // The old root becomes the left child.
+        // The old root becomes the left child
         {
             auto old_root_handle_result = pager_->get_page(old_root_page_id);
             if(!old_root_handle_result.ok()) {
@@ -340,7 +340,7 @@ namespace dandb::btree {
             old_root_page_view.set_parent_page_id(new_root_page_id);
         }
 
-        // The split page becomes the right child.
+        // The split page becomes the right child
         {
             auto right_child_handle_result = pager_->get_page(right_child_page_id);
             if(!right_child_handle_result.ok()) {
