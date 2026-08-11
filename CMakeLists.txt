@@ -52,6 +52,7 @@ add_library(dandb_core STATIC
     src/catalog/Catalog.cpp
     src/catalog/CatalogInitializer.cpp
     src/catalog/CatalogLoader.cpp
+    src/sql/Lexer.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -124,6 +125,7 @@ add_executable(dandb_tests
     tests/wal/WalManager.cpp
     tests/wal/WalScanner.cpp
     tests/sql/Token.cpp
+    tests/sql/Lexer.cpp
 )
 
 target_link_libraries(dandb_tests
