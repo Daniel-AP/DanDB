@@ -14,6 +14,7 @@ using dandb::sql::CheckpointStatement;
 using dandb::sql::CommitStatement;
 using dandb::sql::CreateIndexStatement;
 using dandb::sql::CreateTableStatement;
+using dandb::sql::DropIndexStatement;
 using dandb::sql::DropTableStatement;
 using dandb::sql::Lexer;
 using dandb::sql::Parser;
@@ -112,6 +113,16 @@ TEST_CASE("Parser parses a DROP TABLE statement", "[sql][parser]") {
     REQUIRE(statement.location.column == 1);
     REQUIRE(statement.table_name.location.line == 1);
     REQUIRE(statement.table_name.location.column == 12);
+}
+
+TEST_CASE("Parser parses a DROP INDEX statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("DROP INDEX email_lookup;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<DropIndexStatement>(statement_result.value()));
+
+    const auto& statement = std::get<DropIndexStatement>(statement_result.value());
+    REQUIRE(statement.index_name.text == "email_lookup");
 }
 
 TEST_CASE("Parser parses a CREATE INDEX statement", "[sql][parser]") {
