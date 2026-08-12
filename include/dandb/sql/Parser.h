@@ -24,6 +24,7 @@ namespace dandb::sql {
             core::Result<Statement> parse_transaction_statement();
 
             core::Result<Statement> parse_create_table_statement();
+            core::Result<Statement> parse_create_index_statement();
             core::Result<ColumnDefinition> parse_column_definition();
             core::Result<ColumnType> parse_column_type();
             core::Result<ColumnConstraints> parse_column_constraints();

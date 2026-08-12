@@ -45,7 +45,10 @@ namespace dandb::sql {
             case TokenKind::Checkpoint:
                 return parse_transaction_statement();
             case TokenKind::Create:
-                return parse_create_table_statement();
+                if(tokens_[current_pos_+1].kind == TokenKind::Table) {
+                    return parse_create_table_statement();
+                }
+                return parse_create_index_statement();
             case TokenKind::Drop:
                 return parse_drop_table_statement();
             default:
@@ -129,6 +132,59 @@ namespace dandb::sql {
                 Identifier{table_name_token.lexeme, table_name_token.location},
                 std::move(columns),
                 create_token.location
+            }
+        };
+
+    }
+
+    core::Result<Statement> Parser::parse_create_index_statement() {
+
+        const auto location = current_token().location;
+
+        if(!match_kind(TokenKind::Create)) {
+            return make_parser_error(current_token().location, "expected 'CREATE'");
+        }
+
+        const bool unique = match_kind(TokenKind::Unique);
+
+        if(!match_kind(TokenKind::Index)) {
+            return make_parser_error(current_token().location, "expected 'INDEX' after 'CREATE'");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected index name after 'CREATE INDEX'");
+        }
+        const auto index_name_token = consume_token();
+
+        if(!match_kind(TokenKind::On)) {
+            return make_parser_error(current_token().location, "expected 'ON' after index name");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'ON'");
+        }
+        const auto table_name_token = consume_token();
+
+        if(!match_kind(TokenKind::LeftParen)) {
+            return make_parser_error(current_token().location, "expected '(' after table name");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected column name inside index definition");
+        }
+        const auto column_name_token = consume_token();
+
+        if(!match_kind(TokenKind::RightParen)) {
+            return make_parser_error(current_token().location, "expected ')' after indexed column");
+        }
+
+        return Statement{
+            CreateIndexStatement{
+                Identifier{index_name_token.lexeme, index_name_token.location},
+                Identifier{table_name_token.lexeme, table_name_token.location},
+                Identifier{column_name_token.lexeme, column_name_token.location},
+                unique,
+                location
             }
         };
 
@@ -272,7 +328,7 @@ namespace dandb::sql {
     core::Result<Statement> Parser::parse_drop_table_statement() {
 
         const auto location = current_token().location;
-        
+
         if(!match_kind(TokenKind::Drop)) {
             return make_parser_error(current_token().location, "expected 'DROP'");
         }
