@@ -1,0 +1,67 @@
+input ::= statement ";" END_OF_INPUT
+
+statement ::= create_table_statement
+            | drop_table_statement
+            | create_index_statement
+            | drop_index_statement
+            | insert_statement
+            | select_statement
+            | update_statement
+            | delete_statement
+            | transaction_statement
+
+create_table_statement ::= "CREATE" "TABLE" IDENTIFIER "(" column_definitions ")"
+column_definitions ::= column_definition column_definitions_tail
+column_definitions_tail ::= "," column_definition column_definitions_tail | eps
+column_definition ::= IDENTIFIER column_type column_constraints
+column_constraints ::= column_constraint column_constraints | eps
+column_constraint ::= "PRIMARY" "KEY" | "UNIQUE" | "NOT" "NULL"
+column_type ::= "INT8"
+              | "INT16"
+              | "INT32"
+              | "INT64"
+              | "DOUBLE"
+              | "STRING" "(" INTEGER_LITERAL ")"
+              | "BOOL"
+
+drop_table_statement ::= "DROP" "TABLE" IDENTIFIER
+
+create_index_statement ::= "CREATE" "INDEX" IDENTIFIER "ON" IDENTIFIER "(" IDENTIFIER ")"
+                        | "CREATE" "UNIQUE" "INDEX" IDENTIFIER "ON" IDENTIFIER "(" IDENTIFIER ")"
+
+drop_index_statement ::= "DROP" "INDEX" IDENTIFIER
+
+insert_statement ::= "INSERT" "INTO" IDENTIFIER "VALUES" "(" literal_values ")"
+literal_values ::= literal literal_values_tail
+literal_values_tail ::= "," literal literal_values_tail | eps
+
+select_statement ::= "SELECT" projection "FROM" IDENTIFIER optional_where
+projection ::= "*" | identifier_list
+identifier_list ::= IDENTIFIER identifier_list_tail
+identifier_list_tail ::= "," IDENTIFIER identifier_list_tail | eps
+
+update_statement ::= "UPDATE" IDENTIFIER "SET" IDENTIFIER "=" literal optional_where
+
+delete_statement ::= "DELETE" "FROM" IDENTIFIER optional_where
+
+optional_where ::= "WHERE" predicate | eps
+predicate ::= IDENTIFIER comparison_operator literal
+            | IDENTIFIER "IS" "NULL"
+            | IDENTIFIER "IS" "NOT" "NULL"
+comparison_operator ::= "="
+                    | "!="
+                    | "<"
+                    | "<="
+                    | ">"
+                    | ">="
+
+transaction_statement ::= "BEGIN"
+                        | "COMMIT"
+                        | "ROLLBACK"
+                        | "CHECKPOINT"
+
+literal ::= INTEGER_LITERAL
+          | DOUBLE_LITERAL
+          | STRING_LITERAL
+          | BOOLEAN_LITERAL
+          | "NULL"
