@@ -20,7 +20,13 @@ namespace dandb::sql {
             std::size_t current_pos_ = 0;
 
             core::Result<Statement> parse_statement();
+
             core::Result<Statement> parse_transaction_statement();
+
+            core::Result<Statement> parse_create_table_statement();
+            core::Result<ColumnDefinition> parse_column_definition();
+            core::Result<ColumnType> parse_column_type();
+            core::Result<ColumnConstraints> parse_column_constraints();
 
             bool is_at_end() const;
             const Token& current_token() const;

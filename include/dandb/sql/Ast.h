@@ -21,12 +21,16 @@ namespace dandb::sql {
         SourceLocation location;
     };
 
-    struct ColumnDefinition {
-        Identifier name;
-        ColumnType type;
+    struct ColumnConstraints {
         bool primary_key;
         bool unique;
         bool not_null;
+    };
+
+    struct ColumnDefinition {
+        Identifier name;
+        ColumnType type;
+        ColumnConstraints constraints;
         SourceLocation location;
     };
 
