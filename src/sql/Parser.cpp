@@ -50,7 +50,10 @@ namespace dandb::sql {
                 }
                 return parse_create_index_statement();
             case TokenKind::Drop:
-                return parse_drop_table_statement();
+                if(tokens_[current_pos_+1].kind == TokenKind::Table) {
+                    return parse_drop_table_statement();
+                }
+                return parse_drop_index_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -346,6 +349,32 @@ namespace dandb::sql {
         return Statement{
             DropTableStatement{
                 Identifier{table_name_token.lexeme, table_name_token.location},
+                location
+            }
+        };
+
+    }
+
+    core::Result<Statement> Parser::parse_drop_index_statement() {
+
+        const auto location = current_token().location;
+
+        if(!match_kind(TokenKind::Drop)) {
+            return make_parser_error(current_token().location, "expected 'DROP'");
+        }
+
+        if(!match_kind(TokenKind::Index)) {
+            return make_parser_error(current_token().location, "expected 'INDEX' after 'DROP'");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected index name after 'DROP INDEX'");
+        }
+        const auto index_name_token = consume_token();
+
+        return Statement{
+            DropIndexStatement{
+                Identifier{index_name_token.lexeme, index_name_token.location},
                 location
             }
         };
