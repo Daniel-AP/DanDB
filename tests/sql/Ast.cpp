@@ -11,6 +11,19 @@ using dandb::sql::CreateTableStatement;
 using dandb::sql::Identifier;
 using dandb::sql::SourceLocation;
 
+namespace {
+
+    template<typename T>
+    constexpr bool supports_not_null = requires(T column_definition) {
+        column_definition.not_null = true;
+    };
+
+}
+
+TEST_CASE("ColumnDefinition records whether NOT NULL was specified", "[sql][ast]") {
+    REQUIRE(supports_not_null<ColumnDefinition>);
+}
+
 TEST_CASE("AST constructs a CREATE TABLE statement", "[sql][ast]") {
     const SourceLocation create_location{1, 1};
     const SourceLocation users_location{1, 14};
@@ -27,6 +40,7 @@ TEST_CASE("AST constructs a CREATE TABLE statement", "[sql][ast]") {
                 ColumnType{LogicalType::int64(), int64_location},
                 true,
                 false,
+                false,
                 id_location
             },
             ColumnDefinition{
@@ -34,6 +48,7 @@ TEST_CASE("AST constructs a CREATE TABLE statement", "[sql][ast]") {
                 ColumnType{LogicalType::string(64).value(), string_location},
                 false,
                 false,
+                true,
                 name_location
             }
         },
@@ -43,5 +58,6 @@ TEST_CASE("AST constructs a CREATE TABLE statement", "[sql][ast]") {
     REQUIRE(statement.table_name.text == "users");
     REQUIRE(statement.columns.size() == 2);
     REQUIRE(statement.columns[0].primary_key);
+    REQUIRE(statement.columns[1].not_null);
     REQUIRE(statement.columns[1].type.logical_type.capacity() == 64);
 }

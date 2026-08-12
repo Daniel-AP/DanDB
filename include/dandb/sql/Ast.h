@@ -26,6 +26,7 @@ namespace dandb::sql {
         ColumnType type;
         bool primary_key;
         bool unique;
+        bool not_null;
         SourceLocation location;
     };
 
