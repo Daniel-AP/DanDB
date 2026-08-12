@@ -12,6 +12,7 @@ using dandb::core::StatusCode;
 using dandb::sql::BeginStatement;
 using dandb::sql::CheckpointStatement;
 using dandb::sql::CommitStatement;
+using dandb::sql::CreateTableStatement;
 using dandb::sql::Lexer;
 using dandb::sql::Parser;
 using dandb::sql::RollbackStatement;
@@ -56,6 +57,45 @@ TEST_CASE("Parser parses a CHECKPOINT statement", "[sql][parser]") {
 
     REQUIRE(statement_result.ok());
     REQUIRE(std::holds_alternative<CheckpointStatement>(statement_result.value()));
+}
+
+TEST_CASE("Parser parses a CREATE TABLE statement", "[sql][parser]") {
+    const auto statement_result = parse_sql(
+        "CREATE TABLE users ("
+        "small INT8, "
+        "medium INT16, "
+        "large INT32, "
+        "id INT64 PRIMARY KEY, "
+        "rating DOUBLE, "
+        "name STRING(64) NOT NULL, "
+        "active BOOL UNIQUE"
+        ");"
+    );
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<CreateTableStatement>(statement_result.value()));
+
+    const auto& statement = std::get<CreateTableStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.columns.size() == 7);
+    REQUIRE(statement.columns[3].constraints.primary_key);
+    REQUIRE(statement.columns[5].type.logical_type.capacity() == 64);
+    REQUIRE(statement.columns[5].constraints.not_null);
+    REQUIRE(statement.columns[6].constraints.unique);
+}
+
+TEST_CASE("Parser rejects an unknown CREATE TABLE column type", "[sql][parser]") {
+    const auto statement_result = parse_sql("CREATE TABLE users (id UNKNOWN);");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+}
+
+TEST_CASE("Parser rejects DEFAULT in a CREATE TABLE statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("CREATE TABLE users (id INT64 DEFAULT 1);");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
 }
 
 TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][parser]") {
