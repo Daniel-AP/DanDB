@@ -12,6 +12,7 @@ using dandb::core::StatusCode;
 using dandb::sql::BeginStatement;
 using dandb::sql::CheckpointStatement;
 using dandb::sql::CommitStatement;
+using dandb::sql::CreateIndexStatement;
 using dandb::sql::CreateTableStatement;
 using dandb::sql::DropTableStatement;
 using dandb::sql::Lexer;
@@ -111,6 +112,32 @@ TEST_CASE("Parser parses a DROP TABLE statement", "[sql][parser]") {
     REQUIRE(statement.location.column == 1);
     REQUIRE(statement.table_name.location.line == 1);
     REQUIRE(statement.table_name.location.column == 12);
+}
+
+TEST_CASE("Parser parses a CREATE INDEX statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("CREATE INDEX email_lookup ON users(email);");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<CreateIndexStatement>(statement_result.value()));
+
+    const auto& statement = std::get<CreateIndexStatement>(statement_result.value());
+    REQUIRE(statement.index_name.text == "email_lookup");
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.column_name.text == "email");
+    REQUIRE_FALSE(statement.unique);
+}
+
+TEST_CASE("Parser parses a CREATE UNIQUE INDEX statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("CREATE UNIQUE INDEX email_lookup ON users(email);");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<CreateIndexStatement>(statement_result.value()));
+
+    const auto& statement = std::get<CreateIndexStatement>(statement_result.value());
+    REQUIRE(statement.index_name.text == "email_lookup");
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.column_name.text == "email");
+    REQUIRE(statement.unique);
 }
 
 TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][parser]") {
