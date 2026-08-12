@@ -13,6 +13,7 @@ using dandb::sql::BeginStatement;
 using dandb::sql::CheckpointStatement;
 using dandb::sql::CommitStatement;
 using dandb::sql::CreateTableStatement;
+using dandb::sql::DropTableStatement;
 using dandb::sql::Lexer;
 using dandb::sql::Parser;
 using dandb::sql::RollbackStatement;
@@ -96,6 +97,20 @@ TEST_CASE("Parser rejects DEFAULT in a CREATE TABLE statement", "[sql][parser]")
 
     REQUIRE_FALSE(statement_result.ok());
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+}
+
+TEST_CASE("Parser parses a DROP TABLE statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("DROP TABLE users;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<DropTableStatement>(statement_result.value()));
+
+    const auto& statement = std::get<DropTableStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.location.line == 1);
+    REQUIRE(statement.location.column == 1);
+    REQUIRE(statement.table_name.location.line == 1);
+    REQUIRE(statement.table_name.location.column == 12);
 }
 
 TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][parser]") {
