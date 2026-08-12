@@ -151,6 +151,15 @@ TEST_CASE("Parser parses a CREATE UNIQUE INDEX statement", "[sql][parser]") {
     REQUIRE(statement.unique);
 }
 
+TEST_CASE("Parser rejects a CREATE INDEX statement with multiple columns", "[sql][parser]") {
+    const auto statement_result = parse_sql(
+        "CREATE INDEX full_name_lookup ON users(first_name, last_name);"
+    );
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+}
+
 TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][parser]") {
     const auto statement_result = parse_sql("BEGIN");
 
