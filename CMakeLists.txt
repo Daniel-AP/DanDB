@@ -126,6 +126,7 @@ add_executable(dandb_tests
     tests/wal/WalScanner.cpp
     tests/sql/Token.cpp
     tests/sql/Lexer.cpp
+    tests/sql/Ast.cpp
 )
 
 target_link_libraries(dandb_tests
