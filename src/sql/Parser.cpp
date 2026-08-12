@@ -46,6 +46,8 @@ namespace dandb::sql {
                 return parse_transaction_statement();
             case TokenKind::Create:
                 return parse_create_table_statement();
+            case TokenKind::Drop:
+                return parse_drop_table_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -264,6 +266,33 @@ namespace dandb::sql {
         }
 
         return constraints;
+
+    }
+
+    core::Result<Statement> Parser::parse_drop_table_statement() {
+
+        const auto location = current_token().location;
+        
+        if(!match_kind(TokenKind::Drop)) {
+            return make_parser_error(current_token().location, "expected 'DROP'");
+        }
+
+        if(!match_kind(TokenKind::Table)) {
+            return make_parser_error(current_token().location, "expected 'TABLE' after 'DROP'");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'DROP TABLE'");
+        }
+
+        const auto table_name_token = consume_token();
+
+        return Statement{
+            DropTableStatement{
+                Identifier{table_name_token.lexeme, table_name_token.location},
+                location
+            }
+        };
 
     }
 

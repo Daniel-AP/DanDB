@@ -28,6 +28,8 @@ namespace dandb::sql {
             core::Result<ColumnType> parse_column_type();
             core::Result<ColumnConstraints> parse_column_constraints();
 
+            core::Result<Statement> parse_drop_table_statement();
+
             bool is_at_end() const;
             const Token& current_token() const;
             const Token& consume_token();
