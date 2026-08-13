@@ -93,6 +93,8 @@ namespace dandb::sql {
                 return parse_drop_index_statement();
             case TokenKind::Insert:
                 return parse_insert_statement();
+            case TokenKind::Select:
+                return parse_select_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -153,10 +155,6 @@ namespace dandb::sql {
 
         while(current_token().kind == TokenKind::Comma) {
             consume_token();
-
-            if(is_at_end()) {
-                return make_parser_error(current_token().location, "expected column definition after ','");
-            }
 
             column_definition_result = parse_column_definition();
             if(!column_definition_result.ok()) return column_definition_result.status();
@@ -424,6 +422,83 @@ namespace dandb::sql {
 
     }
 
+    core::Result<Statement> Parser::parse_select_statement() {
+
+        const auto location = current_token().location;
+
+        if(!match_kind(TokenKind::Select)) {
+            return make_parser_error(current_token().location, "expected 'SELECT'");
+        }
+
+        auto projection_result = parse_select_projection();
+        if(!projection_result.ok()) return projection_result.status();
+
+        if(!match_kind(TokenKind::From)) {
+            return make_parser_error(current_token().location, "expected 'FROM' after projection");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'FROM'");
+        }
+
+        auto table_name_token = consume_token();
+
+        SelectStatement statement{
+            std::move(projection_result.value()),
+            Identifier{table_name_token.lexeme, table_name_token.location},
+            std::nullopt,
+            location
+        };
+        
+        if(match_kind(TokenKind::Where)) {
+            auto predicate_result = parse_predicate();
+            if(!predicate_result.ok()) return predicate_result.status();
+            statement.predicate = std::move(predicate_result.value());
+        }
+
+        return Statement{ std::move(statement) };
+        
+    }
+
+    core::Result<SelectProjection> Parser::parse_select_projection() {
+
+        const auto location = current_token().location;
+
+        if(match_kind(TokenKind::Asterisk)) {
+            return SelectProjection{
+                SelectAll{ location }
+            };
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected '*' or column name after 'SELECT'");
+        }
+        auto column_token = consume_token();
+        
+        std::vector<Identifier> columns;
+        columns.push_back(Identifier{ column_token.lexeme, column_token.location });
+
+        while(current_token().kind == TokenKind::Comma) {
+            consume_token();
+
+            if(current_token().kind != TokenKind::Identifier) {
+                return make_parser_error(current_token().location, "expected column name after ','");
+            }
+
+            column_token = consume_token();
+            columns.push_back(Identifier{ column_token.lexeme, column_token.location });
+
+        }
+
+        return SelectProjection{
+            SelectColumns{
+                std::move(columns),
+                location
+            }
+        };
+
+    }
+
     core::Result<Statement> Parser::parse_drop_table_statement() {
 
         const auto location = current_token().location;
@@ -474,6 +549,81 @@ namespace dandb::sql {
                 location
             }
         };
+
+    }
+
+    core::Result<Predicate> Parser::parse_predicate() {
+
+        const auto location = current_token().location;
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected column name after 'WHERE'");
+        }
+
+        auto column_name_token = consume_token();
+
+        if(match_kind(TokenKind::Is)) {
+            if(match_kind(TokenKind::NullLiteral)) {
+                return Predicate{
+                    Identifier{column_name_token.lexeme, column_name_token.location},
+                    ComparisonOperator::IsNull,
+                    std::nullopt,
+                    location
+                };
+            } else if(match_kind(TokenKind::Not)) {
+                if(!match_kind(TokenKind::NullLiteral)) {
+                    return make_parser_error(current_token().location, "expected 'NULL' after 'IS NOT'");
+                }
+                return Predicate{
+                    Identifier{column_name_token.lexeme, column_name_token.location},
+                    ComparisonOperator::IsNotNull,
+                    std::nullopt,
+                    location
+                };
+            } else {
+                return make_parser_error(current_token().location, "expected 'NULL' or 'NOT' after 'IS'");
+            }
+        }
+
+        auto comparison_operator_result = parse_comparison_operator();
+        if(!comparison_operator_result.ok()) return comparison_operator_result.status();
+
+        auto literal_expression_result = parse_literal();
+        if(!literal_expression_result.ok()) return literal_expression_result.status();
+
+        return Predicate{
+            Identifier{column_name_token.lexeme, column_name_token.location},
+            std::move(comparison_operator_result.value()),
+            std::move(literal_expression_result.value()),
+            location
+        };
+
+    }
+
+    core::Result<ComparisonOperator> Parser::parse_comparison_operator() {
+
+        switch(current_token().kind) {
+            case TokenKind::Equal:
+                consume_token();
+                return ComparisonOperator::Equal;
+            case TokenKind::NotEqual:
+                consume_token();
+                return ComparisonOperator::NotEqual;
+            case TokenKind::Less:
+                consume_token();
+                return ComparisonOperator::Less;
+            case TokenKind::LessEqual:
+                consume_token();
+                return ComparisonOperator::LessEqual;
+            case TokenKind::Greater:
+                consume_token();
+                return ComparisonOperator::Greater;
+            case TokenKind::GreaterEqual:
+                consume_token();
+                return ComparisonOperator::GreaterEqual;
+            default:
+                return make_parser_error(current_token().location, "expected comparison operator");
+        }
 
     }
 

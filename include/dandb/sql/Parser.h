@@ -31,10 +31,15 @@ namespace dandb::sql {
 
             core::Result<Statement> parse_insert_statement();
 
+            core::Result<Statement> parse_select_statement();
+            core::Result<SelectProjection> parse_select_projection();
+
             core::Result<Statement> parse_drop_table_statement();
 
             core::Result<Statement> parse_drop_index_statement();
 
+            core::Result<Predicate> parse_predicate();
+            core::Result<ComparisonOperator> parse_comparison_operator();
             core::Result<LiteralExpression> parse_literal();
 
             bool is_at_end() const;
