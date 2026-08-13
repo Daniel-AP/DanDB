@@ -16,10 +16,11 @@ TEST_CASE("Status has the required status codes", "[core][status]") {
         StatusCode::ConstraintViolation,
         StatusCode::TransactionError,
         StatusCode::ParseError,
+        StatusCode::IncompleteInput,
         StatusCode::InternalError,
     };
 
-    REQUIRE(codes.size() == 10);
+    REQUIRE(codes.size() == 11);
 }
 
 TEST_CASE("Status::Ok creates a successful status", "[core][status]") {
@@ -93,6 +94,13 @@ TEST_CASE("Status failure factories preserve their code and message", "[core][st
         REQUIRE_FALSE(status.ok());
         REQUIRE(status.code() == StatusCode::ParseError);
         REQUIRE(status.message() == "expected table name");
+    }
+
+    SECTION("IncompleteInput") {
+        const auto status = Status::IncompleteInput("expected ';' after statement");
+        REQUIRE_FALSE(status.ok());
+        REQUIRE(status.code() == StatusCode::IncompleteInput);
+        REQUIRE(status.message() == "expected ';' after statement");
     }
 
     SECTION("InternalError") {

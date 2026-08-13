@@ -1,6 +1,7 @@
 #pragma once
 
 #include <dandb/core/Result.h>
+#include <dandb/core/Status.h>
 #include <dandb/sql/Ast.h>
 #include <dandb/sql/Token.h>
 
@@ -50,6 +51,7 @@ namespace dandb::sql {
             const Token& current_token() const;
             const Token& consume_token();
             bool match_kind(TokenKind expected_kind);
+            core::Status expect_kind(TokenKind expected_kind, std::string_view message);
     };
 
 }

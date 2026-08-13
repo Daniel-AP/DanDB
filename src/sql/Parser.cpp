@@ -793,4 +793,19 @@ namespace dandb::sql {
         return true;
     }
 
+    core::Status Parser::expect_kind(TokenKind expected_kind, std::string_view message) {
+
+        if(is_at_end() && expected_kind != TokenKind::EndOfInput) {
+            return core::Status::IncompleteInput(std::string(message));
+        }
+
+        if(current_token().kind != expected_kind) {
+            return make_parser_error(current_token().location, std::string(message));
+        }
+
+        consume_token();
+        return core::Status::Ok();
+
+    }
+
 }

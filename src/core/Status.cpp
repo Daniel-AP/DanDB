@@ -53,6 +53,10 @@ namespace dandb::core {
         return Status(StatusCode::ParseError, std::move(message));
     }
 
+    Status Status::IncompleteInput(std::string message) {
+        return Status(StatusCode::IncompleteInput, std::move(message));
+    }
+
     Status Status::InternalError(std::string message) {
         return Status(StatusCode::InternalError, std::move(message));
     }

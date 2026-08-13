@@ -15,6 +15,7 @@ namespace dandb::core {
         ConstraintViolation,
         TransactionError,
         ParseError,
+        IncompleteInput,
         InternalError
     };
 
@@ -33,6 +34,7 @@ namespace dandb::core {
             static Status ConstraintViolation(std::string message);
             static Status TransactionError(std::string message);
             static Status ParseError(std::string message);
+            static Status IncompleteInput(std::string message);
             static Status InternalError(std::string message);
 
         private:
