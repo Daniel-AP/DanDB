@@ -25,6 +25,7 @@ using dandb::sql::RollbackStatement;
 using dandb::sql::SelectAll;
 using dandb::sql::SelectColumns;
 using dandb::sql::SelectStatement;
+using dandb::sql::UpdateStatement;
 
 namespace {
 
@@ -301,6 +302,45 @@ TEST_CASE("Parser parses an IS NOT NULL SELECT predicate", "[sql][parser]") {
     REQUIRE(statement.predicate->column_name.text == "deleted_at");
     REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::IsNotNull);
     REQUIRE_FALSE(statement.predicate->literal.has_value());
+}
+
+TEST_CASE("Parser parses an UPDATE statement with a WHERE predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("UPDATE users SET name = 'Grace' WHERE id = 1;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<UpdateStatement>(statement_result.value()));
+
+    const auto& statement = std::get<UpdateStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.assignment.column_name.text == "name");
+    REQUIRE(statement.assignment.value.value.as_string() == "Grace");
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "id");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::Equal);
+    REQUIRE(statement.predicate->literal.has_value());
+    REQUIRE(statement.predicate->literal->value.as_integer() == 1);
+}
+
+TEST_CASE("Parser parses an UPDATE statement without a WHERE predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("UPDATE users SET active = false;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<UpdateStatement>(statement_result.value()));
+
+    const auto& statement = std::get<UpdateStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.assignment.column_name.text == "active");
+    REQUIRE_FALSE(statement.assignment.value.value.as_boolean());
+    REQUIRE_FALSE(statement.predicate.has_value());
+}
+
+TEST_CASE("Parser rejects an UPDATE statement with multiple assignments", "[sql][parser]") {
+    const auto statement_result = parse_sql("UPDATE users SET name = 'Grace', active = true;");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+    REQUIRE(statement_result.status().message() ==
+        "SQL error at line 1, column 32: expected ';' after statement");
 }
 
 TEST_CASE("Parser rejects JOIN in a SELECT statement", "[sql][parser]") {
