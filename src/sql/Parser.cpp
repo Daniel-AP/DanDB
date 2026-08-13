@@ -419,6 +419,63 @@ namespace dandb::sql {
 
     }
 
+    core::Result<Statement> Parser::parse_insert_statement() {
+
+        if(current_token().kind != TokenKind::Insert) {
+            return make_parser_error(current_token().location, "expected 'INSERT'");
+        }
+        const auto insert_token = consume_token();
+
+        if(current_token().kind != TokenKind::Into) {
+            return make_parser_error(current_token().location, "expected 'INTO' after 'INSERT'");
+        }
+        consume_token();
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'INSERT INTO'");
+        }
+        const auto table_name_token = consume_token();
+
+        if(current_token().kind != TokenKind::Values) {
+            return make_parser_error(current_token().location, "expected 'VALUES' after table name");
+        }
+        consume_token();
+
+        if(current_token().kind != TokenKind::LeftParen) {
+            return make_parser_error(current_token().location, "expected '(' after 'VALUES'");
+        }
+        consume_token();
+
+        auto literal_result = parse_literal();
+        if(!literal_result.ok()) return literal_result.status();
+
+        std::vector<LiteralExpression> values;
+        values.push_back(std::move(literal_result.value()));
+
+        while(current_token().kind == TokenKind::Comma) {
+            consume_token();
+
+            literal_result = parse_literal();
+            if(!literal_result.ok()) return literal_result.status();
+
+            values.push_back(std::move(literal_result.value()));
+        }
+
+        if(current_token().kind != TokenKind::RightParen) {
+            return make_parser_error(current_token().location, "expected ')' after values");
+        }
+        consume_token();
+
+        return Statement{
+            InsertStatement{
+                Identifier{table_name_token.lexeme, table_name_token.location},
+                std::move(values),
+                insert_token.location
+            }
+        };
+
+    }
+
     core::Result<Statement> Parser::parse_drop_table_statement() {
 
         const auto location = current_token().location;
