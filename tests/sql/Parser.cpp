@@ -16,6 +16,7 @@ using dandb::sql::ComparisonOperator;
 using dandb::sql::CommitStatement;
 using dandb::sql::CreateIndexStatement;
 using dandb::sql::CreateTableStatement;
+using dandb::sql::DeleteStatement;
 using dandb::sql::DropIndexStatement;
 using dandb::sql::DropTableStatement;
 using dandb::sql::InsertStatement;
@@ -341,6 +342,32 @@ TEST_CASE("Parser rejects an UPDATE statement with multiple assignments", "[sql]
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
     REQUIRE(statement_result.status().message() ==
         "SQL error at line 1, column 32: expected ';' after statement");
+}
+
+TEST_CASE("Parser parses a DELETE statement with a WHERE predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("DELETE FROM users WHERE id = 1;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<DeleteStatement>(statement_result.value()));
+
+    const auto& statement = std::get<DeleteStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "id");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::Equal);
+    REQUIRE(statement.predicate->literal.has_value());
+    REQUIRE(statement.predicate->literal->value.as_integer() == 1);
+}
+
+TEST_CASE("Parser parses a DELETE statement without a WHERE predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("DELETE FROM users;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<DeleteStatement>(statement_result.value()));
+
+    const auto& statement = std::get<DeleteStatement>(statement_result.value());
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE_FALSE(statement.predicate.has_value());
 }
 
 TEST_CASE("Parser rejects JOIN in a SELECT statement", "[sql][parser]") {
