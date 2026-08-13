@@ -12,6 +12,7 @@
 using dandb::core::StatusCode;
 using dandb::sql::BeginStatement;
 using dandb::sql::CheckpointStatement;
+using dandb::sql::ComparisonOperator;
 using dandb::sql::CommitStatement;
 using dandb::sql::CreateIndexStatement;
 using dandb::sql::CreateTableStatement;
@@ -21,6 +22,9 @@ using dandb::sql::InsertStatement;
 using dandb::sql::Lexer;
 using dandb::sql::Parser;
 using dandb::sql::RollbackStatement;
+using dandb::sql::SelectAll;
+using dandb::sql::SelectColumns;
+using dandb::sql::SelectStatement;
 
 namespace {
 
@@ -217,6 +221,102 @@ TEST_CASE("Parser rejects an INSERT statement with multiple tuples", "[sql][pars
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
 }
 
+TEST_CASE("Parser parses SELECT *", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(std::holds_alternative<SelectAll>(statement.projection));
+    REQUIRE(statement.table_name.text == "users");
+    REQUIRE_FALSE(statement.predicate.has_value());
+}
+
+TEST_CASE("Parser parses projected SELECT columns", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT id, name FROM users;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(std::holds_alternative<SelectColumns>(statement.projection));
+
+    const auto& projection = std::get<SelectColumns>(statement.projection);
+    REQUIRE(projection.columns.size() == 2);
+    REQUIRE(projection.columns[0].text == "id");
+    REQUIRE(projection.columns[1].text == "name");
+    REQUIRE_FALSE(statement.predicate.has_value());
+}
+
+TEST_CASE("Parser parses an equality SELECT predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users WHERE id = 7;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "id");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::Equal);
+    REQUIRE(statement.predicate->literal.has_value());
+    REQUIRE(statement.predicate->literal->value.as_integer() == 7);
+}
+
+TEST_CASE("Parser parses a range SELECT predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users WHERE score >= 3.5;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "score");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::GreaterEqual);
+    REQUIRE(statement.predicate->literal.has_value());
+    REQUIRE(statement.predicate->literal->value.as_real() == 3.5);
+}
+
+TEST_CASE("Parser parses an IS NULL SELECT predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users WHERE deleted_at IS NULL;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "deleted_at");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::IsNull);
+    REQUIRE_FALSE(statement.predicate->literal.has_value());
+}
+
+TEST_CASE("Parser parses an IS NOT NULL SELECT predicate", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users WHERE deleted_at IS NOT NULL;");
+
+    REQUIRE(statement_result.ok());
+    REQUIRE(std::holds_alternative<SelectStatement>(statement_result.value()));
+
+    const auto& statement = std::get<SelectStatement>(statement_result.value());
+    REQUIRE(statement.predicate.has_value());
+    REQUIRE(statement.predicate->column_name.text == "deleted_at");
+    REQUIRE(statement.predicate->comparison_operator == ComparisonOperator::IsNotNull);
+    REQUIRE_FALSE(statement.predicate->literal.has_value());
+}
+
+TEST_CASE("Parser rejects JOIN in a SELECT statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users JOIN teams;");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+}
+
+TEST_CASE("Parser rejects ORDER BY in a SELECT statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("SELECT * FROM users ORDER BY id;");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+}
+
 TEST_CASE("Parser rejects a CREATE INDEX statement with multiple columns", "[sql][parser]") {
     const auto statement_result = parse_sql(
         "CREATE INDEX full_name_lookup ON users(first_name, last_name);"
@@ -234,8 +334,17 @@ TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][p
     REQUIRE(statement_result.status().message() == "SQL error at line 1, column 6: expected ';' after statement");
 }
 
-TEST_CASE("Parser rejects an unknown statement", "[sql][parser]") {
+TEST_CASE("Parser rejects SELECT without a projection", "[sql][parser]") {
     const auto statement_result = parse_sql("SELECT;");
+
+    REQUIRE_FALSE(statement_result.ok());
+    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
+    REQUIRE(statement_result.status().message() ==
+        "SQL error at line 1, column 7: expected '*' or column name after 'SELECT'");
+}
+
+TEST_CASE("Parser rejects an unknown statement", "[sql][parser]") {
+    const auto statement_result = parse_sql("VACUUM;");
 
     REQUIRE_FALSE(statement_result.ok());
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
