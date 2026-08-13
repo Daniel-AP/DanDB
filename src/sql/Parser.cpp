@@ -1,6 +1,9 @@
 #include <dandb/sql/Parser.h>
 
+#include <charconv>
+#include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 
 namespace dandb::sql {
@@ -13,6 +16,40 @@ namespace dandb::sql {
                 ", column "+std::to_string(location.column)+": "+
                 std::move(message)
             );
+        }
+
+        core::Result<std::int64_t> parse_integer_literal(std::string_view lexeme, SourceLocation location) {
+
+            std::int64_t value = 0;
+            const auto result = std::from_chars(lexeme.data(), lexeme.data()+lexeme.size(), value);
+
+            if(result.ec == std::errc::result_out_of_range) {
+                return make_parser_error(location, "integer literal is out of range");
+            }
+
+            if(result.ec != std::errc{} || result.ptr != lexeme.data()+lexeme.size()) {
+                return make_parser_error(location, "invalid integer literal");
+            }
+
+            return value;
+
+        }
+
+        core::Result<double> parse_double_literal(std::string_view lexeme, SourceLocation location) {
+
+            double value = 0.0;
+            const auto result = std::from_chars(lexeme.data(), lexeme.data()+lexeme.size(), value);
+
+            if(result.ec == std::errc::result_out_of_range) {
+                return make_parser_error(location, "double literal is out of range");
+            }
+
+            if(result.ec != std::errc{} || result.ptr != lexeme.data()+lexeme.size()) {
+                return make_parser_error(location, "invalid double literal");
+            }
+
+            return value;
+            
         }
 
     }
