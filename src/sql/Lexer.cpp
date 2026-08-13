@@ -253,11 +253,6 @@ namespace dandb::sql {
         return source_[current_pos_];
     }
 
-    std::optional<char> Lexer::peek_next_char() const {
-        if(current_pos_+1 >= source_.length()) return std::nullopt;
-        return source_[current_pos_+1];
-    }
-
     bool Lexer::match_char(char expected) {
 
         if(is_at_end()) return false;

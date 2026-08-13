@@ -35,7 +35,6 @@ namespace dandb::sql {
             void add_token(TokenKind kind, std::string_view lexeme, SourceLocation location);
             void add_current_token(TokenKind kind);
             std::optional<char> peek_char() const;
-            std::optional<char> peek_next_char() const;
             bool match_char(char expected);
     };
 
