@@ -28,11 +28,14 @@ namespace dandb::sql {
             core::Result<ColumnDefinition> parse_column_definition();
             core::Result<ColumnType> parse_column_type();
             core::Result<ColumnConstraints> parse_column_constraints();
-            core::Result<LiteralExpression> parse_literal();
+
             core::Result<Statement> parse_insert_statement();
 
             core::Result<Statement> parse_drop_table_statement();
+
             core::Result<Statement> parse_drop_index_statement();
+
+            core::Result<LiteralExpression> parse_literal();
 
             bool is_at_end() const;
             const Token& current_token() const;

@@ -91,6 +91,8 @@ namespace dandb::sql {
                     return parse_drop_table_statement();
                 }
                 return parse_drop_index_statement();
+            case TokenKind::Insert:
+                return parse_insert_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -365,60 +367,6 @@ namespace dandb::sql {
 
     }
 
-    core::Result<LiteralExpression> Parser::parse_literal() {
-
-        switch(current_token().kind) {
-            case TokenKind::IntegerLiteral: {
-                const auto literal_token = consume_token();
-                auto value_result = parse_integer_literal(literal_token.lexeme, literal_token.location);
-                if(!value_result.ok()) return value_result.status();
-
-                return LiteralExpression{
-                    record::LiteralValue::integer(value_result.value()),
-                    literal_token.location
-                };
-            }
-            case TokenKind::DoubleLiteral: {
-                const auto literal_token = consume_token();
-                auto value_result = parse_double_literal(literal_token.lexeme, literal_token.location);
-                if(!value_result.ok()) return value_result.status();
-
-                return LiteralExpression{
-                    record::LiteralValue::real(value_result.value()),
-                    literal_token.location
-                };
-            }
-            case TokenKind::StringLiteral: {
-                const auto literal_token = consume_token();
-
-                return LiteralExpression{
-                    record::LiteralValue::string(literal_token.lexeme),
-                    literal_token.location
-                };
-            }
-            case TokenKind::BooleanLiteral: {
-                const auto literal_token = consume_token();
-                const bool value = (literal_token.lexeme[0] == 't' || literal_token.lexeme[0] == 'T');
-
-                return LiteralExpression{
-                    record::LiteralValue::boolean(value),
-                    literal_token.location
-                };
-            }
-            case TokenKind::NullLiteral: {
-                const auto literal_token = consume_token();
-
-                return LiteralExpression{
-                    record::LiteralValue::null(),
-                    literal_token.location
-                };
-            }
-            default:
-                return make_parser_error(current_token().location, "expected literal");
-        }
-
-    }
-
     core::Result<Statement> Parser::parse_insert_statement() {
 
         if(current_token().kind != TokenKind::Insert) {
@@ -526,6 +474,60 @@ namespace dandb::sql {
                 location
             }
         };
+
+    }
+
+    core::Result<LiteralExpression> Parser::parse_literal() {
+
+        switch(current_token().kind) {
+            case TokenKind::IntegerLiteral: {
+                const auto literal_token = consume_token();
+                auto value_result = parse_integer_literal(literal_token.lexeme, literal_token.location);
+                if(!value_result.ok()) return value_result.status();
+
+                return LiteralExpression{
+                    record::LiteralValue::integer(value_result.value()),
+                    literal_token.location
+                };
+            }
+            case TokenKind::DoubleLiteral: {
+                const auto literal_token = consume_token();
+                auto value_result = parse_double_literal(literal_token.lexeme, literal_token.location);
+                if(!value_result.ok()) return value_result.status();
+
+                return LiteralExpression{
+                    record::LiteralValue::real(value_result.value()),
+                    literal_token.location
+                };
+            }
+            case TokenKind::StringLiteral: {
+                const auto literal_token = consume_token();
+
+                return LiteralExpression{
+                    record::LiteralValue::string(literal_token.lexeme),
+                    literal_token.location
+                };
+            }
+            case TokenKind::BooleanLiteral: {
+                const auto literal_token = consume_token();
+                const bool value = (literal_token.lexeme[0] == 't' || literal_token.lexeme[0] == 'T');
+
+                return LiteralExpression{
+                    record::LiteralValue::boolean(value),
+                    literal_token.location
+                };
+            }
+            case TokenKind::NullLiteral: {
+                const auto literal_token = consume_token();
+
+                return LiteralExpression{
+                    record::LiteralValue::null(),
+                    literal_token.location
+                };
+            }
+            default:
+                return make_parser_error(current_token().location, "expected literal");
+        }
 
     }
 
