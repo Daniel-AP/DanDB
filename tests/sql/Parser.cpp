@@ -418,12 +418,58 @@ TEST_CASE("Parser rejects a CREATE INDEX statement with multiple columns", "[sql
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
 }
 
-TEST_CASE("Parser rejects a transaction statement without a semicolon", "[sql][parser]") {
+TEST_CASE("Parser reports incomplete input for a transaction statement without a semicolon", "[sql][parser]") {
     const auto statement_result = parse_sql("BEGIN");
 
     REQUIRE_FALSE(statement_result.ok());
-    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
-    REQUIRE(statement_result.status().message() == "SQL error at line 1, column 6: expected ';' after statement");
+    REQUIRE(statement_result.status().code() == StatusCode::IncompleteInput);
+    REQUIRE(statement_result.status().message() == "expected ';' after statement");
+}
+
+TEST_CASE("Parser reports incomplete input at required parser boundaries", "[sql][parser]") {
+    const std::vector<std::string_view> incomplete_statements{
+        "CREATE",
+        "CREATE TABLE",
+        "CREATE TABLE users (",
+        "CREATE TABLE users (id",
+        "CREATE TABLE users (id INT64 PRIMARY",
+        "CREATE TABLE users (name STRING",
+        "CREATE TABLE users (name STRING(",
+        "CREATE TABLE users (name STRING(64",
+        "CREATE INDEX",
+        "CREATE INDEX lookup",
+        "CREATE INDEX lookup ON",
+        "CREATE INDEX lookup ON users(",
+        "INSERT",
+        "INSERT INTO",
+        "INSERT INTO users",
+        "INSERT INTO users VALUES (",
+        "SELECT",
+        "SELECT *",
+        "SELECT * FROM",
+        "SELECT id,",
+        "SELECT * FROM users WHERE",
+        "SELECT * FROM users WHERE id",
+        "SELECT * FROM users WHERE id IS",
+        "SELECT * FROM users WHERE id IS NOT",
+        "UPDATE",
+        "UPDATE users",
+        "UPDATE users SET",
+        "UPDATE users SET name",
+        "UPDATE users SET name =",
+        "DELETE",
+        "DELETE FROM",
+        "DROP",
+        "DROP TABLE",
+        "DROP INDEX",
+    };
+
+    for(const auto source : incomplete_statements) {
+        const auto statements_result = parse_all_sql(source);
+
+        REQUIRE_FALSE(statements_result.ok());
+        REQUIRE(statements_result.status().code() == StatusCode::IncompleteInput);
+    }
 }
 
 TEST_CASE("Parser rejects SELECT without a projection", "[sql][parser]") {

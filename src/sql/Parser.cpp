@@ -65,9 +65,8 @@ namespace dandb::sql {
             auto statement_result = parse_statement();
             if(!statement_result.ok()) return statement_result.status();
 
-            if(!match_kind(TokenKind::Semicolon)) {
-                return make_parser_error(current_token().location, "expected ';' after statement");
-            }
+            const auto semicolon_status = expect_kind(TokenKind::Semicolon, "expected ';' after statement");
+            if(!semicolon_status.ok()) return semicolon_status;
 
             statements.push_back(std::move(statement_result.value()));
             
@@ -135,25 +134,19 @@ namespace dandb::sql {
 
     core::Result<Statement> Parser::parse_create_table_statement() {
 
-        if(current_token().kind != TokenKind::Create) {
-            return make_parser_error(current_token().location, "expected 'CREATE'");
-        }
-        const auto create_token = consume_token();
+        const auto create_token = current_token();
+        auto status = expect_kind(TokenKind::Create, "expected 'CREATE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Table) {
-            return make_parser_error(current_token().location, "expected 'TABLE' after 'CREATE'");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::Table, "expected 'TABLE' after 'CREATE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'CREATE TABLE'");
-        }
-        const auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'CREATE TABLE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::LeftParen) {
-            return make_parser_error(current_token().location, "expected '(' after table name");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::LeftParen, "expected '(' after table name");
+        if(!status.ok()) return status;
 
         auto column_definition_result = parse_column_definition();
         if(!column_definition_result.ok()) return column_definition_result.status();
@@ -170,10 +163,8 @@ namespace dandb::sql {
             columns.push_back(std::move(column_definition_result.value()));
         }
 
-        if(current_token().kind != TokenKind::RightParen) {
-            return make_parser_error(current_token().location, "expected ')' after column definitions");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::RightParen, "expected ')' after column definitions");
+        if(!status.ok()) return status;
 
         return Statement{
             CreateTableStatement{
@@ -189,42 +180,34 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Create)) {
-            return make_parser_error(current_token().location, "expected 'CREATE'");
-        }
+        auto status = expect_kind(TokenKind::Create, "expected 'CREATE'");
+        if(!status.ok()) return status;
 
         const bool unique = match_kind(TokenKind::Unique);
 
-        if(!match_kind(TokenKind::Index)) {
-            return make_parser_error(current_token().location, "expected 'INDEX' after 'CREATE'");
-        }
+        status = expect_kind(TokenKind::Index, "expected 'INDEX' after 'CREATE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected index name after 'CREATE INDEX'");
-        }
-        const auto index_name_token = consume_token();
+        const auto index_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected index name after 'CREATE INDEX'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::On)) {
-            return make_parser_error(current_token().location, "expected 'ON' after index name");
-        }
+        status = expect_kind(TokenKind::On, "expected 'ON' after index name");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'ON'");
-        }
-        const auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'ON'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::LeftParen)) {
-            return make_parser_error(current_token().location, "expected '(' after table name");
-        }
+        status = expect_kind(TokenKind::LeftParen, "expected '(' after table name");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected column name inside index definition");
-        }
-        const auto column_name_token = consume_token();
+        const auto column_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected column name inside index definition");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::RightParen)) {
-            return make_parser_error(current_token().location, "expected ')' after indexed column");
-        }
+        status = expect_kind(TokenKind::RightParen, "expected ')' after indexed column");
+        if(!status.ok()) return status;
 
         return Statement{
             CreateIndexStatement{
@@ -242,10 +225,9 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected identifier");
-        }
-        auto column_name_token = consume_token();
+        const auto column_name_token = current_token();
+        const auto status = expect_kind(TokenKind::Identifier, "expected identifier");
+        if(!status.ok()) return status;
 
         auto column_type_result = parse_column_type();
         if(!column_type_result.ok()) return column_type_result.status();
@@ -292,20 +274,15 @@ namespace dandb::sql {
             case TokenKind::String: {
                 const auto type_token = consume_token();
 
-                if(current_token().kind != TokenKind::LeftParen) {
-                    return make_parser_error(current_token().location, "expected '(' after 'STRING'");
-                }
-                consume_token();
+                auto status = expect_kind(TokenKind::LeftParen, "expected '(' after 'STRING'");
+                if(!status.ok()) return status;
 
-                if(current_token().kind != TokenKind::IntegerLiteral) {
-                    return make_parser_error(current_token().location, "expected capacity inside 'STRING(...)'");
-                }
-                const auto capacity_token = consume_token();
+                const auto capacity_token = current_token();
+                status = expect_kind(TokenKind::IntegerLiteral, "expected capacity inside 'STRING(...)'");
+                if(!status.ok()) return status;
 
-                if(current_token().kind != TokenKind::RightParen) {
-                    return make_parser_error(current_token().location, "expected ')' after string capacity");
-                }
-                consume_token();
+                status = expect_kind(TokenKind::RightParen, "expected ')' after string capacity");
+                if(!status.ok()) return status;
 
                 const std::size_t max_capacity = static_cast<std::size_t>(-1);
                 std::size_t capacity = 0;
@@ -328,6 +305,7 @@ namespace dandb::sql {
                 return ColumnType{std::move(logical_type_result.value()), type_token.location};
             }
             default:
+                if(is_at_end()) return core::Status::IncompleteInput("expected column type");
                 return make_parser_error(current_token().location, "expected column type");
 
         }
@@ -342,25 +320,21 @@ namespace dandb::sql {
         while(has_next_constraint) {
             switch(current_token().kind) {
                 case TokenKind::Primary: {
-                    const auto primary_token = consume_token();
-                    if(current_token().kind != TokenKind::Key) {
-                        return make_parser_error(current_token().location, "expected 'KEY' after 'PRIMARY'");
-                    }
                     consume_token();
+                    const auto status = expect_kind(TokenKind::Key, "expected 'KEY' after 'PRIMARY'");
+                    if(!status.ok()) return status;
                     constraints.primary_key = true;
                     break;
                 }
                 case TokenKind::Unique: {
-                    const auto unique_token = consume_token();
+                    consume_token();
                     constraints.unique = true;
                     break;
                 }
                 case TokenKind::Not: {
-                    const auto not_token = consume_token();
-                    if(current_token().kind != TokenKind::NullLiteral) {
-                        return make_parser_error(current_token().location, "expected 'NULL' after 'NOT'");
-                    }
                     consume_token();
+                    const auto status = expect_kind(TokenKind::NullLiteral, "expected 'NULL' after 'NOT'");
+                    if(!status.ok()) return status;
                     constraints.not_null = true;
                     break;
                 }
@@ -375,30 +349,22 @@ namespace dandb::sql {
 
     core::Result<Statement> Parser::parse_insert_statement() {
 
-        if(current_token().kind != TokenKind::Insert) {
-            return make_parser_error(current_token().location, "expected 'INSERT'");
-        }
-        const auto insert_token = consume_token();
+        const auto insert_token = current_token();
+        auto status = expect_kind(TokenKind::Insert, "expected 'INSERT'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Into) {
-            return make_parser_error(current_token().location, "expected 'INTO' after 'INSERT'");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::Into, "expected 'INTO' after 'INSERT'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'INSERT INTO'");
-        }
-        const auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'INSERT INTO'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Values) {
-            return make_parser_error(current_token().location, "expected 'VALUES' after table name");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::Values, "expected 'VALUES' after table name");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::LeftParen) {
-            return make_parser_error(current_token().location, "expected '(' after 'VALUES'");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::LeftParen, "expected '(' after 'VALUES'");
+        if(!status.ok()) return status;
 
         auto literal_result = parse_literal();
         if(!literal_result.ok()) return literal_result.status();
@@ -415,10 +381,8 @@ namespace dandb::sql {
             values.push_back(std::move(literal_result.value()));
         }
 
-        if(current_token().kind != TokenKind::RightParen) {
-            return make_parser_error(current_token().location, "expected ')' after values");
-        }
-        consume_token();
+        status = expect_kind(TokenKind::RightParen, "expected ')' after values");
+        if(!status.ok()) return status;
 
         return Statement{
             InsertStatement{
@@ -434,22 +398,18 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Select)) {
-            return make_parser_error(current_token().location, "expected 'SELECT'");
-        }
+        auto status = expect_kind(TokenKind::Select, "expected 'SELECT'");
+        if(!status.ok()) return status;
 
         auto projection_result = parse_select_projection();
         if(!projection_result.ok()) return projection_result.status();
 
-        if(!match_kind(TokenKind::From)) {
-            return make_parser_error(current_token().location, "expected 'FROM' after projection");
-        }
+        status = expect_kind(TokenKind::From, "expected 'FROM' after projection");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'FROM'");
-        }
-
-        auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'FROM'");
+        if(!status.ok()) return status;
 
         SelectStatement statement{
             std::move(projection_result.value()),
@@ -478,10 +438,9 @@ namespace dandb::sql {
             };
         }
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected '*' or column name after 'SELECT'");
-        }
-        auto column_token = consume_token();
+        auto column_token = current_token();
+        auto status = expect_kind(TokenKind::Identifier, "expected '*' or column name after 'SELECT'");
+        if(!status.ok()) return status;
         
         std::vector<Identifier> columns;
         columns.push_back(Identifier{ column_token.lexeme, column_token.location });
@@ -489,11 +448,9 @@ namespace dandb::sql {
         while(current_token().kind == TokenKind::Comma) {
             consume_token();
 
-            if(current_token().kind != TokenKind::Identifier) {
-                return make_parser_error(current_token().location, "expected column name after ','");
-            }
-
-            column_token = consume_token();
+            column_token = current_token();
+            status = expect_kind(TokenKind::Identifier, "expected column name after ','");
+            if(!status.ok()) return status;
             columns.push_back(Identifier{ column_token.lexeme, column_token.location });
 
         }
@@ -511,27 +468,22 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Update)) {
-            return make_parser_error(current_token().location, "expected 'UPDATE'");
-        }
+        auto status = expect_kind(TokenKind::Update, "expected 'UPDATE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'UPDATE'");
-        }
-        auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'UPDATE'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::Set)) {
-            return make_parser_error(current_token().location, "expected 'SET' after table name");
-        }
+        status = expect_kind(TokenKind::Set, "expected 'SET' after table name");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected column name after 'SET'");
-        }
-        auto column_name_token = consume_token();
+        const auto column_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected column name after 'SET'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::Equal)) {
-            return make_parser_error(current_token().location, "expected '=' after column name");
-        }
+        status = expect_kind(TokenKind::Equal, "expected '=' after column name");
+        if(!status.ok()) return status;
 
         auto literal_expression_result = parse_literal();
         if(!literal_expression_result.ok()) return literal_expression_result.status();
@@ -561,18 +513,15 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Delete)) {
-            return make_parser_error(current_token().location, "expected 'DELETE'");
-        }
+        auto status = expect_kind(TokenKind::Delete, "expected 'DELETE'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::From)) {
-            return make_parser_error(current_token().location, "expected 'FROM' after 'DELETE'");
-        }
+        status = expect_kind(TokenKind::From, "expected 'FROM' after 'DELETE'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'DELETE FROM'");
-        }
-        auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'DELETE FROM'");
+        if(!status.ok()) return status;
 
         DeleteStatement statement{
             Identifier{ table_name_token.lexeme, table_name_token.location },
@@ -594,19 +543,15 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Drop)) {
-            return make_parser_error(current_token().location, "expected 'DROP'");
-        }
+        auto status = expect_kind(TokenKind::Drop, "expected 'DROP'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::Table)) {
-            return make_parser_error(current_token().location, "expected 'TABLE' after 'DROP'");
-        }
+        status = expect_kind(TokenKind::Table, "expected 'TABLE' after 'DROP'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected table name after 'DROP TABLE'");
-        }
-
-        const auto table_name_token = consume_token();
+        const auto table_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected table name after 'DROP TABLE'");
+        if(!status.ok()) return status;
 
         return Statement{
             DropTableStatement{
@@ -621,18 +566,15 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(!match_kind(TokenKind::Drop)) {
-            return make_parser_error(current_token().location, "expected 'DROP'");
-        }
+        auto status = expect_kind(TokenKind::Drop, "expected 'DROP'");
+        if(!status.ok()) return status;
 
-        if(!match_kind(TokenKind::Index)) {
-            return make_parser_error(current_token().location, "expected 'INDEX' after 'DROP'");
-        }
+        status = expect_kind(TokenKind::Index, "expected 'INDEX' after 'DROP'");
+        if(!status.ok()) return status;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected index name after 'DROP INDEX'");
-        }
-        const auto index_name_token = consume_token();
+        const auto index_name_token = current_token();
+        status = expect_kind(TokenKind::Identifier, "expected index name after 'DROP INDEX'");
+        if(!status.ok()) return status;
 
         return Statement{
             DropIndexStatement{
@@ -647,11 +589,9 @@ namespace dandb::sql {
 
         const auto location = current_token().location;
 
-        if(current_token().kind != TokenKind::Identifier) {
-            return make_parser_error(current_token().location, "expected column name after 'WHERE'");
-        }
-
-        auto column_name_token = consume_token();
+        const auto column_name_token = current_token();
+        auto status = expect_kind(TokenKind::Identifier, "expected column name after 'WHERE'");
+        if(!status.ok()) return status;
 
         if(match_kind(TokenKind::Is)) {
             if(match_kind(TokenKind::NullLiteral)) {
@@ -662,9 +602,8 @@ namespace dandb::sql {
                     location
                 };
             } else if(match_kind(TokenKind::Not)) {
-                if(!match_kind(TokenKind::NullLiteral)) {
-                    return make_parser_error(current_token().location, "expected 'NULL' after 'IS NOT'");
-                }
+                status = expect_kind(TokenKind::NullLiteral, "expected 'NULL' after 'IS NOT'");
+                if(!status.ok()) return status;
                 return Predicate{
                     Identifier{column_name_token.lexeme, column_name_token.location},
                     ComparisonOperator::IsNotNull,
@@ -672,6 +611,7 @@ namespace dandb::sql {
                     location
                 };
             } else {
+                if(is_at_end()) return core::Status::IncompleteInput("expected 'NULL' or 'NOT' after 'IS'");
                 return make_parser_error(current_token().location, "expected 'NULL' or 'NOT' after 'IS'");
             }
         }
@@ -713,6 +653,7 @@ namespace dandb::sql {
                 consume_token();
                 return ComparisonOperator::GreaterEqual;
             default:
+                if(is_at_end()) return core::Status::IncompleteInput("expected comparison operator");
                 return make_parser_error(current_token().location, "expected comparison operator");
         }
 
@@ -767,6 +708,7 @@ namespace dandb::sql {
                 };
             }
             default:
+                if(is_at_end()) return core::Status::IncompleteInput("expected literal");
                 return make_parser_error(current_token().location, "expected literal");
         }
 
