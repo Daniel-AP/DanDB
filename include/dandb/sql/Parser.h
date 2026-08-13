@@ -13,7 +13,7 @@ namespace dandb::sql {
         public:
             explicit Parser(std::vector<Token> tokens);
 
-            core::Result<Statement> parse();
+            core::Result<std::vector<Statement>> parse();
 
         private:
             std::vector<Token> tokens_;

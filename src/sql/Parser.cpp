@@ -56,20 +56,24 @@ namespace dandb::sql {
 
     Parser::Parser(std::vector<Token> tokens) : tokens_(std::move(tokens)) {}
 
-    core::Result<Statement> Parser::parse() {
+    core::Result<std::vector<Statement>> Parser::parse() {
 
-        auto statement_result = parse_statement();
-        if(!statement_result.ok()) return statement_result.status();
+        std::vector<Statement> statements;
 
-        if(!match_kind(TokenKind::Semicolon)) {
-            return make_parser_error(current_token().location, "expected ';' after statement");
+        while(!is_at_end()) {
+
+            auto statement_result = parse_statement();
+            if(!statement_result.ok()) return statement_result.status();
+
+            if(!match_kind(TokenKind::Semicolon)) {
+                return make_parser_error(current_token().location, "expected ';' after statement");
+            }
+
+            statements.push_back(std::move(statement_result.value()));
+            
         }
 
-        if(!is_at_end()) {
-            return make_parser_error(current_token().location, "unexpected token after ';'");
-        }
-
-        return std::move(statement_result.value());
+        return std::move(statements);
 
     }
 

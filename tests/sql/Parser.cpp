@@ -8,6 +8,7 @@
 #include <string_view>
 #include <utility>
 #include <variant>
+#include <vector>
 
 using dandb::core::StatusCode;
 using dandb::sql::BeginStatement;
@@ -30,7 +31,7 @@ using dandb::sql::UpdateStatement;
 
 namespace {
 
-    dandb::core::Result<dandb::sql::Statement> parse_sql(std::string_view source) {
+    dandb::core::Result<std::vector<dandb::sql::Statement>> parse_all_sql(std::string_view source) {
         Lexer lexer(source);
         auto tokens_result = lexer.tokenize();
 
@@ -40,6 +41,30 @@ namespace {
         return parser.parse();
     }
 
+    dandb::core::Result<dandb::sql::Statement> parse_sql(std::string_view source) {
+        auto statements_result = parse_all_sql(source);
+        if(!statements_result.ok()) return statements_result.status();
+
+        REQUIRE(statements_result.value().size() == 1);
+        return std::move(statements_result.value().front());
+    }
+
+}
+
+TEST_CASE("Parser parses multiple statements", "[sql][parser]") {
+    const auto statements_result = parse_all_sql("BEGIN; COMMIT;");
+
+    REQUIRE(statements_result.ok());
+    REQUIRE(statements_result.value().size() == 2);
+    REQUIRE(std::holds_alternative<BeginStatement>(statements_result.value()[0]));
+    REQUIRE(std::holds_alternative<CommitStatement>(statements_result.value()[1]));
+}
+
+TEST_CASE("Parser returns no statements for empty input", "[sql][parser]") {
+    const auto statements_result = parse_all_sql("");
+
+    REQUIRE(statements_result.ok());
+    REQUIRE(statements_result.value().empty());
 }
 
 TEST_CASE("Parser parses a BEGIN statement", "[sql][parser]") {
@@ -416,12 +441,4 @@ TEST_CASE("Parser rejects an unknown statement", "[sql][parser]") {
     REQUIRE_FALSE(statement_result.ok());
     REQUIRE(statement_result.status().code() == StatusCode::ParseError);
     REQUIRE(statement_result.status().message() == "SQL error at line 1, column 1: expected statement");
-}
-
-TEST_CASE("Parser rejects tokens after a complete statement", "[sql][parser]") {
-    const auto statement_result = parse_sql("BEGIN; COMMIT;");
-
-    REQUIRE_FALSE(statement_result.ok());
-    REQUIRE(statement_result.status().code() == StatusCode::ParseError);
-    REQUIRE(statement_result.status().message() == "SQL error at line 1, column 8: unexpected token after ';'");
 }
