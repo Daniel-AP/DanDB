@@ -90,7 +90,7 @@ namespace dandb::sql {
 
         add_token(TokenKind::EndOfInput, "", current_location_);
 
-        return tokens_;
+        return std::exchange(tokens_, {});
 
     }
 
