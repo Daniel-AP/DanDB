@@ -95,6 +95,8 @@ namespace dandb::sql {
                 return parse_insert_statement();
             case TokenKind::Select:
                 return parse_select_statement();
+            case TokenKind::Update:
+                return parse_update_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -496,6 +498,56 @@ namespace dandb::sql {
                 location
             }
         };
+
+    }
+
+    core::Result<Statement> Parser::parse_update_statement() {
+
+        const auto location = current_token().location;
+
+        if(!match_kind(TokenKind::Update)) {
+            return make_parser_error(current_token().location, "expected 'UPDATE'");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'UPDATE'");
+        }
+        auto table_name_token = consume_token();
+
+        if(!match_kind(TokenKind::Set)) {
+            return make_parser_error(current_token().location, "expected 'SET' after table name");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected column name after 'SET'");
+        }
+        auto column_name_token = consume_token();
+
+        if(!match_kind(TokenKind::Equal)) {
+            return make_parser_error(current_token().location, "expected '=' after column name");
+        }
+
+        auto literal_expression_result = parse_literal();
+        if(!literal_expression_result.ok()) return literal_expression_result.status();
+
+        UpdateStatement statement{
+            Identifier{ table_name_token.lexeme, table_name_token.location },
+            Assignment{
+                Identifier{ column_name_token.lexeme, column_name_token.location },
+                std::move(literal_expression_result.value()),
+                column_name_token.location
+            },
+            std::nullopt,
+            location
+        };
+
+        if(match_kind(TokenKind::Where)) {
+            auto predicate_result = parse_predicate();
+            if(!predicate_result.ok()) return predicate_result.status();
+            statement.predicate = std::move(predicate_result.value());
+        }
+
+        return Statement{ std::move(statement) };
 
     }
 
