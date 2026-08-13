@@ -210,7 +210,7 @@ namespace dandb::sql {
         }
 
         if(is_at_end()) {
-            return make_lexer_error(start_location_, "unterminated string literal");
+            return core::Status::IncompleteInput("unterminated string literal");
         }
 
         consume_char();

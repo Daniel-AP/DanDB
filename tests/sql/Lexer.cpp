@@ -113,14 +113,14 @@ TEST_CASE("Lexer tokenizes a SELECT statement with a WHERE clause", "[sql][lexer
     REQUIRE(tokens[11].kind == TokenKind::EndOfInput);
 }
 
-TEST_CASE("Lexer rejects an unterminated string literal", "[sql][lexer]") {
+TEST_CASE("Lexer reports incomplete input for an unterminated string literal", "[sql][lexer]") {
     Lexer lexer("'Ada");
 
     const auto result = lexer.tokenize();
 
     REQUIRE_FALSE(result.ok());
-    REQUIRE(result.status().code() == StatusCode::ParseError);
-    REQUIRE(result.status().message() == "SQL error at line 1, column 1: unterminated string literal");
+    REQUIRE(result.status().code() == StatusCode::IncompleteInput);
+    REQUIRE(result.status().message() == "unterminated string literal");
 }
 
 TEST_CASE("Lexer reports the location of an invalid character", "[sql][lexer]") {
