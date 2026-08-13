@@ -97,6 +97,8 @@ namespace dandb::sql {
                 return parse_select_statement();
             case TokenKind::Update:
                 return parse_update_statement();
+            case TokenKind::Delete:
+                return parse_delete_statement();
             default:
                 return make_parser_error(current_token().location, "expected statement");
         }
@@ -537,6 +539,39 @@ namespace dandb::sql {
                 std::move(literal_expression_result.value()),
                 column_name_token.location
             },
+            std::nullopt,
+            location
+        };
+
+        if(match_kind(TokenKind::Where)) {
+            auto predicate_result = parse_predicate();
+            if(!predicate_result.ok()) return predicate_result.status();
+            statement.predicate = std::move(predicate_result.value());
+        }
+
+        return Statement{ std::move(statement) };
+
+    }
+
+    core::Result<Statement> Parser::parse_delete_statement() {
+
+        const auto location = current_token().location;
+
+        if(!match_kind(TokenKind::Delete)) {
+            return make_parser_error(current_token().location, "expected 'DELETE'");
+        }
+
+        if(!match_kind(TokenKind::From)) {
+            return make_parser_error(current_token().location, "expected 'FROM' after 'DELETE'");
+        }
+
+        if(current_token().kind != TokenKind::Identifier) {
+            return make_parser_error(current_token().location, "expected table name after 'DELETE FROM'");
+        }
+        auto table_name_token = consume_token();
+
+        DeleteStatement statement{
+            Identifier{ table_name_token.lexeme, table_name_token.location },
             std::nullopt,
             location
         };

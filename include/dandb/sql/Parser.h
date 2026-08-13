@@ -35,7 +35,9 @@ namespace dandb::sql {
             core::Result<SelectProjection> parse_select_projection();
 
             core::Result<Statement> parse_update_statement();
-            
+
+            core::Result<Statement> parse_delete_statement();
+
             core::Result<Statement> parse_drop_table_statement();
 
             core::Result<Statement> parse_drop_index_statement();
