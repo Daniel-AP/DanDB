@@ -72,7 +72,7 @@ namespace dandb::sql {
             
         }
 
-        return std::move(statements);
+        return statements;
 
     }
 
