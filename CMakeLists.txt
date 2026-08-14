@@ -54,6 +54,7 @@ add_library(dandb_core STATIC
     src/catalog/CatalogLoader.cpp
     src/sql/Lexer.cpp
     src/sql/Parser.cpp
+    src/execution/Database.cpp
 )
 
 target_compile_features(dandb_core PUBLIC cxx_std_20)
@@ -129,6 +130,7 @@ add_executable(dandb_tests
     tests/sql/Lexer.cpp
     tests/sql/Ast.cpp
     tests/sql/Parser.cpp
+    tests/execution/Database.cpp
 )
 
 target_link_libraries(dandb_tests
