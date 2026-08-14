@@ -35,7 +35,7 @@ namespace dandb::catalog {
                 bool new_index_unique
             );
             core::Status drop_index(std::string_view index_name);
-            core::Status drop_table(std::string name);
+            core::Status drop_table(std::string_view name);
             core::Status on_transaction_committed();
             core::Status on_transaction_rolled_back();
 
