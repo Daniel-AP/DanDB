@@ -58,4 +58,28 @@ namespace dandb::sql {
         );
     }
 
+    core::Result<BoundSelectStatement> Binder::bind_select_statement(const SelectStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        auto projection_result = bind_projection(table_result.value(), statement.projection);
+        if(!projection_result.ok()) return projection_result.status();
+
+        BoundSelectStatement bound_statement{
+            table_result.value(),
+            std::move(projection_result.value()),
+            std::nullopt
+        };
+
+        if(statement.predicate.has_value()) {
+            auto predicate_result = bind_predicate(bound_statement.table_id, *statement.predicate);
+            if(!predicate_result.ok()) return predicate_result.status();
+            bound_statement.predicate = std::move(predicate_result.value());
+        }
+
+        return bound_statement;
+
+    }
+
 }
