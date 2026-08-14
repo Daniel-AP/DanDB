@@ -54,6 +54,7 @@ add_library(dandb_core STATIC
     src/catalog/CatalogLoader.cpp
     src/sql/Lexer.cpp
     src/sql/Parser.cpp
+    src/sql/Binder.cpp
     src/execution/Database.cpp
 )
 
