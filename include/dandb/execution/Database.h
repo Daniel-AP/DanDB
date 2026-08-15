@@ -12,6 +12,10 @@
 #include <string_view>
 #include <vector>
 
+namespace dandb::sql {
+    struct BoundDropTableStatement;
+}
+
 namespace dandb::execution {
 
     class Database {
@@ -32,6 +36,7 @@ namespace dandb::execution {
             ExecutionResult execute_statement(const sql::Statement& statement);
 
             ExecutionResult execute_create_table_statement(const sql::CreateTableStatement& statement);
+            ExecutionResult execute_drop_table_statement(const sql::BoundDropTableStatement& statement);
             ExecutionResult execute_begin_statement(const sql::BeginStatement& statement);
             ExecutionResult execute_commit_statement(const sql::CommitStatement& statement);
             ExecutionResult execute_rollback_statement(const sql::RollbackStatement& statement);

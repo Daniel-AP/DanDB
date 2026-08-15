@@ -117,6 +117,8 @@ namespace dandb::execution {
 
                 if constexpr(std::is_same_v<BoundStatementType, sql::CreateTableStatement>) {
                     return execute_create_table_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundDropTableStatement>) {
+                    return execute_drop_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
                     return execute_begin_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::CommitStatement>) {
@@ -175,6 +177,17 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{status, "Table '"+statement.table_name.text+"' created"};
+
+    }
+
+    ExecutionResult Database::execute_drop_table_statement(const sql::BoundDropTableStatement& statement) {
+
+        const auto status = catalog_.drop_table(statement.table_name);
+        if(!status.ok()) {
+            return ExecutionResult{status};
+        }
+
+        return ExecutionResult{status, "Table '"+statement.table_name+"' dropped"};
 
     }
 
