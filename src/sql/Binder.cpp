@@ -189,4 +189,18 @@ namespace dandb::sql {
         };
     }
 
+    core::Result<BoundDropTableStatement> Binder::bind_drop_table_statement(const DropTableStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        if(!non_system_table_status.ok()) return non_system_table_status;
+
+        return BoundDropTableStatement{
+            table_result.value(),
+            statement.table_name.text
+        };
+    }
+
 }
