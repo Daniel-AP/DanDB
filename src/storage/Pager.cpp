@@ -506,6 +506,10 @@ namespace dandb::storage {
         return transaction_state_.in_transaction();
     }
 
+    bool Pager::transaction_failed() const {
+        return transaction_state_.is_failed();
+    }
+
     core::Status Pager::mark_transaction_failed() {
 
         if(closed_) {

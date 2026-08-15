@@ -47,6 +47,7 @@ namespace dandb::storage {
             core::Status commit_transaction();
             core::Status rollback_transaction();
             bool in_transaction() const;
+            bool transaction_failed() const;
             core::Status mark_transaction_failed();
 
             core::Status checkpoint();

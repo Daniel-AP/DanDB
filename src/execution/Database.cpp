@@ -94,6 +94,14 @@ namespace dandb::execution {
 
     ExecutionResult Database::execute_statement(const sql::Statement& statement) {
 
+        const bool rollback_statement = std::holds_alternative<sql::RollbackStatement>(statement);
+
+        if(pager_->transaction_failed() && !rollback_statement) {
+            return ExecutionResult{
+                core::Status::TransactionError("Cannot execute statement: transaction is failed; rollback is required")
+            };
+        }
+
         const sql::Binder binder(catalog_);
         auto bound_statement_result = binder.bind(statement);
 
