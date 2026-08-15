@@ -203,4 +203,14 @@ namespace dandb::sql {
         };
     }
 
+    core::Result<catalog::TableId> Binder::bind_table(const Identifier& table_name) const {
+
+        const auto* table = catalog_.find_table(table_name.text);
+        if(table == nullptr) {
+            return core::Status::NotFound(make_binder_error_message(table_name.location, "Table '"+table_name.text+"' does not exist"));
+        }
+
+        return table->table_id();
+    }
+
 }
