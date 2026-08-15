@@ -7,6 +7,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <string>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -517,4 +518,127 @@ TEST_CASE("Database preserves committed INSERT rows after reopen", "[execution][
     REQUIRE(duplicate_insert_results.size() == 1);
     REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
     REQUIRE(reopened_database_result.value().close().ok());
+}
+
+TEST_CASE("Database executes SELECT statements", "[execution][database][dml][select]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64), "
+        "nickname STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (2, 'Grace', NULL);"
+        "INSERT INTO users VALUES (1, 'Ada', 'Ada');"
+        "INSERT INTO users VALUES (3, 'Linus', 'Lin');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    SECTION("returns all rows in primary-key order") {
+        const auto results = database.execute("SELECT * FROM users;");
+
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+
+        const auto& row_set = *results[0].row_set;
+        REQUIRE(row_set.column_names == std::vector<std::string>{ "id", "name", "nickname" });
+        REQUIRE(row_set.rows.size() == 3);
+        REQUIRE(row_set.rows[0].value(0).as_integer() == 1);
+        REQUIRE(row_set.rows[1].value(0).as_integer() == 2);
+        REQUIRE(row_set.rows[2].value(0).as_integer() == 3);
+    }
+
+    SECTION("preserves projection order") {
+        const auto results = database.execute("SELECT name, id FROM users;");
+
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+
+        const auto& row_set = *results[0].row_set;
+        REQUIRE(row_set.column_names == std::vector<std::string>{ "name", "id" });
+        REQUIRE(row_set.rows.size() == 3);
+        REQUIRE(row_set.rows[0].value(0).as_string() == "Ada");
+        REQUIRE(row_set.rows[0].value(1).as_integer() == 1);
+    }
+
+    SECTION("selects exact and range primary keys") {
+        const auto exact_results = database.execute("SELECT name FROM users WHERE id = 2;");
+
+        REQUIRE(exact_results.size() == 1);
+        REQUIRE(exact_results[0].status.ok());
+        REQUIRE(exact_results[0].row_set.has_value());
+        REQUIRE(exact_results[0].row_set->rows.size() == 1);
+        REQUIRE(exact_results[0].row_set->rows[0].value(0).as_string() == "Grace");
+
+        const auto range_results = database.execute("SELECT id FROM users WHERE id >= 2;");
+
+        REQUIRE(range_results.size() == 1);
+        REQUIRE(range_results[0].status.ok());
+        REQUIRE(range_results[0].row_set.has_value());
+        REQUIRE(range_results[0].row_set->rows.size() == 2);
+        REQUIRE(range_results[0].row_set->rows[0].value(0).as_integer() == 2);
+        REQUIRE(range_results[0].row_set->rows[1].value(0).as_integer() == 3);
+    }
+
+    SECTION("filters a non-indexed column") {
+        const auto results = database.execute("SELECT id FROM users WHERE name = 'Ada';");
+
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+        REQUIRE(results[0].row_set->rows.size() == 1);
+        REQUIRE(results[0].row_set->rows[0].value(0).as_integer() == 1);
+    }
+
+    SECTION("selects system-table rows") {
+        const auto results = database.execute("SELECT name FROM dandb_tables WHERE table_id = 1;");
+
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+        REQUIRE(results[0].row_set->column_names == std::vector<std::string>{ "name" });
+        REQUIRE(results[0].row_set->rows.size() == 1);
+        REQUIRE(results[0].row_set->rows[0].value(0).as_string() == "dandb_tables");
+    }
+
+    SECTION("applies null predicate behavior") {
+        const auto is_null_results = database.execute("SELECT id FROM users WHERE nickname IS NULL;");
+
+        REQUIRE(is_null_results.size() == 1);
+        REQUIRE(is_null_results[0].status.ok());
+        REQUIRE(is_null_results[0].row_set.has_value());
+        REQUIRE(is_null_results[0].row_set->rows.size() == 1);
+        REQUIRE(is_null_results[0].row_set->rows[0].value(0).as_integer() == 2);
+
+        const auto is_not_null_results = database.execute("SELECT id FROM users WHERE nickname IS NOT NULL;");
+
+        REQUIRE(is_not_null_results.size() == 1);
+        REQUIRE(is_not_null_results[0].status.ok());
+        REQUIRE(is_not_null_results[0].row_set.has_value());
+        REQUIRE(is_not_null_results[0].row_set->rows.size() == 2);
+        REQUIRE(is_not_null_results[0].row_set->rows[0].value(0).as_integer() == 1);
+        REQUIRE(is_not_null_results[0].row_set->rows[1].value(0).as_integer() == 3);
+
+        const auto null_comparison_results = database.execute("SELECT id FROM users WHERE nickname = NULL;");
+
+        REQUIRE(null_comparison_results.size() == 1);
+        REQUIRE(null_comparison_results[0].status.ok());
+        REQUIRE(null_comparison_results[0].row_set.has_value());
+        REQUIRE(null_comparison_results[0].row_set->rows.empty());
+    }
+
+    REQUIRE(database.close().ok());
 }
