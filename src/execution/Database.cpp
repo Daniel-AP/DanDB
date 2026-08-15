@@ -1,6 +1,7 @@
 #include <dandb/execution/Database.h>
 
 #include <dandb/btree/BTree.h>
+#include <dandb/record/KeyCodec.h>
 #include <dandb/record/RowCodec.h>
 #include <dandb/record/RowHelpers.h>
 #include <dandb/sql/Binder.h>
@@ -13,6 +14,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -114,22 +116,136 @@ namespace {
 
     }
 
-    std::optional<std::vector<std::byte>> next_key(std::vector<std::byte> key) {
+    std::optional<std::vector<std::byte>> next_key(std::span<const std::byte> key) {
 
-        for(std::size_t i = key.size(); i > 0; i--) {
+        std::vector<std::byte> successor(key.begin(), key.end());
+
+        for(std::size_t i = successor.size(); i > 0; i--) {
             const std::size_t current_index = i-1;
-            const auto value = std::to_integer<std::uint8_t>(key[current_index]);
+            const auto value = std::to_integer<std::uint8_t>(successor[current_index]);
 
             if(value == 0xff) {
-                key[current_index] = std::byte{ 0x00 };
+                successor[current_index] = std::byte{ 0x00 };
                 continue;
             }
 
-            key[current_index] = static_cast<std::byte>(value+1);
-            return key;
+            successor[current_index] = static_cast<std::byte>(value+1);
+            return successor;
         }
 
         return std::nullopt;
+
+    }
+
+    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_primary_key_cursors(
+        dandb::btree::BTree& tree,
+        dandb::sql::ComparisonOperator comparison_operator,
+        std::span<const std::byte> key
+    ) {
+
+        std::vector<dandb::btree::BTreeCursor> cursors;
+
+        const auto next_key_result = next_key(key);
+
+        switch(comparison_operator) {
+            case dandb::sql::ComparisonOperator::Equal: {
+                auto cursor_result = next_key_result.has_value()
+                    ? tree.scan_range(
+                        key,
+                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()}
+                    )
+                    : tree.scan_range(key, std::nullopt);
+
+                if(!cursor_result.ok()) {
+                    return cursor_result.status();
+                }
+
+                cursors.push_back(std::move(cursor_result.value()));
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::NotEqual: {
+                auto before_cursor_result = tree.scan_range(std::nullopt, key);
+                if(!before_cursor_result.ok()) {
+                    return before_cursor_result.status();
+                }
+
+                cursors.push_back(std::move(before_cursor_result.value()));
+
+                if(next_key_result.has_value()) {
+                    auto after_cursor_result = tree.scan_range(
+                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()},
+                        std::nullopt
+                    );
+                    if(!after_cursor_result.ok()) {
+                        return after_cursor_result.status();
+                    }
+
+                    cursors.push_back(std::move(after_cursor_result.value()));
+                }
+
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::Less: {
+                auto cursor_result = tree.scan_range(std::nullopt, key);
+                if(!cursor_result.ok()) {
+                    return cursor_result.status();
+                }
+
+                cursors.push_back(std::move(cursor_result.value()));
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::LessEqual: {
+                auto cursor_result = next_key_result.has_value()
+                    ? tree.scan_range(
+                        std::nullopt,
+                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()}
+                    )
+                    : tree.scan();
+
+                if(!cursor_result.ok()) {
+                    return cursor_result.status();
+                }
+
+                cursors.push_back(std::move(cursor_result.value()));
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::Greater: {
+                if(!next_key_result.has_value()) {
+                    return cursors;
+                }
+
+                auto cursor_result = tree.scan_range(
+                    std::span<const std::byte>{next_key_result->data(), next_key_result->size()},
+                    std::nullopt
+                );
+                if(!cursor_result.ok()) {
+                    return cursor_result.status();
+                }
+
+                cursors.push_back(std::move(cursor_result.value()));
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::GreaterEqual: {
+                auto cursor_result = tree.scan_range(key, std::nullopt);
+                if(!cursor_result.ok()) {
+                    return cursor_result.status();
+                }
+
+                cursors.push_back(std::move(cursor_result.value()));
+                return cursors;
+            }
+
+            case dandb::sql::ComparisonOperator::IsNull:
+            case dandb::sql::ComparisonOperator::IsNotNull:
+                return dandb::core::Status::InternalError("Cannot open primary-key cursors for a null predicate");
+        }
+
+        return dandb::core::Status::InternalError("Cannot open primary-key cursors for an unknown comparison operator");
 
     }
 
@@ -234,6 +350,8 @@ namespace dandb::execution {
                     return execute_create_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundDropTableStatement>) {
                     return execute_drop_table_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundSelectStatement>) {
+                    return execute_select_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundInsertStatement>) {
                     return execute_insert_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
@@ -305,6 +423,156 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{status, "Table '"+statement.table_name+"' dropped"};
+
+    }
+
+    ExecutionResult Database::execute_select_statement(const sql::BoundSelectStatement& statement) {
+
+        // Resolve metadata, prepare result
+
+        const auto* table_descriptor = catalog_.find_table(statement.table_id);
+        if(table_descriptor == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute SELECT: bound table is missing from catalog")};
+        }
+
+        const auto* schema = catalog_.schema_for_table(statement.table_id);
+        if(schema == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute SELECT: bound table has no schema")};
+        }
+
+        ExecutionResult::RowSet row_set;
+        row_set.column_names.reserve(statement.projection.size());
+
+        for(const auto& column: statement.projection) {
+            row_set.column_names.push_back(schema->column(column.ordinal).name());
+        }
+
+        // Convert literal to predicate type
+
+        std::optional<record::Value> predicate_value;
+
+        if(statement.predicate.has_value()) {
+            const auto& predicate = *statement.predicate;
+
+            const bool is_null_predicate = (
+                predicate.comparison_operator == sql::ComparisonOperator::IsNull ||
+                predicate.comparison_operator == sql::ComparisonOperator::IsNotNull
+            );
+
+            if(!is_null_predicate) {
+                if(!predicate.literal.has_value()) {
+                    return ExecutionResult{core::Status::InternalError("Cannot execute SELECT: comparison predicate has no literal")};
+                }
+
+                if(predicate.literal->is_null()) {
+                    return ExecutionResult{core::Status::Ok(), std::nullopt, std::move(row_set)};
+                }
+
+                const auto& predicate_column = schema->column(predicate.column.ordinal);
+
+                auto predicate_value_result = predicate.literal->convert_to(
+                    predicate_column.logical_type(),
+                    predicate_column.nullable()
+                );
+                if(!predicate_value_result.ok()) {
+                    return ExecutionResult{predicate_value_result.status()};
+                }
+
+                predicate_value = std::move(predicate_value_result.value());
+            }
+        }
+
+        // Open table tree, select cursors
+
+        auto tree_result = btree::BTree::open_existing(
+            *pager_,
+            table_descriptor->root_page_id(),
+            static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(schema->row_size())
+        );
+        if(!tree_result.ok()) {
+            return ExecutionResult{tree_result.status()};
+        }
+
+        auto tree = std::move(tree_result.value());
+        std::vector<btree::BTreeCursor> cursors;
+
+        const bool uses_primary_key = (
+            statement.predicate.has_value() &&
+            predicate_value.has_value() &&
+            statement.predicate->column.ordinal == schema->primary_key_ordinal()
+        );
+
+        if(!uses_primary_key) {
+            auto cursor_result = tree.scan();
+            if(!cursor_result.ok()) {
+                return ExecutionResult{cursor_result.status()};
+            }
+
+            cursors.push_back(std::move(cursor_result.value()));
+        } else {
+            auto key_result = record::KeyCodec::encode(*predicate_value);
+            if(!key_result.ok()) {
+                return ExecutionResult{key_result.status()};
+            }
+
+            const auto& key = key_result.value();
+
+            auto cursors_result = open_primary_key_cursors(
+                tree,
+                statement.predicate->comparison_operator,
+                key
+            );
+            if(!cursors_result.ok()) {
+                return ExecutionResult{cursors_result.status()};
+            }
+
+            cursors = std::move(cursors_result.value());
+        }
+
+        // Consume cursors
+
+        for(auto& cursor: cursors) {
+            while(true) {
+                auto entry_result = cursor.next();
+                if(!entry_result.ok()) {
+                    return ExecutionResult{entry_result.status()};
+                }
+
+                if(!entry_result.value().has_value()) {
+                    break;
+                }
+
+                auto row_result = record::RowCodec::decode(*schema, entry_result.value()->value);
+                if(!row_result.ok()) {
+                    return ExecutionResult{row_result.status()};
+                }
+
+                const auto& row = row_result.value();
+
+                if(statement.predicate.has_value()) {
+                    auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
+                    if(!matches_result.ok()) {
+                        return ExecutionResult{matches_result.status()};
+                    }
+
+                    if(!matches_result.value()) {
+                        continue;
+                    }
+                }
+
+                std::vector<record::Value> projected_values;
+                projected_values.reserve(statement.projection.size());
+
+                for(const auto& column: statement.projection) {
+                    projected_values.push_back(row.value(column.ordinal));
+                }
+
+                row_set.rows.emplace_back(std::move(projected_values));
+            }
+        }
+
+        return ExecutionResult{core::Status::Ok(), std::nullopt, std::move(row_set)};
 
     }
 
