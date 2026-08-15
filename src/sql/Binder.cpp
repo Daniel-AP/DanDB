@@ -268,4 +268,22 @@ namespace dandb::sql {
 
     }
 
+    core::Result<BoundPredicate> Binder::bind_predicate(catalog::TableId table_id, const Predicate& predicate) const {
+
+        auto column_result = bind_column(table_id, predicate.column_name);
+        if(!column_result.ok()) return column_result.status();
+
+        std::optional<record::LiteralValue> literal;
+        if(predicate.literal.has_value()) {
+            literal = predicate.literal->value;
+        }
+
+        return BoundPredicate{
+            std::move(column_result.value()),
+            predicate.comparison_operator,
+            std::move(literal)
+        };
+
+    }
+
 }
