@@ -70,6 +70,7 @@ TEST_CASE("Database persists a table created through SQL", "[execution][database
     );
 
     REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
     REQUIRE(create_results[0].status.ok());
     REQUIRE(create_results[0].success_message == "Table 'users' created");
     REQUIRE(database_result.value().close().ok());
@@ -87,6 +88,110 @@ TEST_CASE("Database persists a table created through SQL", "[execution][database
     REQUIRE(duplicate_create_results.size() == 1);
     REQUIRE(duplicate_create_results[0].status.code() == StatusCode::AlreadyExists);
     REQUIRE(reopened_database_result.value().close().ok());
+}
+
+TEST_CASE("Database persists a table dropped through SQL", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
+    REQUIRE(create_results[0].status.ok());
+
+    const auto drop_results = database_result.value().execute("DROP TABLE users;");
+
+    REQUIRE(drop_results.size() == 1);
+    REQUIRE(drop_results[0].status.ok());
+    REQUIRE(drop_results[0].success_message == "Table 'users' dropped");
+    REQUIRE(database_result.value().close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto recreate_results = reopened_database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+
+    REQUIRE(recreate_results.size() == 1);
+    REQUIRE(recreate_results[0].status.ok());
+    REQUIRE(reopened_database_result.value().close().ok());
+}
+
+TEST_CASE("Database restores a dropped table after rollback", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
+    REQUIRE(create_results[0].status.ok());
+
+    const auto begin_results = database_result.value().execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto drop_results = database_result.value().execute("DROP TABLE users;");
+    REQUIRE(drop_results.size() == 1);
+    REQUIRE(drop_results[0].status.ok());
+
+    const auto rollback_results = database_result.value().execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+
+    const auto duplicate_create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+
+    REQUIRE(duplicate_create_results.size() == 1);
+    REQUIRE(duplicate_create_results[0].status.code() == StatusCode::AlreadyExists);
+    REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database rejects DROP TABLE for a missing table", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto results = database_result.value().execute("DROP TABLE missing;");
+
+    REQUIRE(results.size() == 1);
+    REQUIRE(results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database rejects DROP TABLE for a system table", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto results = database_result.value().execute("DROP TABLE dandb_tables;");
+
+    REQUIRE(results.size() == 1);
+    REQUIRE(results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(database_result.value().close().ok());
 }
 
 TEST_CASE("Database rejects an invalid existing database file", "[execution][database]") {

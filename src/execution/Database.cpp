@@ -156,7 +156,7 @@ namespace dandb::execution {
                 column_definition.type.logical_type,
                 nullable,
                 column_definition.constraints.primary_key,
-                column_definition.constraints.unique
+                column_definition.constraints.primary_key || column_definition.constraints.unique
             );
             if(!column_result.ok()) {
                 return ExecutionResult{column_result.status()};
