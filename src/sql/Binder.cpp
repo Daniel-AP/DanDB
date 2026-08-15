@@ -148,4 +148,26 @@ namespace dandb::sql {
 
     }
 
+    core::Result<BoundDeleteStatement> Binder::bind_delete_statement(const DeleteStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        if(!non_system_table_status.ok()) return non_system_table_status;
+
+        BoundDeleteStatement bound_statement{
+            table_result.value(),
+            std::nullopt
+        };
+
+        if(statement.predicate.has_value()) {
+            auto predicate_result = bind_predicate(bound_statement.table_id, *statement.predicate);
+            if(!predicate_result.ok()) return predicate_result.status();
+            bound_statement.predicate = std::move(predicate_result.value());
+        }
+
+        return bound_statement;
+    }
+
 }
