@@ -170,4 +170,23 @@ namespace dandb::sql {
         return bound_statement;
     }
 
+    core::Result<BoundCreateIndexStatement> Binder::bind_create_index_statement(const CreateIndexStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        if(!non_system_table_status.ok()) return non_system_table_status;
+
+        auto column_result = bind_column(table_result.value(), statement.column_name);
+        if(!column_result.ok()) return column_result.status();
+
+        return BoundCreateIndexStatement{
+            statement.index_name.text,
+            table_result.value(),
+            std::move(column_result.value()),
+            statement.unique
+        };
+    }
+
 }

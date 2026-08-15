@@ -778,7 +778,7 @@ namespace dandb::catalog {
 
     }
 
-    core::Status Catalog::drop_table(std::string name) {
+    core::Status Catalog::drop_table(std::string_view name) {
 
         const TableDescriptor* table_descriptor = find_table(name);
         if(table_descriptor == nullptr) {
