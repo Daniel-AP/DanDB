@@ -286,4 +286,25 @@ namespace dandb::sql {
 
     }
 
+    core::Result<BoundAssignment> Binder::bind_assignment(catalog::TableId table_id, const Assignment& assignment) const {
+
+        auto column_result = bind_column(table_id, assignment.column_name);
+        if(!column_result.ok()) return column_result.status();
+
+        const auto* schema = catalog_.schema_for_table(table_id);
+        if(schema == nullptr) {
+            return core::Status::InternalError("Resolved table has no schema");
+        }
+
+        if(column_result.value().ordinal == schema->primary_key_ordinal()) {
+            return core::Status::InvalidArgument(make_binder_error_message(assignment.column_name.location, "Cannot update primary key column '"+assignment.column_name.text+"'"));
+        }
+
+        return BoundAssignment{
+            std::move(column_result.value()),
+            assignment.value.value
+        };
+
+    }
+
 }
