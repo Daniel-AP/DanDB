@@ -46,6 +46,66 @@ namespace dandb::execution {
 
     }
 
+    ExecutionResult Database::execute_begin_statement(const sql::BeginStatement&) {
+
+        const auto status = pager_->begin_transaction();
+
+        if(!status.ok()) {
+            return ExecutionResult{status};
+        }
+
+        return ExecutionResult{status, "Transaction started"};
+
+    }
+
+    ExecutionResult Database::execute_commit_statement(const sql::CommitStatement&) {
+
+        const auto commit_status = pager_->commit_transaction();
+
+        if(!commit_status.ok()) {
+            return ExecutionResult{commit_status};
+        }
+
+        const auto catalog_status = catalog_.on_transaction_committed();
+
+        if(!catalog_status.ok()) {
+            return ExecutionResult{catalog_status};
+        }
+
+        return ExecutionResult{commit_status, "Transaction committed"};
+
+    }
+
+    ExecutionResult Database::execute_rollback_statement(const sql::RollbackStatement&) {
+
+        const auto rollback_status = pager_->rollback_transaction();
+
+        if(!rollback_status.ok()) {
+            return ExecutionResult{rollback_status};
+        }
+
+        const auto catalog_status = catalog_.on_transaction_rolled_back();
+
+        if(!catalog_status.ok()) {
+            return ExecutionResult{catalog_status};
+        }
+
+        return ExecutionResult{rollback_status, "Transaction rolled back"};
+
+    }
+
+    ExecutionResult Database::execute_checkpoint_statement(const sql::CheckpointStatement&) {
+
+        const auto status = pager_->checkpoint();
+
+        if(!status.ok()) {
+            return ExecutionResult{status};
+        }
+
+        return ExecutionResult{status, "Checkpoint completed"};
+
+    }
+
     core::Status Database::close() {
         return pager_->close();
     }

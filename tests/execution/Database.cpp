@@ -21,7 +21,7 @@ TEST_CASE("Database declares the lifecycle facade API", "[execution][database]")
     >);
     STATIC_REQUIRE(std::is_same_v<
         decltype(std::declval<Database&>().execute(std::declval<std::string_view>())),
-        dandb::core::Status
+        dandb::execution::ExecutionResult
     >);
     STATIC_REQUIRE(std::is_same_v<
         decltype(std::declval<Database&>().close()),
