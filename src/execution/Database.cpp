@@ -1,13 +1,16 @@
 #include <dandb/execution/Database.h>
 
+#include <dandb/sql/Binder.h>
 #include <dandb/sql/Lexer.h>
 #include <dandb/sql/Parser.h>
 
 #include <cstddef>
 #include <memory>
 #include <system_error>
+#include <type_traits>
 #include <utility>
 #include <vector>
+#include <variant>
 
 namespace {
 
@@ -72,6 +75,11 @@ namespace dandb::execution {
 
         for(const auto& statement: statements) {
             auto result = execute_statement(statement);
+
+            if(!result.status.ok() && pager_->in_transaction()) {
+                pager_->mark_transaction_failed();
+            }
+
             const bool execution_succeeded = result.status.ok();
             results.push_back(std::move(result));
 
@@ -81,6 +89,38 @@ namespace dandb::execution {
         }
 
         return results;
+
+    }
+
+    ExecutionResult Database::execute_statement(const sql::Statement& statement) {
+
+        const sql::Binder binder(catalog_);
+        auto bound_statement_result = binder.bind(statement);
+
+        if(!bound_statement_result.ok()) {
+            return ExecutionResult{bound_statement_result.status()};
+        }
+
+        return std::visit(
+            [this](const auto& bound_statement) -> ExecutionResult {
+                using BoundStatementType = std::decay_t<decltype(bound_statement)>;
+
+                if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
+                    return execute_begin_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::CommitStatement>) {
+                    return execute_commit_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::RollbackStatement>) {
+                    return execute_rollback_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::CheckpointStatement>) {
+                    return execute_checkpoint_statement(bound_statement);
+                } else {
+                    return ExecutionResult{
+                        core::Status::InvalidArgument("Statement execution is not implemented")
+                    };
+                }
+            },
+            bound_statement_result.value()
+        );
 
     }
 
