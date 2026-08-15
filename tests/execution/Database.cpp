@@ -90,6 +90,41 @@ TEST_CASE("Database persists a table created through SQL", "[execution][database
     REQUIRE(reopened_database_result.value().close().ok());
 }
 
+TEST_CASE("Database removes a created table after rollback", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto begin_results = database_result.value().execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
+    REQUIRE(create_results[0].status.ok());
+
+    const auto rollback_results = database_result.value().execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto drop_results = reopened_database_result.value().execute("DROP TABLE users;");
+
+    REQUIRE(drop_results.size() == 1);
+    REQUIRE(drop_results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(reopened_database_result.value().close().ok());
+}
+
 TEST_CASE("Database persists a table dropped through SQL", "[execution][database][ddl]") {
     const TempDir temp_dir;
 
