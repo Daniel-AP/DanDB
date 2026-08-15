@@ -1,9 +1,13 @@
 #include <dandb/execution/Database.h>
 
+#include <dandb/sql/Lexer.h>
+#include <dandb/sql/Parser.h>
+
 #include <cstddef>
 #include <memory>
 #include <system_error>
 #include <utility>
+#include <vector>
 
 namespace {
 
@@ -43,6 +47,40 @@ namespace dandb::execution {
         }
 
         return Database{std::move(pager), std::move(catalog_result.value())};
+
+    }
+
+    std::vector<ExecutionResult> Database::execute(std::string_view sql_string) {
+
+        sql::Lexer lexer(sql_string);
+        auto tokens_result = lexer.tokenize();
+
+        if(!tokens_result.ok()) {
+            return { ExecutionResult{tokens_result.status()} };
+        }
+
+        sql::Parser parser(std::move(tokens_result.value()));
+        auto statements_result = parser.parse();
+
+        if(!statements_result.ok()) {
+            return { ExecutionResult{statements_result.status()} };
+        }
+
+        std::vector<ExecutionResult> results;
+        const auto& statements = statements_result.value();
+        results.reserve(statements.size());
+
+        for(const auto& statement: statements) {
+            auto result = execute_statement(statement);
+            const bool execution_succeeded = result.status.ok();
+            results.push_back(std::move(result));
+
+            if(!execution_succeeded) {
+                break;
+            }
+        }
+
+        return results;
 
     }
 

@@ -10,6 +10,7 @@
 #include <filesystem>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace dandb::execution {
 
@@ -22,7 +23,7 @@ namespace dandb::execution {
 
             static core::Result<Database> open_or_create(std::filesystem::path path);
 
-            ExecutionResult execute(std::string_view sql_string);
+            std::vector<ExecutionResult> execute(std::string_view sql_string);
             core::Status close();
 
         private:
