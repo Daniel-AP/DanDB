@@ -168,6 +168,7 @@ namespace dandb::sql {
         }
 
         return bound_statement;
+        
     }
 
     core::Result<BoundCreateIndexStatement> Binder::bind_create_index_statement(const CreateIndexStatement& statement) const {
@@ -187,6 +188,7 @@ namespace dandb::sql {
             std::move(column_result.value()),
             statement.unique
         };
+
     }
 
     core::Result<BoundDropTableStatement> Binder::bind_drop_table_statement(const DropTableStatement& statement) const {
@@ -201,6 +203,7 @@ namespace dandb::sql {
             table_result.value(),
             statement.table_name.text
         };
+
     }
 
     core::Result<catalog::TableId> Binder::bind_table(const Identifier& table_name) const {
@@ -211,6 +214,7 @@ namespace dandb::sql {
         }
 
         return table->table_id();
+
     }
 
     core::Result<BoundColumn> Binder::bind_column(catalog::TableId table_id, const Identifier& column_name) const {
@@ -224,6 +228,44 @@ namespace dandb::sql {
             column->column_id(),
             column->ordinal()
         };
+
+    }
+
+    core::Result<std::vector<BoundColumn>> Binder::bind_projection(catalog::TableId table_id, const SelectProjection& projection) const {
+
+        std::vector<BoundColumn> bound_columns;
+
+        if(std::holds_alternative<SelectAll>(projection)) {
+
+            const auto* schema = catalog_.schema_for_table(table_id);
+            if(schema == nullptr) {
+                return core::Status::InternalError("Resolved table has no schema");
+            }
+
+            const auto& select_all = std::get<SelectAll>(projection);
+            bound_columns.reserve(schema->column_count());
+
+            for(const auto& column: schema->columns()) {
+                auto column_result = bind_column(table_id, Identifier{column.name(), select_all.location});
+                if(!column_result.ok()) return column_result.status();
+                bound_columns.push_back(std::move(column_result.value()));
+            }
+
+            return bound_columns;
+
+        }
+
+        const auto& select_columns = std::get<SelectColumns>(projection);
+        bound_columns.reserve(select_columns.columns.size());
+
+        for(const auto& column_name: select_columns.columns) {
+            auto column_result = bind_column(table_id, column_name);
+            if(!column_result.ok()) return column_result.status();
+            bound_columns.push_back(std::move(column_result.value()));
+        }
+
+        return bound_columns;
+
     }
 
 }
