@@ -1,5 +1,8 @@
 #include <dandb/execution/Database.h>
 
+#include <dandb/btree/BTree.h>
+#include <dandb/record/RowCodec.h>
+#include <dandb/record/RowHelpers.h>
 #include <dandb/sql/Binder.h>
 #include <dandb/sql/Lexer.h>
 #include <dandb/sql/Parser.h>
@@ -7,7 +10,9 @@
 #include <dandb/record/Schema.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <memory>
+#include <optional>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -119,6 +124,8 @@ namespace dandb::execution {
                     return execute_create_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundDropTableStatement>) {
                     return execute_drop_table_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundInsertStatement>) {
+                    return execute_insert_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
                     return execute_begin_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::CommitStatement>) {
@@ -188,6 +195,116 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{status, "Table '"+statement.table_name+"' dropped"};
+
+    }
+
+    ExecutionResult Database::execute_insert_statement(const sql::BoundInsertStatement& statement) {
+
+        const auto* table_descriptor = catalog_.find_table(statement.table_id);
+        if(table_descriptor == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute INSERT: bound table is missing from catalog")};
+        }
+
+        const auto* schema = catalog_.schema_for_table(statement.table_id);
+        if(schema == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute INSERT: bound table has no schema")};
+        }
+
+        if(statement.values.size() != schema->column_count()) {
+            return ExecutionResult{core::Status::InvalidArgument("Cannot execute INSERT: value count does not match table schema")};
+        }
+
+        std::vector<record::Value> values;
+        values.reserve(statement.values.size());
+
+        for(std::size_t ordinal = 0; ordinal < statement.values.size(); ordinal++) {
+
+            const auto& column = schema->column(ordinal);
+            auto value_result = statement.values[ordinal].convert_to(column.logical_type(), column.nullable());
+            if(!value_result.ok()) {
+                return ExecutionResult{value_result.status()};
+            }
+
+            values.push_back(std::move(value_result.value()));
+
+        }
+
+        auto row_result = record::RowHelpers::build_row(*schema, std::move(values));
+        if(!row_result.ok()) {
+            return ExecutionResult{row_result.status()};
+        }
+
+        auto row_bytes_result = record::RowCodec::encode(*schema, row_result.value());
+        if(!row_bytes_result.ok()) {
+            return ExecutionResult{row_bytes_result.status()};
+        }
+
+        auto primary_key_bytes_result = record::RowHelpers::primary_key_bytes(*schema, row_result.value());
+        if(!primary_key_bytes_result.ok()) {
+            return ExecutionResult{primary_key_bytes_result.status()};
+        }
+
+        auto tree_result = btree::BTree::open_existing(
+            *pager_,
+            table_descriptor->root_page_id(),
+            static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(schema->row_size())
+        );
+        if(!tree_result.ok()) {
+            return ExecutionResult{tree_result.status()};
+        }
+
+        btree::BTree tree = std::move(tree_result.value());
+
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+            const auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return ExecutionResult{begin_status};
+            }
+        }
+
+        const auto insert_status = tree.insert(primary_key_bytes_result.value(), row_bytes_result.value());
+        if(!insert_status.ok()) {
+            return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+
+        }
+
+        if(!owns_transaction) {
+            return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, 1};
+        }
+
+        const auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return ExecutionResult{commit_status};
+        }
+
+        const auto catalog_status = catalog_.on_transaction_committed();
+        if(!catalog_status.ok()) {
+            return ExecutionResult{catalog_status};
+        }
+
+        return ExecutionResult{commit_status, std::nullopt, std::nullopt, 1};
+
+    }
+
+    core::Status Database::handle_mutation_failure(core::Status failure_status, bool owns_transaction) {
+
+        if(!owns_transaction) {
+            return failure_status;
+        }
+
+        const auto rollback_status = pager_->rollback_transaction();
+        if(!rollback_status.ok()) {
+            return rollback_status;
+        }
+
+        const auto catalog_status = catalog_.on_transaction_rolled_back();
+        if(!catalog_status.ok()) {
+            return catalog_status;
+        }
+
+        return failure_status;
 
     }
 
