@@ -56,6 +56,39 @@ TEST_CASE("Database reopens an existing database", "[execution][database]") {
     REQUIRE(reopened_database_result.value().close().ok());
 }
 
+TEST_CASE("Database persists a table created through SQL", "[execution][database][ddl]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+    REQUIRE(create_results[0].success_message == "Table 'users' created");
+    REQUIRE(database_result.value().close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto duplicate_create_results = reopened_database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+
+    REQUIRE(duplicate_create_results.size() == 1);
+    REQUIRE(duplicate_create_results[0].status.code() == StatusCode::AlreadyExists);
+    REQUIRE(reopened_database_result.value().close().ok());
+}
+
 TEST_CASE("Database rejects an invalid existing database file", "[execution][database]") {
     const TempDir temp_dir;
 
