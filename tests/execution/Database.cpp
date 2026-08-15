@@ -362,3 +362,159 @@ TEST_CASE("Database makes a failed transaction rollback-only", "[execution][data
 
     REQUIRE(database.close().ok());
 }
+
+TEST_CASE("Database autocommits INSERT rows to the primary table B+ tree", "[execution][database][dml][insert]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto insert_results = database_result.value().execute("INSERT INTO users VALUES (1, 'Ada');");
+
+    REQUIRE(insert_results.size() == 1);
+    INFO(insert_results[0].status.message());
+    REQUIRE(insert_results[0].status.ok());
+    REQUIRE(insert_results[0].rows_affected == 1);
+    REQUIRE(database_result.value().close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto duplicate_insert_results = reopened_database_result.value().execute(
+        "INSERT INTO users VALUES (1, 'Ada');"
+    );
+
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(reopened_database_result.value().close().ok());
+}
+
+TEST_CASE("Database rejects INSERT rows with duplicate primary keys", "[execution][database][dml][insert]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto first_insert_results = database_result.value().execute("INSERT INTO users VALUES (1, 'Ada');");
+    REQUIRE(first_insert_results.size() == 1);
+    REQUIRE(first_insert_results[0].status.ok());
+
+    const auto duplicate_insert_results = database_result.value().execute("INSERT INTO users VALUES (1, 'Grace');");
+
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
+    REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database rejects overflow values in INSERT rows", "[execution][database][dml][insert]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT8 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto insert_results = database_result.value().execute("INSERT INTO users VALUES (128, 'Ada');");
+
+    REQUIRE(insert_results.size() == 1);
+    REQUIRE(insert_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(insert_results[0].rows_affected.has_value());
+    REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database removes INSERT rows after manual transaction rollback", "[execution][database][dml][insert]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto transaction_results = database_result.value().execute(
+        "BEGIN; INSERT INTO users VALUES (1, 'Ada'); ROLLBACK;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+
+    const auto reinsert_results = database_result.value().execute("INSERT INTO users VALUES (1, 'Ada');");
+
+    REQUIRE(reinsert_results.size() == 1);
+    REQUIRE(reinsert_results[0].status.ok());
+    REQUIRE(reinsert_results[0].rows_affected == 1);
+    REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database preserves committed INSERT rows after reopen", "[execution][database][dml][insert]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto create_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto transaction_results = database_result.value().execute(
+        "BEGIN; INSERT INTO users VALUES (1, 'Ada'); COMMIT;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto duplicate_insert_results = reopened_database_result.value().execute(
+        "INSERT INTO users VALUES (1, 'Ada');"
+    );
+
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(reopened_database_result.value().close().ok());
+}
