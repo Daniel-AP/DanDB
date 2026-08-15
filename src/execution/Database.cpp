@@ -23,6 +23,116 @@ namespace {
 
     constexpr std::size_t DEFAULT_BUFFER_POOL_CAPACITY = 10;
 
+    dandb::core::Result<int> compare_values(const dandb::record::Value& left, const dandb::record::Value& right) {
+
+        if(left.type().kind() != right.type().kind()) {
+            return dandb::core::Status::InternalError("Cannot compare SELECT predicate values with different types");
+        }
+
+        switch(left.type().kind()) {
+            case dandb::record::LogicalType::Kind::Int8:
+            case dandb::record::LogicalType::Kind::Int16:
+            case dandb::record::LogicalType::Kind::Int32:
+            case dandb::record::LogicalType::Kind::Int64:
+                if(left.as_integer() < right.as_integer()) return -1;
+                if(left.as_integer() > right.as_integer()) return 1;
+                return 0;
+
+            case dandb::record::LogicalType::Kind::Float64:
+                if(left.as_float64() < right.as_float64()) return -1;
+                if(left.as_float64() > right.as_float64()) return 1;
+                return 0;
+
+            case dandb::record::LogicalType::Kind::String:
+                if(left.as_string() < right.as_string()) return -1;
+                if(left.as_string() > right.as_string()) return 1;
+                return 0;
+
+            case dandb::record::LogicalType::Kind::Boolean:
+                if(left.as_boolean() == right.as_boolean()) return 0;
+                return left.as_boolean() ? 1 : -1;
+        }
+
+        return dandb::core::Status::InternalError("Cannot compare SELECT predicate values with an unknown type");
+
+    }
+
+    bool comparison_matches(int comparison, dandb::sql::ComparisonOperator comparison_operator) {
+
+        switch(comparison_operator) {
+            case dandb::sql::ComparisonOperator::Equal:
+                return comparison == 0;
+            case dandb::sql::ComparisonOperator::NotEqual:
+                return comparison != 0;
+            case dandb::sql::ComparisonOperator::Less:
+                return comparison < 0;
+            case dandb::sql::ComparisonOperator::LessEqual:
+                return comparison <= 0;
+            case dandb::sql::ComparisonOperator::Greater:
+                return comparison > 0;
+            case dandb::sql::ComparisonOperator::GreaterEqual:
+                return comparison >= 0;
+            case dandb::sql::ComparisonOperator::IsNull:
+            case dandb::sql::ComparisonOperator::IsNotNull:
+                return false;
+        }
+
+        return false;
+
+    }
+
+    dandb::core::Result<bool> row_matches_predicate(
+        const dandb::record::Row& row,
+        const dandb::sql::BoundPredicate& predicate,
+        const std::optional<dandb::record::Value>& predicate_value
+    ) {
+
+        const auto& row_value = row.value(predicate.column.ordinal);
+
+        if(predicate.comparison_operator == dandb::sql::ComparisonOperator::IsNull) {
+            return row_value.is_null();
+        }
+
+        if(predicate.comparison_operator == dandb::sql::ComparisonOperator::IsNotNull) {
+            return !row_value.is_null();
+        }
+
+        if(row_value.is_null()) {
+            return false;
+        }
+
+        if(!predicate_value.has_value()) {
+            return dandb::core::Status::InternalError("SELECT comparison predicate has no converted literal value");
+        }
+
+        auto comparison_result = compare_values(row_value, *predicate_value);
+        if(!comparison_result.ok()) {
+            return comparison_result.status();
+        }
+
+        return comparison_matches(comparison_result.value(), predicate.comparison_operator);
+
+    }
+
+    std::optional<std::vector<std::byte>> next_key(std::vector<std::byte> key) {
+
+        for(std::size_t i = key.size(); i > 0; i--) {
+            const std::size_t current_index = i-1;
+            const auto value = std::to_integer<std::uint8_t>(key[current_index]);
+
+            if(value == 0xff) {
+                key[current_index] = std::byte{ 0x00 };
+                continue;
+            }
+
+            key[current_index] = static_cast<std::byte>(value+1);
+            return key;
+        }
+
+        return std::nullopt;
+
+    }
+
 }
 
 namespace dandb::execution {
