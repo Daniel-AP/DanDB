@@ -1,5 +1,8 @@
 #include <dandb/sql/Binder.h>
 
+#include <dandb/record/LiteralValue.h>
+#include <dandb/catalog/Catalog.h>
+
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -79,6 +82,42 @@ namespace dandb::sql {
         }
 
         return bound_statement;
+
+    }
+
+    core::Result<BoundInsertStatement> Binder::bind_insert_statement(const InsertStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        if(!non_system_table_status.ok()) return non_system_table_status;
+
+        std::vector<record::LiteralValue> values;
+
+        for(const auto& expr: statement.values) {
+            values.push_back(expr.value);
+        }
+
+        const auto* schema = catalog_.schema_for_table(table_result.value());
+        if(schema == nullptr) {
+            return core::Status::InternalError("Resolved table has no schema");
+        }
+
+        const std::size_t schema_column_count = schema->column_count();
+
+        if(values.size() != schema_column_count) {
+            return core::Status::InvalidArgument(make_binder_error_message(
+                statement.location,
+                "INSERT has "+std::to_string(values.size())+" values but table '"+statement.table_name.text+
+                    "' has "+std::to_string(schema_column_count)+" columns"
+            ));
+        }
+
+        return BoundInsertStatement{
+            table_result.value(),
+            std::move(values)
+        };
 
     }
 
