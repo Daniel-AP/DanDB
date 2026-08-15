@@ -121,4 +121,31 @@ namespace dandb::sql {
 
     }
 
+    core::Result<BoundUpdateStatement> Binder::bind_update_statement(const UpdateStatement& statement) const {
+
+        auto table_result = bind_table(statement.table_name);
+        if(!table_result.ok()) return table_result.status();
+
+        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        if(!non_system_table_status.ok()) return non_system_table_status;
+
+        auto assignment_result = bind_assignment(table_result.value(), statement.assignment);
+        if(!assignment_result.ok()) return assignment_result.status();
+
+        BoundUpdateStatement bound_statement{
+            table_result.value(),
+            std::move(assignment_result.value()),
+            std::nullopt
+        };
+
+        if(statement.predicate.has_value()) {
+            auto predicate_result = bind_predicate(table_result.value(), *statement.predicate);
+            if(!predicate_result.ok()) return predicate_result.status();
+            bound_statement.predicate = std::move(predicate_result.value());
+        }
+
+        return bound_statement;
+
+    }
+
 }
