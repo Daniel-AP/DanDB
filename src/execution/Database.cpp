@@ -3,6 +3,8 @@
 #include <dandb/sql/Binder.h>
 #include <dandb/sql/Lexer.h>
 #include <dandb/sql/Parser.h>
+#include <dandb/record/Column.h>
+#include <dandb/record/Schema.h>
 
 #include <cstddef>
 #include <memory>
@@ -113,7 +115,9 @@ namespace dandb::execution {
             [this](const auto& bound_statement) -> ExecutionResult {
                 using BoundStatementType = std::decay_t<decltype(bound_statement)>;
 
-                if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
+                if constexpr(std::is_same_v<BoundStatementType, sql::CreateTableStatement>) {
+                    return execute_create_table_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
                     return execute_begin_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::CommitStatement>) {
                     return execute_commit_statement(bound_statement);
@@ -129,6 +133,48 @@ namespace dandb::execution {
             },
             bound_statement_result.value()
         );
+
+    }
+
+    ExecutionResult Database::execute_create_table_statement(const sql::CreateTableStatement& statement) {
+
+        std::vector<record::Column> columns;
+        columns.reserve(statement.columns.size());
+
+        for(const auto& column_definition: statement.columns) {
+
+            const bool nullable = !(
+                column_definition.constraints.primary_key ||
+                column_definition.constraints.unique ||
+                column_definition.constraints.not_null
+            );
+
+            auto column_result = record::Column::create(
+                column_definition.name.text,
+                column_definition.type.logical_type,
+                nullable,
+                column_definition.constraints.primary_key,
+                column_definition.constraints.unique
+            );
+            if(!column_result.ok()) {
+                return ExecutionResult{column_result.status()};
+            }
+
+            columns.push_back(std::move(column_result.value()));
+
+        }
+
+        auto schema_result = record::Schema::create(std::move(columns));
+        if(!schema_result.ok()) {
+            return ExecutionResult{schema_result.status()};
+        }
+
+        const auto status = catalog_.create_table(statement.table_name.text, schema_result.value());
+        if(!status.ok()) {
+            return ExecutionResult{status};
+        }
+
+        return ExecutionResult{status, "Table '"+statement.table_name.text+"' created"};
 
     }
 
