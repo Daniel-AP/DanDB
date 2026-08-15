@@ -131,6 +131,7 @@ add_executable(dandb_tests
     tests/sql/Lexer.cpp
     tests/sql/Ast.cpp
     tests/sql/Parser.cpp
+    tests/sql/Binder.cpp
     tests/execution/Database.cpp
 )
 
