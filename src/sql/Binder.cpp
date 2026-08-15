@@ -2,6 +2,7 @@
 
 #include <dandb/record/LiteralValue.h>
 #include <dandb/catalog/Catalog.h>
+#include <dandb/catalog/SystemTables.h>
 
 #include <string>
 #include <type_traits>
@@ -304,6 +305,23 @@ namespace dandb::sql {
             std::move(column_result.value()),
             assignment.value.value
         };
+
+    }
+
+    core::Status Binder::validate_non_system_table(catalog::TableId table_id) const {
+
+        bool is_system_table = (
+            table_id == catalog::DANDB_TABLES_ID ||
+            table_id == catalog::DANDB_COLUMNS_ID ||
+            table_id == catalog::DANDB_INDEXES_ID ||
+            table_id == catalog::DANDB_INDEX_COLUMNS_ID
+        );
+
+        if(is_system_table) {
+            return core::Status::InvalidArgument("Cannot write to a system table");
+        }
+
+        return core::Status::Ok();
 
     }
 
