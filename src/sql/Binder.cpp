@@ -213,4 +213,17 @@ namespace dandb::sql {
         return table->table_id();
     }
 
+    core::Result<BoundColumn> Binder::bind_column(catalog::TableId table_id, const Identifier& column_name) const {
+
+        const auto* column = catalog_.find_column(table_id, column_name.text);
+        if(column == nullptr) {
+            return core::Status::NotFound(make_binder_error_message(column_name.location, "Column '"+column_name.text+"' does not exist"));
+        }
+
+        return BoundColumn{
+            column->column_id(),
+            column->ordinal()
+        };
+    }
+
 }
