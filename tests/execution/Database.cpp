@@ -1,10 +1,17 @@
 #include <catch_amalgamated.hpp>
 
+#include <dandb/btree/BTree.h>
+#include <dandb/catalog/Catalog.h>
 #include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
 #include <dandb/execution/Database.h>
+#include <dandb/record/KeyCodec.h>
+#include <dandb/record/Value.h>
+#include <dandb/storage/Pager.h>
 #include <testutil/TempDir.h>
 
+#include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <string>
@@ -15,7 +22,26 @@
 
 using dandb::core::StatusCode;
 using dandb::execution::Database;
+using dandb::btree::BTree;
+using dandb::catalog::Catalog;
+using dandb::record::KeyCodec;
+using dandb::record::Value;
+using dandb::storage::Pager;
 using dandb::testutil::TempDir;
+
+namespace {
+
+    constexpr std::size_t TEST_BPM_CAPACITY = 10;
+
+    std::vector<std::byte> encode_int64_key(std::int64_t value) {
+
+        const auto key_result = KeyCodec::encode(Value::int64(value));
+        REQUIRE(key_result.ok());
+        return key_result.value();
+
+    }
+
+}
 
 TEST_CASE("Database declares the lifecycle facade API", "[execution][database]") {
     STATIC_REQUIRE(std::is_same_v<
@@ -89,6 +115,241 @@ TEST_CASE("Database persists a table created through SQL", "[execution][database
     REQUIRE(duplicate_create_results.size() == 1);
     REQUIRE(duplicate_create_results[0].status.code() == StatusCode::AlreadyExists);
     REQUIRE(reopened_database_result.value().close().ok());
+}
+
+TEST_CASE("Database creates an empty index through SQL", "[execution][database][ddl][create-index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(results.size() == 2);
+    for(const auto& result: results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+    REQUIRE_FALSE(index_descriptor->unique());
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    auto cursor_result = index_tree_result.value().scan();
+    REQUIRE(cursor_result.ok());
+
+    const auto entry_result = cursor_result.value().next();
+    REQUIRE(entry_result.ok());
+    REQUIRE_FALSE(entry_result.value().has_value());
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database backfills a non-unique index through SQL", "[execution][database][ddl][create-index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto setup_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 10);"
+        "INSERT INTO users VALUES (3, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto create_index_results = database_result.value().execute(
+        "CREATE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(create_index_results.size() == 1);
+    INFO(create_index_results[0].status.message());
+    REQUIRE(create_index_results[0].status.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    auto age_ten_key = encode_int64_key(10);
+    const auto id_two_key = encode_int64_key(2);
+    age_ten_key.insert(age_ten_key.end(), id_two_key.begin(), id_two_key.end());
+
+    auto age_ten_result = index_tree_result.value().find(age_ten_key);
+    REQUIRE(age_ten_result.ok());
+    REQUIRE(age_ten_result.value() == id_two_key);
+
+    auto age_twenty_id_one_key = encode_int64_key(20);
+    const auto id_one_key = encode_int64_key(1);
+    age_twenty_id_one_key.insert(age_twenty_id_one_key.end(), id_one_key.begin(), id_one_key.end());
+
+    auto age_twenty_id_one_result = index_tree_result.value().find(age_twenty_id_one_key);
+    REQUIRE(age_twenty_id_one_result.ok());
+    REQUIRE(age_twenty_id_one_result.value() == id_one_key);
+
+    auto age_twenty_id_three_key = encode_int64_key(20);
+    const auto id_three_key = encode_int64_key(3);
+    age_twenty_id_three_key.insert(age_twenty_id_three_key.end(), id_three_key.begin(), id_three_key.end());
+
+    auto age_twenty_id_three_result = index_tree_result.value().find(age_twenty_id_three_key);
+    REQUIRE(age_twenty_id_three_result.ok());
+    REQUIRE(age_twenty_id_three_result.value() == id_three_key);
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database backfills a unique index through SQL", "[execution][database][ddl][create-index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto setup_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 10);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto create_index_results = database_result.value().execute(
+        "CREATE UNIQUE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(create_index_results.size() == 1);
+    INFO(create_index_results[0].status.message());
+    REQUIRE(create_index_results[0].status.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+    REQUIRE(index_descriptor->unique());
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(8),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto age_ten_key = encode_int64_key(10);
+    const auto id_two_key = encode_int64_key(2);
+    auto age_ten_result = index_tree_result.value().find(age_ten_key);
+    REQUIRE(age_ten_result.ok());
+    REQUIRE(age_ten_result.value() == id_two_key);
+
+    const auto age_twenty_key = encode_int64_key(20);
+    const auto id_one_key = encode_int64_key(1);
+    auto age_twenty_result = index_tree_result.value().find(age_twenty_key);
+    REQUIRE(age_twenty_result.ok());
+    REQUIRE(age_twenty_result.value() == id_one_key);
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database rejects a duplicate unique index without persisting metadata", "[execution][database][ddl][create-index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto setup_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto create_index_results = database_result.value().execute(
+        "CREATE UNIQUE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(create_index_results.size() == 1);
+    REQUIRE(create_index_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+    REQUIRE(catalog_result.value().find_index("users_by_age") == nullptr);
+
+    const auto* table_descriptor = catalog_result.value().find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+    REQUIRE(catalog_result.value().indexes_for_table(table_descriptor->table_id()).size() == 1);
+    REQUIRE(pager_result.value().close().ok());
+
 }
 
 TEST_CASE("Database removes a created table after rollback", "[execution][database][ddl]") {
