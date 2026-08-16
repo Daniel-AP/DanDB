@@ -134,6 +134,8 @@ add_executable(dandb_tests
     tests/sql/Parser.cpp
     tests/sql/Binder.cpp
     tests/execution/Database.cpp
+    tests/cli/Repl.cpp
+    src/cli/Repl.cpp
 )
 
 target_link_libraries(dandb_tests
@@ -145,6 +147,7 @@ target_link_libraries(dandb_tests
 target_include_directories(dandb_tests
     PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/tests"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/cli"
 )
 
 target_compile_features(dandb_tests PRIVATE cxx_std_20)
