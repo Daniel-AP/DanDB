@@ -889,3 +889,166 @@ TEST_CASE("Database deletes one matching row", "[execution][database][dml][delet
     REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
     REQUIRE(database.close().ok());
 }
+
+TEST_CASE("Database deletes all rows without a predicate", "[execution][database][dml][delete]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 2);
+
+    const auto select_results = database.execute("SELECT * FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.empty());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database reports zero affected rows when DELETE matches no rows", "[execution][database][dml][delete]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE id = 2;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 0);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database restores deleted rows after transaction rollback", "[execution][database][dml][delete]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto transaction_results = database.execute(
+        "BEGIN; DELETE FROM users WHERE id = 2; ROLLBACK;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 2);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database preserves committed deletes after reopen", "[execution][database][dml][delete]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto transaction_results = database.execute(
+        "BEGIN; DELETE FROM users WHERE id = 2; COMMIT;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+    REQUIRE(database.close().ok());
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    const auto select_results = reopened_database_result.value().execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(reopened_database_result.value().close().ok());
+}
