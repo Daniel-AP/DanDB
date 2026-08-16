@@ -299,6 +299,7 @@ namespace dandb::execution {
         auto statements_result = parser.parse();
 
         if(!statements_result.ok()) {
+            if(pager_->in_transaction()) pager_->mark_transaction_failed();
             return { ExecutionResult{statements_result.status()} };
         }
 

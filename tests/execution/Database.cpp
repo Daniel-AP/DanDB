@@ -364,6 +364,32 @@ TEST_CASE("Database makes a failed transaction rollback-only", "[execution][data
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database makes a parse error inside a transaction rollback-only", "[execution][database][transaction]") {
+    const TempDir temp_dir;
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto parse_error_results = database.execute("INVALID SQL;");
+    REQUIRE(parse_error_results.size() == 1);
+    REQUIRE_FALSE(parse_error_results[0].status.ok());
+
+    const auto rejected_results = database.execute("SELECT * FROM dandb_tables;");
+    REQUIRE(rejected_results.size() == 1);
+    REQUIRE(rejected_results[0].status.code() == StatusCode::TransactionError);
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database autocommits INSERT rows to the primary table B+ tree", "[execution][database][dml][insert]") {
     const TempDir temp_dir;
 
