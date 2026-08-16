@@ -642,3 +642,186 @@ TEST_CASE("Database executes SELECT statements", "[execution][database][dml][sel
 
     REQUIRE(database.close().ok());
 }
+
+TEST_CASE("Database updates one matching row", "[execution][database][dml][update]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET name = 'Linus' WHERE id = 2;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT name FROM users WHERE id = 2;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_string() == "Linus");
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database updates all rows without a predicate", "[execution][database][dml][update]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET name = 'Unknown';");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 2);
+
+    const auto select_results = database.execute("SELECT name FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 2);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_string() == "Unknown");
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_string() == "Unknown");
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database rejects UPDATE of a primary key", "[execution][database][dml][update]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto update_results = database.execute("UPDATE users SET id = 2 WHERE id = 1;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(update_results[0].rows_affected.has_value());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database rejects an overflowing UPDATE in a manual transaction", "[execution][database][dml][update]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT8"
+        ");"
+        "INSERT INTO users VALUES (1, 10);"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto update_results = database.execute("UPDATE users SET age = 128 WHERE id = 1;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE_FALSE(update_results[0].rows_affected.has_value());
+
+    const auto rejected_results = database.execute("SELECT age FROM users WHERE id = 1;");
+    REQUIRE(rejected_results.size() == 1);
+    REQUIRE(rejected_results[0].status.code() == StatusCode::TransactionError);
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database restores rows updated in a rolled-back transaction", "[execution][database][dml][update]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto transaction_results = database.execute(
+        "BEGIN; UPDATE users SET name = 'Grace' WHERE id = 1; ROLLBACK;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+
+    const auto select_results = database.execute("SELECT name FROM users WHERE id = 1;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_string() == "Ada");
+    REQUIRE(database.close().ok());
+}
