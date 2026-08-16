@@ -530,6 +530,7 @@ namespace dandb::catalog {
             return core::Status::InvalidArgument("Cannot create index: nullable columns cannot be indexed");
         }
 
+        // Include the primary key in non-unique index keys
         const std::size_t new_indexed_column_size = new_indexed_column->logical_type().fixed_size();
         const std::size_t primary_key_size = primary_key_column->logical_type().fixed_size();
         std::size_t new_index_key_size = new_indexed_column_size;
@@ -542,6 +543,7 @@ namespace dandb::catalog {
             new_index_key_size += primary_key_size;
         }
 
+        // Get the system table schemas
         auto indexes_schema_result = SystemTables::indexes_schema();
         if(!indexes_schema_result.ok()) {
             return indexes_schema_result.status();
@@ -555,6 +557,7 @@ namespace dandb::catalog {
         const auto& indexes_schema = indexes_schema_result.value();
         const auto& index_columns_schema = index_columns_schema_result.value();
 
+        // Open the system B+ trees
         auto indexes_tree_result = btree::BTree::open_existing(
             *pager_,
             pager_->database_header().system_indexes_root_page_id(),
@@ -578,6 +581,7 @@ namespace dandb::catalog {
         btree::BTree indexes_tree = std::move(indexes_tree_result.value());
         btree::BTree index_columns_tree = std::move(index_columns_tree_result.value());
 
+        // Start a transaction only if needed
         const bool owns_transaction = !pager_->in_transaction();
         if(owns_transaction) {
             auto begin_status = pager_->begin_transaction();
@@ -586,8 +590,10 @@ namespace dandb::catalog {
             }
         }
 
+        // Reserve an id and build metadata for the new index
         CatalogState next_catalog_state = visible_state();
 
+        // Create storage for the new index
         auto new_index_tree_result = btree::BTree::create_new(*pager_, new_index_key_size, primary_key_size);
         if(!new_index_tree_result.ok()) {
             return handle_mutation_failure(new_index_tree_result.status(), owns_transaction);
@@ -612,6 +618,7 @@ namespace dandb::catalog {
 
         IndexDescriptor new_index_descriptor = std::move(new_index_descriptor_result.value());
 
+        // Write the new index metadata
         auto new_index_name_value_result = record::Value::string(new_index_descriptor.name(), CATALOG_NAME_CAPACITY);
         if(!new_index_name_value_result.ok()) {
             return handle_mutation_failure(new_index_name_value_result.status(), owns_transaction);
@@ -632,6 +639,7 @@ namespace dandb::catalog {
             return handle_mutation_failure(insert_status, owns_transaction);
         }
 
+        // Link the new index to its indexed column
         record::Row new_index_column_metadata_row(std::vector<record::Value>{
             record::Value::int64(static_cast<std::int64_t>(new_index_descriptor.index_id().id)),
             record::Value::int64(static_cast<std::int64_t>(column_id.id)),
@@ -651,13 +659,16 @@ namespace dandb::catalog {
             );
         }
 
+        // Add the new index to the next catalog state
         next_table_it->second.indexes.push_back(std::move(new_index_descriptor));
 
+        // Keep the state staged for the caller's transaction
         if(!owns_transaction) {
             staged_state_ = std::move(next_catalog_state);
             return core::Status::Ok();
         }
 
+        // Commit before updating the catalog state
         auto commit_status = pager_->commit_transaction();
         if(!commit_status.ok()) {
             return commit_status;

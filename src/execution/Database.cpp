@@ -353,6 +353,8 @@ namespace dandb::execution {
 
                 if constexpr(std::is_same_v<BoundStatementType, sql::CreateTableStatement>) {
                     return execute_create_table_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundCreateIndexStatement>) {
+                    return execute_create_index_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundDropTableStatement>) {
                     return execute_drop_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundSelectStatement>) {
@@ -421,6 +423,133 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{status, "Table '"+statement.table_name.text+"' created"};
+
+    }
+
+    ExecutionResult Database::execute_create_index_statement(const sql::BoundCreateIndexStatement& statement) {
+
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+
+            const auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return ExecutionResult{begin_status};
+            }
+
+        }
+
+        const auto create_index_status = catalog_.create_index(
+            statement.table_id,
+            statement.index_name,
+            statement.indexed_column.column_id,
+            statement.unique
+        );
+        if(!create_index_status.ok()) {
+            return ExecutionResult{handle_mutation_failure(create_index_status, owns_transaction)};
+        }
+
+        const auto* index_descriptor = catalog_.find_index(statement.index_name);
+        if(index_descriptor == nullptr) {
+
+            return ExecutionResult{handle_mutation_failure(
+                core::Status::InternalError("Cannot execute CREATE INDEX: new index is missing from catalog"),
+                owns_transaction
+            )};
+
+        }
+
+        const auto* table_descriptor = catalog_.find_table(statement.table_id);
+        if(table_descriptor == nullptr) {
+
+            return ExecutionResult{handle_mutation_failure(
+                core::Status::InternalError("Cannot execute CREATE INDEX: table is missing from catalog"),
+                owns_transaction
+            )};
+
+        }
+
+        const auto* schema = catalog_.schema_for_table(statement.table_id);
+        if(schema == nullptr) {
+
+            return ExecutionResult{handle_mutation_failure(
+                core::Status::InternalError("Cannot execute CREATE INDEX: table schema is missing from catalog"),
+                owns_transaction
+            )};
+
+        }
+
+        auto table_tree_result = open_table_tree(*table_descriptor);
+        if(!table_tree_result.ok()) {
+            return ExecutionResult{handle_mutation_failure(table_tree_result.status(), owns_transaction)};
+        }
+
+        auto index_tree_result = open_index_tree(*index_descriptor);
+        if(!index_tree_result.ok()) {
+            return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
+        }
+
+        auto cursor_result = table_tree_result.value().scan();
+        if(!cursor_result.ok()) {
+            return ExecutionResult{handle_mutation_failure(cursor_result.status(), owns_transaction)};
+        }
+
+        auto index_tree = std::move(index_tree_result.value());
+        auto cursor = std::move(cursor_result.value());
+
+        while(true) {
+
+            auto entry_result = cursor.next();
+            if(!entry_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(entry_result.status(), owns_transaction)};
+            }
+
+            if(!entry_result.value().has_value()) {
+                break;
+            }
+
+            const auto& entry = *entry_result.value();
+
+            auto row_result = record::RowCodec::decode(*schema, entry.value);
+            if(!row_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(row_result.status(), owns_transaction)};
+            }
+
+            auto indexed_key_result = record::RowHelpers::indexed_key_bytes(
+                *schema,
+                row_result.value(),
+                statement.indexed_column.ordinal
+            );
+            if(!indexed_key_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(indexed_key_result.status(), owns_transaction)};
+            }
+
+            auto index_key = std::move(indexed_key_result.value());
+            if(!index_descriptor->unique()) {
+                index_key.insert(index_key.end(), entry.key.begin(), entry.key.end());
+            }
+
+            const auto insert_status = index_tree.insert(index_key, entry.key);
+            if(!insert_status.ok()) {
+                return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+            }
+
+        }
+
+        if(!owns_transaction) {
+            return ExecutionResult{core::Status::Ok(), "Index '"+statement.index_name+"' created"};
+        }
+
+        const auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return ExecutionResult{commit_status};
+        }
+
+        const auto catalog_status = catalog_.on_transaction_committed();
+        if(!catalog_status.ok()) {
+            return ExecutionResult{catalog_status};
+        }
+
+        return ExecutionResult{commit_status, "Index '"+statement.index_name+"' created"};
 
     }
 
