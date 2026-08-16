@@ -16,6 +16,7 @@ namespace dandb::sql {
     struct BoundDropTableStatement;
     struct BoundInsertStatement;
     struct BoundSelectStatement;
+    struct BoundUpdateStatement;
 }
 
 namespace dandb::execution {
@@ -41,6 +42,7 @@ namespace dandb::execution {
             ExecutionResult execute_drop_table_statement(const sql::BoundDropTableStatement& statement);
             ExecutionResult execute_select_statement(const sql::BoundSelectStatement& statement);
             ExecutionResult execute_insert_statement(const sql::BoundInsertStatement& statement);
+            ExecutionResult execute_update_statement(const sql::BoundUpdateStatement& statement);
             ExecutionResult execute_begin_statement(const sql::BeginStatement& statement);
             ExecutionResult execute_commit_statement(const sql::CommitStatement& statement);
             ExecutionResult execute_rollback_statement(const sql::RollbackStatement& statement);

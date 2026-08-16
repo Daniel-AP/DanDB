@@ -354,6 +354,8 @@ namespace dandb::execution {
                     return execute_select_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundInsertStatement>) {
                     return execute_insert_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundUpdateStatement>) {
+                    return execute_update_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BeginStatement>) {
                     return execute_begin_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::CommitStatement>) {
@@ -663,6 +665,169 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{commit_status, std::nullopt, std::nullopt, 1};
+
+    }
+
+    ExecutionResult Database::execute_update_statement(const sql::BoundUpdateStatement& statement) {
+
+        const auto* table_descriptor = catalog_.find_table(statement.table_id);
+        if(table_descriptor == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: bound table is missing from catalog")};
+        }
+
+        const auto* schema = catalog_.schema_for_table(statement.table_id);
+        if(schema == nullptr) {
+            return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: bound table has no schema")};
+        }
+
+        const auto& assignment_column = schema->column(statement.assignment.column.ordinal);
+        auto assignment_value_result = statement.assignment.value.convert_to(assignment_column.logical_type(), assignment_column.nullable());
+        if(!assignment_value_result.ok()) {
+            return ExecutionResult{assignment_value_result.status()};
+        }
+
+        const std::vector<std::size_t> assignment_ordinals{ statement.assignment.column.ordinal };
+        const std::vector<record::Value> assignment_values{ std::move(assignment_value_result.value()) };
+
+        std::optional<record::Value> predicate_value;
+
+        if(statement.predicate.has_value()) {
+
+            const auto& predicate = *statement.predicate;
+            const bool is_null_predicate = (
+                predicate.comparison_operator == sql::ComparisonOperator::IsNull ||
+                predicate.comparison_operator == sql::ComparisonOperator::IsNotNull
+            );
+
+            if(!is_null_predicate) {
+                if(!predicate.literal.has_value()) {
+                    return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: comparison predicate has no literal")};
+                }
+
+                if(predicate.literal->is_null()) {
+                    return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, std::size_t{ 0 }};
+                }
+
+                const auto& predicate_column = schema->column(predicate.column.ordinal);
+                auto predicate_value_result = predicate.literal->convert_to(predicate_column.logical_type(), predicate_column.nullable());
+                if(!predicate_value_result.ok()) {
+                    return ExecutionResult{predicate_value_result.status()};
+                }
+
+                predicate_value = std::move(predicate_value_result.value());
+            }
+
+        }
+
+        auto tree_result = btree::BTree::open_existing(*pager_, table_descriptor->root_page_id(), static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()), static_cast<std::uint16_t>(schema->row_size()));
+        if(!tree_result.ok()) {
+            return ExecutionResult{tree_result.status()};
+        }
+
+        auto tree = std::move(tree_result.value());
+        std::vector<btree::BTreeCursor> cursors;
+
+        const bool uses_primary_key = (
+            statement.predicate.has_value() &&
+            predicate_value.has_value() &&
+            statement.predicate->column.ordinal == schema->primary_key_ordinal()
+        );
+
+        if(!uses_primary_key) {
+            auto cursor_result = tree.scan();
+            if(!cursor_result.ok()) {
+                return ExecutionResult{cursor_result.status()};
+            }
+
+            cursors.push_back(std::move(cursor_result.value()));
+        } else {
+            auto key_result = record::KeyCodec::encode(*predicate_value);
+            if(!key_result.ok()) {
+                return ExecutionResult{key_result.status()};
+            }
+
+            auto cursors_result = open_primary_key_cursors(tree, statement.predicate->comparison_operator, key_result.value());
+            if(!cursors_result.ok()) {
+                return ExecutionResult{cursors_result.status()};
+            }
+
+            cursors = std::move(cursors_result.value());
+        }
+
+        const bool owns_transaction = !pager_->in_transaction();
+        if(owns_transaction) {
+            const auto begin_status = pager_->begin_transaction();
+            if(!begin_status.ok()) {
+                return ExecutionResult{begin_status};
+            }
+        }
+
+        std::size_t rows_affected = 0;
+
+        for(auto& cursor: cursors) {
+            while(true) {
+                auto entry_result = cursor.next();
+                if(!entry_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(entry_result.status(), owns_transaction)};
+                }
+
+                if(!entry_result.value().has_value()) {
+                    break;
+                }
+
+                const auto& entry = *entry_result.value();
+                auto row_result = record::RowCodec::decode(*schema, entry.value);
+                if(!row_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(row_result.status(), owns_transaction)};
+                }
+
+                const auto& row = row_result.value();
+
+                if(statement.predicate.has_value()) {
+                    auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
+                    if(!matches_result.ok()) {
+                        return ExecutionResult{handle_mutation_failure(matches_result.status(), owns_transaction)};
+                    }
+
+                    if(!matches_result.value()) {
+                        continue;
+                    }
+                }
+
+                auto updated_row_result = record::RowHelpers::replace_non_primary_key_values(*schema, row, assignment_ordinals, assignment_values);
+                if(!updated_row_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(updated_row_result.status(), owns_transaction)};
+                }
+
+                auto row_bytes_result = record::RowCodec::encode(*schema, updated_row_result.value());
+                if(!row_bytes_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(row_bytes_result.status(), owns_transaction)};
+                }
+
+                const auto update_status = tree.update_value(entry.key, row_bytes_result.value());
+                if(!update_status.ok()) {
+                    return ExecutionResult{handle_mutation_failure(update_status, owns_transaction)};
+                }
+
+                rows_affected++;
+            }
+        }
+
+        if(!owns_transaction) {
+            return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, rows_affected};
+        }
+
+        const auto commit_status = pager_->commit_transaction();
+        if(!commit_status.ok()) {
+            return ExecutionResult{commit_status};
+        }
+
+        const auto catalog_status = catalog_.on_transaction_committed();
+        if(!catalog_status.ok()) {
+            return ExecutionResult{catalog_status};
+        }
+
+        return ExecutionResult{commit_status, std::nullopt, std::nullopt, rows_affected};
 
     }
 
