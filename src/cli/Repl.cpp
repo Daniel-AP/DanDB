@@ -24,7 +24,7 @@ namespace dandb::cli {
             "Supported SQL: CREATE TABLE, DROP TABLE, INSERT, SELECT, UPDATE, "
             "DELETE, BEGIN, COMMIT, ROLLBACK, CHECKPOINT.\n"
             "End statements with ';'. Commands: .help, .exit.\n"
-            "A blank continuation line cancels pending SQL.\n"
+            "A blank continuation line submits the pending SQL.\n"
             "Results pause every 100 rows: Enter continues; any text skips the current "
             "result.\n";
 
