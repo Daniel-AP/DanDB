@@ -67,6 +67,7 @@ target_include_directories(dandb_core
 
 add_executable(dandb_cli
     src/cli/Main.cpp
+    src/cli/Repl.cpp
 )
 
 target_link_libraries(dandb_cli
