@@ -1010,6 +1010,20 @@ namespace dandb::catalog {
 
     }
 
+    const ColumnDescriptor* Catalog::find_column(TableId table_id, ColumnId column_id) const {
+
+        const auto& state = visible_state();
+        const auto table_it = state.table_by_id_.find(table_id);
+        if(table_it == state.table_by_id_.end()) return nullptr;
+
+        for(const auto& column: table_it->second.columns) {
+            if(column.column_id() == column_id) return &column;
+        }
+
+        return nullptr;
+
+    }
+
     const IndexDescriptor* Catalog::find_index(std::string_view name) const {
 
         const auto& state = visible_state();

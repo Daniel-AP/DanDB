@@ -27,6 +27,7 @@
 using dandb::btree::BTree;
 using dandb::catalog::Catalog;
 using dandb::catalog::CATALOG_NAME_CAPACITY;
+using dandb::catalog::ColumnId;
 using dandb::catalog::DANDB_COLUMNS_ID;
 using dandb::catalog::DANDB_COLUMNS_NAME;
 using dandb::catalog::DANDB_COLUMNS_PRIMARY_INDEX_ID;
@@ -151,6 +152,10 @@ TEST_CASE("Catalog loads system metadata from an initialized database", "[catalo
         for(const auto& canonical_column: canonical_schema->columns()) {
             const auto* loaded_column = catalog.find_column(table_id, canonical_column.name());
             REQUIRE(loaded_column != nullptr);
+
+            const auto* loaded_column_by_id = catalog.find_column(table_id, loaded_column->column_id());
+            REQUIRE(loaded_column_by_id == loaded_column);
+
             REQUIRE(loaded_column->ordinal() == canonical_column.ordinal());
             REQUIRE(loaded_column->logical_type().kind() == canonical_column.logical_type().kind());
             REQUIRE(loaded_column->logical_type().capacity() == canonical_column.logical_type().capacity());
@@ -230,12 +235,15 @@ TEST_CASE("Catalog lookups return no metadata for unknown tables and columns", "
     REQUIRE(catalog_result.ok());
     const Catalog& catalog = catalog_result.value();
     const TableId unknown_table_id{ 999 };
+    const ColumnId unknown_column_id{ 999 };
 
     REQUIRE(catalog.find_table("unknown_table") == nullptr);
     REQUIRE(catalog.find_table(unknown_table_id) == nullptr);
     REQUIRE(catalog.schema_for_table(unknown_table_id) == nullptr);
     REQUIRE(catalog.find_column(DANDB_TABLES_ID, "unknown_column") == nullptr);
     REQUIRE(catalog.find_column(unknown_table_id, "table_id") == nullptr);
+    REQUIRE(catalog.find_column(DANDB_TABLES_ID, unknown_column_id) == nullptr);
+    REQUIRE(catalog.find_column(unknown_table_id, unknown_column_id) == nullptr);
     REQUIRE(catalog.indexes_for_table(unknown_table_id).empty());
 
     REQUIRE(pager.close().ok());
