@@ -752,6 +752,103 @@ TEST_CASE("BTree insert rejects invalid key and value sizes", "[btree][tree]") {
     REQUIRE(pager.close().ok());
 }
 
+TEST_CASE("BTree update_value replaces an existing value", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_10 = make_key(10);
+    auto original_value = make_value(10);
+    REQUIRE(tree.insert(key_10, original_value).ok());
+
+    auto updated_value = make_value(20);
+    REQUIRE(tree.update_value(key_10, updated_value).ok());
+
+    require_found_value(tree, 10, 20);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree update_value reports a missing key without changing the tree", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto key_10 = make_key(10);
+    auto value_10 = make_value(10);
+    REQUIRE(tree.insert(key_10, value_10).ok());
+
+    auto missing_key = make_key(20);
+    auto updated_value = make_value(20);
+    auto status = tree.update_value(missing_key, updated_value);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::NotFound);
+
+    require_found_value(tree, 10, 10);
+    REQUIRE(tree.validate().ok());
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
+TEST_CASE("BTree update_value rejects invalid key and value sizes", "[btree][tree]") {
+    const TempDir temp_dir;
+
+    auto pager_result = Pager::create(temp_dir.database_path(), 10);
+    REQUIRE(pager_result.ok());
+
+    Pager& pager = pager_result.value();
+    REQUIRE(pager.begin_transaction().ok());
+
+    auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+    REQUIRE(tree_result.ok());
+
+    auto& tree = tree_result.value();
+    auto valid_key = make_key(10);
+    auto valid_value = make_value(10);
+
+    std::array<std::byte, KEY_SIZE+1> oversized_key{};
+    auto status = tree.update_value(oversized_key, valid_value);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+    std::array<std::byte, KEY_SIZE-1> undersized_key{};
+    status = tree.update_value(undersized_key, valid_value);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+    std::array<std::byte, VALUE_SIZE+1> oversized_value{};
+    status = tree.update_value(valid_key, oversized_value);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+    std::array<std::byte, VALUE_SIZE-1> undersized_value{};
+    status = tree.update_value(valid_key, undersized_value);
+    REQUIRE_FALSE(status.ok());
+    REQUIRE(status.code() == StatusCode::InvalidArgument);
+
+    REQUIRE(pager.rollback_transaction().ok());
+    REQUIRE(pager.close().ok());
+}
+
 TEST_CASE("BTree insert splits a full root leaf", "[btree][tree]") {
     const TempDir temp_dir;
 
