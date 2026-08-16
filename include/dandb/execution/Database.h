@@ -13,6 +13,7 @@
 #include <vector>
 
 namespace dandb::sql {
+    struct BoundDeleteStatement;
     struct BoundDropTableStatement;
     struct BoundInsertStatement;
     struct BoundSelectStatement;
@@ -43,6 +44,7 @@ namespace dandb::execution {
             ExecutionResult execute_select_statement(const sql::BoundSelectStatement& statement);
             ExecutionResult execute_insert_statement(const sql::BoundInsertStatement& statement);
             ExecutionResult execute_update_statement(const sql::BoundUpdateStatement& statement);
+            ExecutionResult execute_delete_statement(const sql::BoundDeleteStatement& statement);
             ExecutionResult execute_begin_statement(const sql::BeginStatement& statement);
             ExecutionResult execute_commit_statement(const sql::CommitStatement& statement);
             ExecutionResult execute_rollback_statement(const sql::RollbackStatement& statement);
