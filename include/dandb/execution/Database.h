@@ -52,6 +52,7 @@ namespace dandb::execution {
             ExecutionResult execute_checkpoint_statement(const sql::CheckpointStatement& statement);
 
             core::Result<btree::BTree> open_table_tree(const catalog::TableDescriptor& table_descriptor) const;
+            core::Result<btree::BTree> open_index_tree(const catalog::IndexDescriptor& index_descriptor) const;
 
             core::Status handle_mutation_failure(core::Status failure_status, bool owns_transaction);
 

@@ -1046,6 +1046,37 @@ namespace dandb::execution {
 
     }
 
+    core::Result<btree::BTree> Database::open_index_tree(const catalog::IndexDescriptor& index_descriptor) const {
+
+        if(index_descriptor.primary()) {
+            return core::Status::InvalidArgument("Cannot open index tree: primary index must be opened as a table tree");
+        }
+
+        const auto* schema = catalog_.schema_for_table(index_descriptor.table_id());
+        if(schema == nullptr) {
+            return core::Status::InternalError("Cannot open index tree: table schema is missing from catalog");
+        }
+
+        const auto* indexed_column = catalog_.find_column(index_descriptor.table_id(), index_descriptor.indexed_column_id());
+        if(indexed_column == nullptr) {
+            return core::Status::InternalError("Cannot open index tree: indexed column is missing from catalog");
+        }
+
+        const std::size_t indexed_key_size = indexed_column->logical_type().fixed_size();
+        const std::size_t primary_key_size = schema->primary_key_column().logical_type().fixed_size();
+        const std::size_t key_size = index_descriptor.unique()
+            ? indexed_key_size
+            : indexed_key_size+primary_key_size;
+
+        return btree::BTree::open_existing(
+            *pager_,
+            index_descriptor.root_page_id(),
+            static_cast<std::uint16_t>(key_size),
+            static_cast<std::uint16_t>(primary_key_size)
+        );
+
+    }
+
     core::Status Database::handle_mutation_failure(core::Status failure_status, bool owns_transaction) {
 
         if(!owns_transaction) {
