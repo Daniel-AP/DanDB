@@ -825,3 +825,41 @@ TEST_CASE("Database restores rows updated in a rolled-back transaction", "[execu
     REQUIRE(select_results[0].row_set->rows[0].value(0).as_string() == "Ada");
     REQUIRE(database.close().ok());
 }
+
+TEST_CASE("Database deletes one matching row", "[execution][database][dml][delete]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "INSERT INTO users VALUES (2, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE id = 2;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(database.close().ok());
+}
