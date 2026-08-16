@@ -326,6 +326,10 @@ namespace dandb::execution {
 
     }
 
+    core::Status Database::close() {
+        return pager_->close();
+    }
+
     ExecutionResult Database::execute_statement(const sql::Statement& statement) {
 
         const bool rollback_statement = std::holds_alternative<sql::RollbackStatement>(statement);
@@ -489,15 +493,8 @@ namespace dandb::execution {
 
         // Open table tree, select cursors
 
-        auto tree_result = btree::BTree::open_existing(
-            *pager_,
-            table_descriptor->root_page_id(),
-            static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(schema->row_size())
-        );
-        if(!tree_result.ok()) {
-            return ExecutionResult{tree_result.status()};
-        }
+        auto tree_result = open_table_tree(*table_descriptor);
+        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
 
         auto tree = std::move(tree_result.value());
         std::vector<btree::BTreeCursor> cursors;
@@ -627,15 +624,8 @@ namespace dandb::execution {
             return ExecutionResult{primary_key_bytes_result.status()};
         }
 
-        auto tree_result = btree::BTree::open_existing(
-            *pager_,
-            table_descriptor->root_page_id(),
-            static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()),
-            static_cast<std::uint16_t>(schema->row_size())
-        );
-        if(!tree_result.ok()) {
-            return ExecutionResult{tree_result.status()};
-        }
+        auto tree_result = open_table_tree(*table_descriptor);
+        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
 
         btree::BTree tree = std::move(tree_result.value());
 
@@ -722,10 +712,8 @@ namespace dandb::execution {
 
         }
 
-        auto tree_result = btree::BTree::open_existing(*pager_, table_descriptor->root_page_id(), static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()), static_cast<std::uint16_t>(schema->row_size()));
-        if(!tree_result.ok()) {
-            return ExecutionResult{tree_result.status()};
-        }
+        auto tree_result = open_table_tree(*table_descriptor);
+        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
 
         auto tree = std::move(tree_result.value());
         std::vector<btree::BTreeCursor> cursors;
@@ -876,10 +864,8 @@ namespace dandb::execution {
 
         }
 
-        auto tree_result = btree::BTree::open_existing(*pager_, table_descriptor->root_page_id(), static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()), static_cast<std::uint16_t>(schema->row_size()));
-        if(!tree_result.ok()) {
-            return ExecutionResult{tree_result.status()};
-        }
+        auto tree_result = open_table_tree(*table_descriptor);
+        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
 
         auto tree = std::move(tree_result.value());
         std::vector<btree::BTreeCursor> cursors;
@@ -984,26 +970,6 @@ namespace dandb::execution {
 
     }
 
-    core::Status Database::handle_mutation_failure(core::Status failure_status, bool owns_transaction) {
-
-        if(!owns_transaction) {
-            return failure_status;
-        }
-
-        const auto rollback_status = pager_->rollback_transaction();
-        if(!rollback_status.ok()) {
-            return rollback_status;
-        }
-
-        const auto catalog_status = catalog_.on_transaction_rolled_back();
-        if(!catalog_status.ok()) {
-            return catalog_status;
-        }
-
-        return failure_status;
-
-    }
-
     ExecutionResult Database::execute_begin_statement(const sql::BeginStatement&) {
 
         const auto status = pager_->begin_transaction();
@@ -1064,8 +1030,40 @@ namespace dandb::execution {
 
     }
 
-    core::Status Database::close() {
-        return pager_->close();
+    core::Result<btree::BTree> Database::open_table_tree(const catalog::TableDescriptor& table_descriptor) const {
+
+        const auto* schema = catalog_.schema_for_table(table_descriptor.table_id());
+        if(schema == nullptr) {
+            return core::Status::InternalError("Cannot open table tree: table schema is missing from catalog");
+        }
+
+        return btree::BTree::open_existing(
+            *pager_,
+            table_descriptor.root_page_id(),
+            static_cast<std::uint16_t>(schema->primary_key_column().logical_type().fixed_size()),
+            static_cast<std::uint16_t>(schema->row_size())
+        );
+
+    }
+
+    core::Status Database::handle_mutation_failure(core::Status failure_status, bool owns_transaction) {
+
+        if(!owns_transaction) {
+            return failure_status;
+        }
+
+        const auto rollback_status = pager_->rollback_transaction();
+        if(!rollback_status.ok()) {
+            return rollback_status;
+        }
+
+        const auto catalog_status = catalog_.on_transaction_rolled_back();
+        if(!catalog_status.ok()) {
+            return catalog_status;
+        }
+
+        return failure_status;
+
     }
 
 }

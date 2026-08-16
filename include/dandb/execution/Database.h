@@ -1,5 +1,6 @@
 #pragma once
 
+#include <dandb/btree/BTree.h>
 #include <dandb/catalog/Catalog.h>
 #include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
@@ -49,6 +50,8 @@ namespace dandb::execution {
             ExecutionResult execute_commit_statement(const sql::CommitStatement& statement);
             ExecutionResult execute_rollback_statement(const sql::RollbackStatement& statement);
             ExecutionResult execute_checkpoint_statement(const sql::CheckpointStatement& statement);
+
+            core::Result<btree::BTree> open_table_tree(const catalog::TableDescriptor& table_descriptor) const;
 
             core::Status handle_mutation_failure(core::Status failure_status, bool owns_transaction);
 
