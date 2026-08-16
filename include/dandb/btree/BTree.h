@@ -38,6 +38,7 @@ namespace dandb::btree {
 
             core::Result<std::vector<std::byte>> find(std::span<const std::byte> key) const;
             core::Status insert(std::span<const std::byte> key, std::span<const std::byte> value);
+            core::Status update_value(std::span<const std::byte> key, std::span<const std::byte> value);
             core::Status erase(std::span<const std::byte> key);
             core::Result<BTreeCursor> scan() const;
             core::Result<BTreeCursor> scan_range(

@@ -373,6 +373,40 @@ namespace dandb::btree {
 
     }
 
+    core::Status BTree::update_value(std::span<const std::byte> key, std::span<const std::byte> value) {
+
+        if(key.size() != key_size_) {
+            return core::Status::InvalidArgument("Cannot update B+ tree value: key size is invalid");
+        }
+
+        if(value.size() != value_size_) {
+            return core::Status::InvalidArgument("Cannot update B+ tree value: value size is invalid");
+        }
+
+        auto leaf_page_id_result = find_leaf_page_id(key);
+        if(!leaf_page_id_result.ok()) {
+            return leaf_page_id_result.status();
+        }
+
+        auto page_handle_result = pager_->get_page(leaf_page_id_result.value());
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        auto page_result = page_handle_result.value().mutable_page();
+        if(!page_result.ok()) {
+            return page_result.status();
+        }
+
+        auto leaf_page_result = BTreeLeafPage<std::byte>::open(page_result.value()->data());
+        if(!leaf_page_result.ok()) {
+            return leaf_page_result.status();
+        }
+
+        return leaf_page_result.value().update_value(key, value);
+
+    }
+
     core::Status BTree::erase(std::span<const std::byte> key) {
 
         if(key.size() != key_size_) {

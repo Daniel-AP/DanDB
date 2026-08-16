@@ -34,6 +34,7 @@ namespace dandb::btree {
                 std::span<const std::byte> key,
                 std::span<const std::byte> value
             ) requires (!std::is_const_v<Byte>);
+            core::Status update_value(std::span<const std::byte> key, std::span<const std::byte> value) requires (!std::is_const_v<Byte>);
             core::Status erase_entry(std::uint16_t entry_index) requires (!std::is_const_v<Byte>);
 
             core::Status set_key_count(std::uint16_t key_count) requires (!std::is_const_v<Byte>);
@@ -204,6 +205,45 @@ namespace dandb::btree {
         }
 
         return left;
+
+    }
+
+    template<BTreePageByte Byte>
+    core::Status BTreeLeafPage<Byte>::update_value(std::span<const std::byte> key, std::span<const std::byte> value) requires (!std::is_const_v<Byte>) {
+
+        if(key.size() != key_size()) {
+            return core::Status::InvalidArgument("Cannot update B+ tree leaf page value: key size is invalid");
+        }
+
+        if(value.size() != value_size()) {
+            return core::Status::InvalidArgument("Cannot update B+ tree leaf page value: value size is invalid");
+        }
+
+        auto position_result = find_insertion_position(key);
+        if(!position_result.ok()) {
+            return position_result.status();
+        }
+
+        const auto position = position_result.value();
+        if(position == key_count()) {
+            return core::Status::NotFound("Cannot update B+ tree leaf page value: key was not found");
+        }
+
+        auto stored_key_result = key_at(position);
+        if(!stored_key_result.ok()) {
+            return stored_key_result.status();
+        }
+
+        const auto stored_key = stored_key_result.value();
+        if(std::memcmp(stored_key.data(), key.data(), key.size()) != 0) {
+            return core::Status::NotFound("Cannot update B+ tree leaf page value: key was not found");
+        }
+
+        const auto entry_offset = BTREE_PAGE_ENTRY_ARRAY_OFFSET+static_cast<std::size_t>(position)*entry_size();
+        const auto value_offset = entry_offset+key_size();
+        std::memcpy(page_.bytes_.data()+value_offset, value.data(), value.size());
+
+        return core::Status::Ok();
 
     }
 
