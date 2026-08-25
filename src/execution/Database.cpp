@@ -758,6 +758,11 @@ namespace dandb::execution {
 
         btree::BTree tree = std::move(tree_result.value());
 
+        struct PendingIndexInsert {
+            btree::BTree tree;
+            std::vector<std::byte> key;
+        };
+
         const bool owns_transaction = !pager_->in_transaction();
         if(owns_transaction) {
             const auto begin_status = pager_->begin_transaction();
@@ -766,9 +771,87 @@ namespace dandb::execution {
             }
         }
 
+        std::vector<PendingIndexInsert> pending_index_inserts;
+
+        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
+        pending_index_inserts.reserve(index_descriptors.size());
+
+        for(const auto& index_descriptor: index_descriptors) {
+
+            if(index_descriptor.primary()) continue;
+
+            const auto* indexed_column = catalog_.find_column(statement.table_id, index_descriptor.indexed_column_id());
+            if(indexed_column == nullptr) {
+                return ExecutionResult{handle_mutation_failure(
+                    core::Status::InternalError("Cannot execute INSERT: indexed column is missing from catalog"),
+                    owns_transaction
+                )};
+            }
+
+            auto index_tree_result = open_index_tree(index_descriptor);
+            if(!index_tree_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
+            }
+
+            auto index_key_result = record::RowHelpers::indexed_key_bytes(
+                *schema,
+                row_result.value(),
+                indexed_column->ordinal()
+            );
+            if(!index_key_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(index_key_result.status(), owns_transaction)};
+            }
+
+            auto index_key = std::move(index_key_result.value());
+
+            if(index_descriptor.unique()) {
+
+                const auto existing_index_key_result = index_tree_result.value().find(index_key);
+                
+                if(existing_index_key_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(
+                        core::Status::ConstraintViolation("Cannot execute INSERT: unique index key already exists"),
+                        owns_transaction
+                    )};
+                }
+
+                if(existing_index_key_result.status().code() != core::StatusCode::NotFound) {
+                    return ExecutionResult{handle_mutation_failure(
+                        existing_index_key_result.status(),
+                        owns_transaction
+                    )};
+                }
+
+            } else {
+                index_key.insert(
+                    index_key.end(),
+                    primary_key_bytes_result.value().begin(),
+                    primary_key_bytes_result.value().end()
+                );
+            }
+
+            pending_index_inserts.push_back(PendingIndexInsert{
+                std::move(index_tree_result.value()),
+                std::move(index_key)
+            });
+
+        }
+
         const auto insert_status = tree.insert(primary_key_bytes_result.value(), row_bytes_result.value());
         if(!insert_status.ok()) {
             return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+
+        }
+
+        for(auto& pending_index_insert: pending_index_inserts) {
+
+            const auto index_insert_status = pending_index_insert.tree.insert(
+                pending_index_insert.key,
+                primary_key_bytes_result.value()
+            );
+            if(!index_insert_status.ok()) {
+                return ExecutionResult{handle_mutation_failure(index_insert_status, owns_transaction)};
+            }
 
         }
 
