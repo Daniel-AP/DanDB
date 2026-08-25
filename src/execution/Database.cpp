@@ -935,6 +935,12 @@ namespace dandb::execution {
             std::size_t indexed_column_ordinal;
             bool unique;
         };
+        
+        struct PendingIndexUpdate {
+            AffectedIndex* index;
+            std::vector<std::byte> old_key;
+            std::vector<std::byte> new_key;
+        };
 
         std::vector<AffectedIndex> affected_indexes;
         const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
@@ -1011,12 +1017,6 @@ namespace dandb::execution {
                 if(!row_bytes_result.ok()) {
                     return ExecutionResult{handle_mutation_failure(row_bytes_result.status(), owns_transaction)};
                 }
-
-                struct PendingIndexUpdate {
-                    AffectedIndex* index;
-                    std::vector<std::byte> old_key;
-                    std::vector<std::byte> new_key;
-                };
 
                 std::vector<PendingIndexUpdate> pending_index_updates;
                 pending_index_updates.reserve(affected_indexes.size());
@@ -1186,7 +1186,50 @@ namespace dandb::execution {
             }
         }
 
-        std::vector<std::vector<std::byte>> keys_to_delete;
+        struct AffectedIndex {
+            btree::BTree tree;
+            std::size_t indexed_column_ordinal;
+            bool unique;
+        };
+
+        struct PendingDeletion {
+            std::vector<std::byte> primary_key;
+            record::Row row;
+        };
+
+        std::vector<AffectedIndex> affected_indexes;
+        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
+        affected_indexes.reserve(index_descriptors.size());
+
+        for(const auto& index_descriptor: index_descriptors) {
+
+            if(index_descriptor.primary()) continue;
+
+            const auto* indexed_column = catalog_.find_column(
+                statement.table_id,
+                index_descriptor.indexed_column_id()
+            );
+            if(indexed_column == nullptr) {
+                return ExecutionResult{handle_mutation_failure(
+                    core::Status::InternalError("Cannot execute DELETE: indexed column is missing from catalog"),
+                    owns_transaction
+                )};
+            }
+
+            auto index_tree_result = open_index_tree(index_descriptor);
+            if(!index_tree_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
+            }
+
+            affected_indexes.push_back(AffectedIndex{
+                std::move(index_tree_result.value()),
+                indexed_column->ordinal(),
+                index_descriptor.unique()
+            });
+
+        }
+
+        std::vector<PendingDeletion> pending_deletions;
 
         for(auto& cursor: cursors) {
             while(true) {
@@ -1218,14 +1261,46 @@ namespace dandb::execution {
                     }
                 }
 
-                keys_to_delete.push_back(entry.key);
+                pending_deletions.push_back(PendingDeletion{
+                    entry.key,
+                    std::move(row_result.value())
+                });
             }
         }
 
         std::size_t rows_affected = 0;
 
-        for(const auto& key: keys_to_delete) {
-            const auto erase_status = tree.erase(key);
+        for(const auto& pending_deletion: pending_deletions) {
+
+            for(auto& maintained_index: affected_indexes) {
+
+                auto index_key_result = record::RowHelpers::indexed_key_bytes(
+                    *schema,
+                    pending_deletion.row,
+                    maintained_index.indexed_column_ordinal
+                );
+                if(!index_key_result.ok()) {
+                    return ExecutionResult{handle_mutation_failure(index_key_result.status(), owns_transaction)};
+                }
+
+                auto index_key = std::move(index_key_result.value());
+
+                if(!maintained_index.unique) {
+                    index_key.insert(
+                        index_key.end(),
+                        pending_deletion.primary_key.begin(),
+                        pending_deletion.primary_key.end()
+                    );
+                }
+
+                const auto index_erase_status = maintained_index.tree.erase(index_key);
+                if(!index_erase_status.ok()) {
+                    return ExecutionResult{handle_mutation_failure(index_erase_status, owns_transaction)};
+                }
+
+            }
+
+            const auto erase_status = tree.erase(pending_deletion.primary_key);
             if(!erase_status.ok()) {
                 return ExecutionResult{handle_mutation_failure(erase_status, owns_transaction)};
             }
