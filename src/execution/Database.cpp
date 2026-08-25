@@ -25,6 +25,37 @@ namespace {
 
     constexpr std::size_t DEFAULT_BUFFER_POOL_CAPACITY = 10;
 
+    struct FullTableScanPath {};
+
+    struct PrimaryKeyRangePath {};
+
+    struct SecondaryIndexRangePath {
+        const dandb::catalog::IndexDescriptor& index_descriptor;
+    };
+
+    using AccessPath = std::variant<
+        FullTableScanPath,
+        PrimaryKeyRangePath,
+        SecondaryIndexRangePath
+    >;
+
+    AccessPath plan_access_path(
+        const dandb::record::Schema& schema,
+        std::span<const dandb::catalog::IndexDescriptor> index_descriptors,
+        const std::optional<dandb::sql::BoundPredicate>& predicate
+    );
+
+    dandb::core::Status consume_table_cursors(
+        std::vector<dandb::btree::BTreeCursor>& cursors,
+        auto&& process_row_bytes
+    );
+
+    dandb::core::Status consume_secondary_index_cursors(
+        std::vector<dandb::btree::BTreeCursor>& cursors,
+        const dandb::btree::BTree& table_tree,
+        auto&& process_row_bytes
+    );
+
     dandb::core::Result<int> compare_values(const dandb::record::Value& left, const dandb::record::Value& right) {
 
         if(left.type().kind() != right.type().kind()) {
@@ -137,7 +168,7 @@ namespace {
 
     }
 
-    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_primary_key_cursors(
+    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_table_cursors(
         dandb::btree::BTree& tree,
         dandb::sql::ComparisonOperator comparison_operator,
         std::span<const std::byte> key
@@ -248,6 +279,12 @@ namespace {
         return dandb::core::Status::InternalError("Cannot open primary-key cursors for an unknown comparison operator");
 
     }
+
+    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_secondary_index_cursors(
+        dandb::btree::BTree& tree,
+        dandb::sql::ComparisonOperator comparison_operator,
+        std::span<const std::byte> indexed_key_prefix
+    ) {}
 
 }
 
@@ -649,7 +686,7 @@ namespace dandb::execution {
 
             const auto& key = key_result.value();
 
-            auto cursors_result = open_primary_key_cursors(
+            auto cursors_result = open_table_cursors(
                 tree,
                 statement.predicate->comparison_operator,
                 key
@@ -914,7 +951,7 @@ namespace dandb::execution {
                 return ExecutionResult{key_result.status()};
             }
 
-            auto cursors_result = open_primary_key_cursors(tree, statement.predicate->comparison_operator, key_result.value());
+            auto cursors_result = open_table_cursors(tree, statement.predicate->comparison_operator, key_result.value());
             if(!cursors_result.ok()) {
                 return ExecutionResult{cursors_result.status()};
             }
@@ -1170,7 +1207,7 @@ namespace dandb::execution {
                 return ExecutionResult{key_result.status()};
             }
 
-            auto cursors_result = open_primary_key_cursors(tree, statement.predicate->comparison_operator, key_result.value());
+            auto cursors_result = open_table_cursors(tree, statement.predicate->comparison_operator, key_result.value());
             if(!cursors_result.ok()) {
                 return ExecutionResult{cursors_result.status()};
             }
