@@ -75,7 +75,36 @@ namespace {
         std::vector<dandb::btree::BTreeCursor>& cursors,
         const dandb::btree::BTree& table_tree,
         auto&& process_row_bytes
-    );
+    ) {
+
+        for(auto& cursor: cursors) {
+            while(true) {
+                auto entry_result = cursor.next();
+                if(!entry_result.ok()) {
+                    return entry_result.status();
+                }
+
+                if(!entry_result.value().has_value()) {
+                    break;
+                }
+
+                auto table_row_result = table_tree.find(entry_result.value()->value);
+                if(!table_row_result.ok()) {
+                    return table_row_result.status();
+                }
+
+                const auto process_status = process_row_bytes(
+                    std::span<const std::byte>{table_row_result.value()}
+                );
+                if(!process_status.ok()) {
+                    return process_status;
+                }
+            }
+        }
+
+        return dandb::core::Status::Ok();
+
+    }
 
     dandb::core::Result<int> compare_values(const dandb::record::Value& left, const dandb::record::Value& right) {
 
