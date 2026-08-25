@@ -45,10 +45,31 @@ namespace {
         const std::optional<dandb::sql::BoundPredicate>& predicate
     );
 
-    dandb::core::Status consume_table_cursors(
-        std::vector<dandb::btree::BTreeCursor>& cursors,
-        auto&& process_row_bytes
-    );
+    dandb::core::Status consume_table_cursors(std::vector<dandb::btree::BTreeCursor>& cursors, auto&& process_row_bytes) {
+
+        for(auto& cursor: cursors) {
+            while(true) {
+                auto entry_result = cursor.next();
+                if(!entry_result.ok()) {
+                    return entry_result.status();
+                }
+
+                if(!entry_result.value().has_value()) {
+                    break;
+                }
+
+                const auto process_status = process_row_bytes(
+                    std::span<const std::byte>{entry_result.value()->value}
+                );
+                if(!process_status.ok()) {
+                    return process_status;
+                }
+            }
+        }
+
+        return dandb::core::Status::Ok();
+
+    }
 
     dandb::core::Status consume_secondary_index_cursors(
         std::vector<dandb::btree::BTreeCursor>& cursors,
