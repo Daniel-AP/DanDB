@@ -758,11 +758,6 @@ namespace dandb::execution {
 
         btree::BTree tree = std::move(tree_result.value());
 
-        struct PendingIndexInsert {
-            btree::BTree tree;
-            std::vector<std::byte> key;
-        };
-
         const bool owns_transaction = !pager_->in_transaction();
         if(owns_transaction) {
             const auto begin_status = pager_->begin_transaction();
@@ -771,10 +766,13 @@ namespace dandb::execution {
             }
         }
 
-        std::vector<PendingIndexInsert> pending_index_inserts;
+        const auto insert_status = tree.insert(primary_key_bytes_result.value(), row_bytes_result.value());
+        if(!insert_status.ok()) {
+            return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+
+        }
 
         const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
-        pending_index_inserts.reserve(index_descriptors.size());
 
         for(const auto& index_descriptor: index_descriptors) {
 
@@ -804,25 +802,7 @@ namespace dandb::execution {
 
             auto index_key = std::move(index_key_result.value());
 
-            if(index_descriptor.unique()) {
-
-                const auto existing_index_key_result = index_tree_result.value().find(index_key);
-                
-                if(existing_index_key_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(
-                        core::Status::ConstraintViolation("Cannot execute INSERT: unique index key already exists"),
-                        owns_transaction
-                    )};
-                }
-
-                if(existing_index_key_result.status().code() != core::StatusCode::NotFound) {
-                    return ExecutionResult{handle_mutation_failure(
-                        existing_index_key_result.status(),
-                        owns_transaction
-                    )};
-                }
-
-            } else {
+            if(!index_descriptor.unique()) {
                 index_key.insert(
                     index_key.end(),
                     primary_key_bytes_result.value().begin(),
@@ -830,23 +810,8 @@ namespace dandb::execution {
                 );
             }
 
-            pending_index_inserts.push_back(PendingIndexInsert{
-                std::move(index_tree_result.value()),
-                std::move(index_key)
-            });
-
-        }
-
-        const auto insert_status = tree.insert(primary_key_bytes_result.value(), row_bytes_result.value());
-        if(!insert_status.ok()) {
-            return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
-
-        }
-
-        for(auto& pending_index_insert: pending_index_inserts) {
-
-            const auto index_insert_status = pending_index_insert.tree.insert(
-                pending_index_insert.key,
+            const auto index_insert_status = index_tree_result.value().insert(
+                index_key,
                 primary_key_bytes_result.value()
             );
             if(!index_insert_status.ok()) {
