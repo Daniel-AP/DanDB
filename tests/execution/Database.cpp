@@ -1756,3 +1756,241 @@ TEST_CASE("Database preserves committed deletes after reopen", "[execution][data
     REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
     REQUIRE(reopened_database_result.value().close().ok());
 }
+
+TEST_CASE("Database removes a non-unique index entry on DELETE", "[execution][database][dml][delete][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE id = 1;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto id_key = encode_int64_key(1);
+    auto age_index_key = encode_int64_key(20);
+    age_index_key.insert(age_index_key.end(), id_key.begin(), id_key.end());
+
+    const auto index_entry_result = index_tree_result.value().find(age_index_key);
+    REQUIRE_FALSE(index_entry_result.ok());
+    REQUIRE(index_entry_result.status().code() == StatusCode::NotFound);
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database removes an internal unique index entry on DELETE", "[execution][database][dml][delete][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "email STRING(64) UNIQUE"
+        ");"
+        "INSERT INTO users VALUES (1, 'ada@example.com');"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE id = 1;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* table_descriptor = catalog_result.value().find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+
+    const dandb::catalog::IndexDescriptor* index_descriptor = nullptr;
+    for(const auto& descriptor: catalog_result.value().indexes_for_table(table_descriptor->table_id())) {
+        if(!descriptor.primary() && descriptor.internal() && descriptor.unique()) {
+            index_descriptor = &descriptor;
+        }
+    }
+
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(64),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    auto email_value_result = Value::string("ada@example.com", 64);
+    REQUIRE(email_value_result.ok());
+
+    auto email_key_result = KeyCodec::encode(email_value_result.value());
+    REQUIRE(email_key_result.ok());
+
+    const auto index_entry_result = index_tree_result.value().find(email_key_result.value());
+    REQUIRE_FALSE(index_entry_result.ok());
+    REQUIRE(index_entry_result.status().code() == StatusCode::NotFound);
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database clears a non-unique index when DELETE has no predicate", "[execution][database][dml][delete][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 30);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 2);
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    auto cursor_result = index_tree_result.value().scan();
+    REQUIRE(cursor_result.ok());
+
+    const auto entry_result = cursor_result.value().next();
+    REQUIRE(entry_result.ok());
+    REQUIRE_FALSE(entry_result.value().has_value());
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database restores a non-unique index entry after DELETE rollback", "[execution][database][dml][delete][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto transaction_results = database.execute(
+        "BEGIN; DELETE FROM users WHERE id = 1; ROLLBACK;"
+    );
+
+    REQUIRE(transaction_results.size() == 3);
+    REQUIRE(transaction_results[0].status.ok());
+    REQUIRE(transaction_results[1].status.ok());
+    REQUIRE(transaction_results[1].rows_affected == 1);
+    REQUIRE(transaction_results[2].status.ok());
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto id_key = encode_int64_key(1);
+    auto age_index_key = encode_int64_key(20);
+    age_index_key.insert(age_index_key.end(), id_key.begin(), id_key.end());
+
+    const auto index_entry_result = index_tree_result.value().find(age_index_key);
+    REQUIRE(index_entry_result.ok());
+    REQUIRE(index_entry_result.value() == id_key);
+    REQUIRE(pager_result.value().close().ok());
+}
