@@ -1175,6 +1175,97 @@ TEST_CASE("Database executes SELECT statements", "[execution][database][dml][sel
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database selects through a non-unique secondary index", "[execution][database][dml][select][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 10);"
+        "INSERT INTO users VALUES (2, 20);"
+        "INSERT INTO users VALUES (3, 20);"
+        "INSERT INTO users VALUES (4, 30);"
+    );
+
+    REQUIRE(setup_results.size() == 6);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto require_selected_ids = [&database](
+        std::string_view statement_text,
+        const std::vector<std::int64_t>& expected_ids
+    ) {
+        const auto results = database.execute(statement_text);
+
+        INFO(statement_text);
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+
+        const auto& row_set = *results[0].row_set;
+        REQUIRE(row_set.rows.size() == expected_ids.size());
+        for(std::size_t index = 0; index < expected_ids.size(); ++index) {
+            REQUIRE(row_set.rows[index].value(0).as_integer() == expected_ids[index]);
+        }
+    };
+
+    require_selected_ids("SELECT id FROM users WHERE age = 20;", { 2, 3 });
+    require_selected_ids("SELECT id FROM users WHERE age != 20;", { 1, 4 });
+    require_selected_ids("SELECT id FROM users WHERE age < 20;", { 1 });
+    require_selected_ids("SELECT id FROM users WHERE age <= 20;", { 1, 2, 3 });
+    require_selected_ids("SELECT id FROM users WHERE age > 20;", { 4 });
+    require_selected_ids("SELECT id FROM users WHERE age >= 20;", { 2, 3, 4 });
+
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database selects through an internal unique index", "[execution][database][dml][select][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "email STRING(64) UNIQUE, "
+        "name STRING(64) NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 'ada@example.com', 'Ada');"
+        "INSERT INTO users VALUES (2, 'grace@example.com', 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto results = database.execute(
+        "SELECT id, name FROM users WHERE email = 'grace@example.com';"
+    );
+
+    REQUIRE(results.size() == 1);
+    REQUIRE(results[0].status.ok());
+    REQUIRE(results[0].row_set.has_value());
+
+    const auto& row_set = *results[0].row_set;
+    REQUIRE(row_set.rows.size() == 1);
+    REQUIRE(row_set.rows[0].value(0).as_integer() == 2);
+    REQUIRE(row_set.rows[0].value(1).as_string() == "Grace");
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database updates one matching row", "[execution][database][dml][update]") {
     const TempDir temp_dir;
 
