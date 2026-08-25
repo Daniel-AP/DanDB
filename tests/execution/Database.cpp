@@ -807,6 +807,251 @@ TEST_CASE("Database preserves committed INSERT rows after reopen", "[execution][
     REQUIRE(reopened_database_result.value().close().ok());
 }
 
+TEST_CASE("Database maintains non-unique indexes on INSERT", "[execution][database][dml][insert][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto setup_results = database_result.value().execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+    REQUIRE_FALSE(index_descriptor->unique());
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto id_one_key = encode_int64_key(1);
+    auto age_twenty_id_one_key = encode_int64_key(20);
+    age_twenty_id_one_key.insert(age_twenty_id_one_key.end(), id_one_key.begin(), id_one_key.end());
+
+    const auto age_twenty_id_one_result = index_tree_result.value().find(age_twenty_id_one_key);
+    REQUIRE(age_twenty_id_one_result.ok());
+    REQUIRE(age_twenty_id_one_result.value() == id_one_key);
+
+    const auto id_two_key = encode_int64_key(2);
+    auto age_twenty_id_two_key = encode_int64_key(20);
+    age_twenty_id_two_key.insert(age_twenty_id_two_key.end(), id_two_key.begin(), id_two_key.end());
+
+    const auto age_twenty_id_two_result = index_tree_result.value().find(age_twenty_id_two_key);
+    REQUIRE(age_twenty_id_two_result.ok());
+    REQUIRE(age_twenty_id_two_result.value() == id_two_key);
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database maintains internal unique indexes on INSERT", "[execution][database][dml][insert][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "code INT64 UNIQUE"
+        ");"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto duplicate_insert_results = database.execute("INSERT INTO users VALUES (2, 20);");
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
+
+    const auto missing_row_results = database.execute("SELECT id FROM users WHERE id = 2;");
+    REQUIRE(missing_row_results.size() == 1);
+    REQUIRE(missing_row_results[0].status.ok());
+    REQUIRE(missing_row_results[0].row_set.has_value());
+    REQUIRE(missing_row_results[0].row_set->rows.empty());
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* table_descriptor = catalog_result.value().find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+
+    const dandb::catalog::IndexDescriptor* index_descriptor = nullptr;
+    for(const auto& descriptor: catalog_result.value().indexes_for_table(table_descriptor->table_id())) {
+        if(!descriptor.primary() && descriptor.internal() && descriptor.unique()) {
+            index_descriptor = &descriptor;
+        }
+    }
+
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(8),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto code_key = encode_int64_key(20);
+    const auto id_one_key = encode_int64_key(1);
+    const auto code_result = index_tree_result.value().find(code_key);
+    REQUIRE(code_result.ok());
+    REQUIRE(code_result.value() == id_one_key);
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database maintains user-created unique indexes on INSERT", "[execution][database][dml][insert][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "code INT64 NOT NULL"
+        ");"
+        "CREATE UNIQUE INDEX users_by_code ON users(code);"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto duplicate_insert_results = database.execute("INSERT INTO users VALUES (2, 20);");
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
+
+    const auto missing_row_results = database.execute("SELECT id FROM users WHERE id = 2;");
+    REQUIRE(missing_row_results.size() == 1);
+    REQUIRE(missing_row_results[0].status.ok());
+    REQUIRE(missing_row_results[0].row_set.has_value());
+    REQUIRE(missing_row_results[0].row_set->rows.empty());
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_code");
+    REQUIRE(index_descriptor != nullptr);
+    REQUIRE_FALSE(index_descriptor->internal());
+    REQUIRE(index_descriptor->unique());
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(8),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto code_key = encode_int64_key(20);
+    const auto id_one_key = encode_int64_key(1);
+    const auto code_result = index_tree_result.value().find(code_key);
+    REQUIRE(code_result.ok());
+    REQUIRE(code_result.value() == id_one_key);
+    REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database leaves indexes unchanged after a duplicate-primary-key INSERT", "[execution][database][dml][insert][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto duplicate_insert_results = database.execute("INSERT INTO users VALUES (1, 30);");
+    REQUIRE(duplicate_insert_results.size() == 1);
+    REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+
+    const auto* index_descriptor = catalog_result.value().find_index("users_by_age");
+    REQUIRE(index_descriptor != nullptr);
+
+    auto index_tree_result = BTree::open_existing(
+        pager_result.value(),
+        index_descriptor->root_page_id(),
+        static_cast<std::uint16_t>(16),
+        static_cast<std::uint16_t>(8)
+    );
+    REQUIRE(index_tree_result.ok());
+
+    const auto id_one_key = encode_int64_key(1);
+    auto age_thirty_id_one_key = encode_int64_key(30);
+    age_thirty_id_one_key.insert(age_thirty_id_one_key.end(), id_one_key.begin(), id_one_key.end());
+
+    const auto age_thirty_id_one_result = index_tree_result.value().find(age_thirty_id_one_key);
+    REQUIRE_FALSE(age_thirty_id_one_result.ok());
+    REQUIRE(age_thirty_id_one_result.status().code() == StatusCode::NotFound);
+    REQUIRE(pager_result.value().close().ok());
+}
+
 TEST_CASE("Database executes SELECT statements", "[execution][database][dml][select]") {
     const TempDir temp_dir;
 
