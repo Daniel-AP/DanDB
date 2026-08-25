@@ -852,87 +852,126 @@ namespace dandb::execution {
             }
         }
 
-        // Open table tree, select cursors
+        auto process_row_bytes = [&statement, schema, &predicate_value, &row_set](std::span<const std::byte> row_bytes) -> core::Status {
 
-        auto tree_result = open_table_tree(*table_descriptor);
-        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
+            auto row_result = record::RowCodec::decode(*schema, row_bytes);
+            if(!row_result.ok()) {
+                return row_result.status();
+            }
 
-        auto tree = std::move(tree_result.value());
-        std::vector<btree::BTreeCursor> cursors;
+            const auto& row = row_result.value();
 
-        const bool uses_primary_key = (
-            statement.predicate.has_value() &&
-            predicate_value.has_value() &&
-            statement.predicate->column.ordinal == schema->primary_key_ordinal()
+            if(statement.predicate.has_value()) {
+                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
+                if(!matches_result.ok()) {
+                    return matches_result.status();
+                }
+
+                if(!matches_result.value()) {
+                    return core::Status::Ok();
+                }
+            }
+
+            std::vector<record::Value> projected_values;
+            projected_values.reserve(statement.projection.size());
+
+            for(const auto& column: statement.projection) {
+                projected_values.push_back(row.value(column.ordinal));
+            }
+
+            row_set.rows.emplace_back(std::move(projected_values));
+            return core::Status::Ok();
+
+        };
+
+        auto table_tree_result = open_table_tree(*table_descriptor);
+        if(!table_tree_result.ok()) return ExecutionResult{table_tree_result.status()};
+
+        auto table_tree = std::move(table_tree_result.value());
+
+        const auto access_path = plan_access_path(
+            *schema,
+            catalog_.indexes_for_table(statement.table_id),
+            statement.predicate
         );
 
-        if(!uses_primary_key) {
-            auto cursor_result = tree.scan();
-            if(!cursor_result.ok()) {
-                return ExecutionResult{cursor_result.status()};
-            }
+        const auto access_path_status = std::visit(
+            [&](const auto& path) -> core::Status {
 
-            cursors.push_back(std::move(cursor_result.value()));
-        } else {
-            auto key_result = record::KeyCodec::encode(*predicate_value);
-            if(!key_result.ok()) {
-                return ExecutionResult{key_result.status()};
-            }
+                using AccessPathType = std::decay_t<decltype(path)>;
 
-            const auto& key = key_result.value();
+                if constexpr(std::is_same_v<AccessPathType, FullTableScanPath>) {
 
-            auto cursors_result = open_table_cursors(
-                tree,
-                statement.predicate->comparison_operator,
-                key
-            );
-            if(!cursors_result.ok()) {
-                return ExecutionResult{cursors_result.status()};
-            }
-
-            cursors = std::move(cursors_result.value());
-        }
-
-        // Consume cursors
-
-        for(auto& cursor: cursors) {
-            while(true) {
-                auto entry_result = cursor.next();
-                if(!entry_result.ok()) {
-                    return ExecutionResult{entry_result.status()};
-                }
-
-                if(!entry_result.value().has_value()) {
-                    break;
-                }
-
-                auto row_result = record::RowCodec::decode(*schema, entry_result.value()->value);
-                if(!row_result.ok()) {
-                    return ExecutionResult{row_result.status()};
-                }
-
-                const auto& row = row_result.value();
-
-                if(statement.predicate.has_value()) {
-                    auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                    if(!matches_result.ok()) {
-                        return ExecutionResult{matches_result.status()};
+                    auto cursor_result = table_tree.scan();
+                    if(!cursor_result.ok()) {
+                        return cursor_result.status();
                     }
 
-                    if(!matches_result.value()) {
-                        continue;
+                    std::vector<btree::BTreeCursor> cursors;
+                    cursors.push_back(std::move(cursor_result.value()));
+
+                    return consume_table_cursors(cursors, process_row_bytes);
+
+                } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
+
+                    if(!predicate_value.has_value()) {
+                        return core::Status::InternalError("Cannot execute SELECT: primary-key access path has no converted literal value");
                     }
+
+                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    if(!key_result.ok()) {
+                        return key_result.status();
+                    }
+
+                    auto cursors_result = open_table_cursors(
+                        table_tree,
+                        statement.predicate->comparison_operator,
+                        key_result.value()
+                    );
+                    if(!cursors_result.ok()) {
+                        return cursors_result.status();
+                    }
+
+                    auto cursors = std::move(cursors_result.value());
+                    
+                    return consume_table_cursors(cursors, process_row_bytes);
+
+                } else {
+
+                    if(!predicate_value.has_value()) {
+                        return core::Status::InternalError("Cannot execute SELECT: secondary-index access path has no converted literal value");
+                    }
+
+                    auto index_tree_result = open_index_tree(path.index_descriptor);
+                    if(!index_tree_result.ok()) {
+                        return index_tree_result.status();
+                    }
+
+                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    if(!key_result.ok()) {
+                        return key_result.status();
+                    }
+
+                    auto cursors_result = open_secondary_index_cursors(
+                        index_tree_result.value(),
+                        statement.predicate->comparison_operator,
+                        key_result.value()
+                    );
+                    if(!cursors_result.ok()) {
+                        return cursors_result.status();
+                    }
+
+                    auto cursors = std::move(cursors_result.value());
+
+                    return consume_secondary_index_cursors(cursors, table_tree, process_row_bytes);
+
                 }
-
-                std::vector<record::Value> projected_values;
-                projected_values.reserve(statement.projection.size());
-
-                for(const auto& column: statement.projection) {
-                    projected_values.push_back(row.value(column.ordinal));
-                }
-
-                row_set.rows.emplace_back(std::move(projected_values));
-            }
+                
+            },
+            access_path
+        );
+        if(!access_path_status.ok()) {
+            return ExecutionResult{access_path_status};
         }
 
         return ExecutionResult{core::Status::Ok(), std::nullopt, std::move(row_set)};
