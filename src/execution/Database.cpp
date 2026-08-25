@@ -965,6 +965,46 @@ namespace dandb::execution {
             }
         }
 
+        struct AffectedIndex {
+            btree::BTree tree;
+            std::size_t indexed_column_ordinal;
+            bool unique;
+        };
+
+        std::vector<AffectedIndex> affected_indexes;
+        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
+        affected_indexes.reserve(index_descriptors.size());
+
+        for(const auto& index_descriptor: index_descriptors) {
+
+            if(index_descriptor.primary()) continue;
+
+            const auto* indexed_column = catalog_.find_column(
+                statement.table_id,
+                index_descriptor.indexed_column_id()
+            );
+            if(indexed_column == nullptr) {
+                return ExecutionResult{handle_mutation_failure(
+                    core::Status::InternalError("Cannot execute UPDATE: indexed column is missing from catalog"),
+                    owns_transaction
+                )};
+            }
+
+            if(indexed_column->ordinal() != statement.assignment.column.ordinal) continue;
+
+            auto index_tree_result = open_index_tree(index_descriptor);
+            if(!index_tree_result.ok()) {
+                return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
+            }
+
+            affected_indexes.push_back(AffectedIndex{
+                std::move(index_tree_result.value()),
+                indexed_column->ordinal(),
+                index_descriptor.unique()
+            });
+
+        }
+
         std::size_t rows_affected = 0;
 
         for(auto& cursor: cursors) {
@@ -1007,9 +1047,73 @@ namespace dandb::execution {
                     return ExecutionResult{handle_mutation_failure(row_bytes_result.status(), owns_transaction)};
                 }
 
+                struct PendingIndexUpdate {
+                    AffectedIndex* index;
+                    std::vector<std::byte> old_key;
+                    std::vector<std::byte> new_key;
+                };
+
+                std::vector<PendingIndexUpdate> pending_index_updates;
+                pending_index_updates.reserve(affected_indexes.size());
+
+                for(auto& affected_index: affected_indexes) {
+
+                    auto old_index_key_result = record::RowHelpers::indexed_key_bytes(
+                        *schema,
+                        row,
+                        affected_index.indexed_column_ordinal
+                    );
+                    if(!old_index_key_result.ok()) {
+                        return ExecutionResult{handle_mutation_failure(old_index_key_result.status(), owns_transaction)};
+                    }
+
+                    auto new_index_key_result = record::RowHelpers::indexed_key_bytes(
+                        *schema,
+                        updated_row_result.value(),
+                        affected_index.indexed_column_ordinal
+                    );
+                    if(!new_index_key_result.ok()) {
+                        return ExecutionResult{handle_mutation_failure(new_index_key_result.status(), owns_transaction)};
+                    }
+
+                    auto old_index_key = std::move(old_index_key_result.value());
+                    auto new_index_key = std::move(new_index_key_result.value());
+
+                    if(!affected_index.unique) {
+                        old_index_key.insert(old_index_key.end(), entry.key.begin(), entry.key.end());
+                        new_index_key.insert(new_index_key.end(), entry.key.begin(), entry.key.end());
+                    }
+
+                    if(old_index_key == new_index_key) continue;
+
+                    pending_index_updates.push_back(PendingIndexUpdate{
+                        &affected_index,
+                        std::move(old_index_key),
+                        std::move(new_index_key)
+                    });
+
+                }
+
+                for(auto& pending_index_update: pending_index_updates) {
+                    const auto erase_status = pending_index_update.index->tree.erase(pending_index_update.old_key);
+                    if(!erase_status.ok()) {
+                        return ExecutionResult{handle_mutation_failure(erase_status, owns_transaction)};
+                    }
+                }
+
                 const auto update_status = tree.update_value(entry.key, row_bytes_result.value());
                 if(!update_status.ok()) {
                     return ExecutionResult{handle_mutation_failure(update_status, owns_transaction)};
+                }
+
+                for(auto& pending_index_update: pending_index_updates) {
+                    const auto insert_status = pending_index_update.index->tree.insert(
+                        pending_index_update.new_key,
+                        entry.key
+                    );
+                    if(!insert_status.ok()) {
+                        return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+                    }
                 }
 
                 rows_affected++;
