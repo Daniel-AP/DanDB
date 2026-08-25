@@ -43,7 +43,36 @@ namespace {
         const dandb::record::Schema& schema,
         std::span<const dandb::catalog::IndexDescriptor> index_descriptors,
         const std::optional<dandb::sql::BoundPredicate>& predicate
-    );
+    ) {
+
+        if(!predicate.has_value()) {
+            return FullTableScanPath{};
+        }
+
+        const bool is_null_predicate = (
+            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNull ||
+            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNotNull
+        );
+
+        if(is_null_predicate) {
+            return FullTableScanPath{};
+        }
+
+        if(predicate->column.ordinal == schema.primary_key_ordinal()) {
+            return PrimaryKeyRangePath{};
+        }
+
+        for(const auto& index_descriptor: index_descriptors) {
+            if(index_descriptor.primary()) continue;
+
+            if(index_descriptor.indexed_column_id() == predicate->column.column_id) {
+                return SecondaryIndexRangePath{ index_descriptor };
+            }
+        }
+
+        return FullTableScanPath{};
+
+    }
 
     dandb::core::Status consume_table_cursors(std::vector<dandb::btree::BTreeCursor>& cursors, auto&& process_row_bytes) {
 
