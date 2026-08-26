@@ -1937,6 +1937,174 @@ TEST_CASE("Database deletes one matching row", "[execution][database][dml][delet
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database deletes matching rows through a non-unique secondary index", "[execution][database][dml][delete][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "name STRING(64)"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+        "INSERT INTO users VALUES (3, 30, 'Linus');"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE age = 20;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 2);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 3);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database deletes matching rows through multiple secondary-index cursors", "[execution][database][dml][delete][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 10);"
+        "INSERT INTO users VALUES (2, 20);"
+        "INSERT INTO users VALUES (3, 20);"
+        "INSERT INTO users VALUES (4, 30);"
+    );
+
+    REQUIRE(setup_results.size() == 6);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE age != 20;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 2);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 2);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 2);
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 3);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database deletes one row through a unique secondary index", "[execution][database][dml][delete][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "code INT64 UNIQUE, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 10, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+        "INSERT INTO users VALUES (3, 30, 'Linus');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE code = 20;");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 2);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 3);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database falls back to a table scan for an unindexed DELETE predicate", "[execution][database][dml][delete][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "name STRING(64)"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE name = 'Grace';");
+
+    REQUIRE(delete_results.size() == 1);
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database deletes all rows without a predicate", "[execution][database][dml][delete]") {
     const TempDir temp_dir;
 
