@@ -1036,6 +1036,60 @@ TEST_CASE("Database makes a parse error inside a transaction rollback-only", "[e
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database makes a lexer error inside a transaction rollback-only", "[execution][database][transaction]") {
+    const TempDir temp_dir;
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto lexer_error_results = database.execute("!;");
+    REQUIRE(lexer_error_results.size() == 1);
+    REQUIRE(lexer_error_results[0].status.code() == StatusCode::ParseError);
+
+    const auto rejected_results = database.execute("SELECT * FROM dandb_tables;");
+    REQUIRE(rejected_results.size() == 1);
+    REQUIRE(rejected_results[0].status.code() == StatusCode::TransactionError);
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database keeps a transaction usable after incomplete parser input", "[execution][database][transaction]") {
+    const TempDir temp_dir;
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto create_results = database.execute("CREATE TABLE users (id INT64 PRIMARY KEY);");
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto incomplete_results = database.execute("INSERT INTO users VALUES (");
+    REQUIRE(incomplete_results.size() == 1);
+    REQUIRE(incomplete_results[0].status.code() == StatusCode::IncompleteInput);
+
+    const auto insert_results = database.execute("INSERT INTO users VALUES (1);");
+    REQUIRE(insert_results.size() == 1);
+    REQUIRE(insert_results[0].status.ok());
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database autocommits INSERT rows to the primary table B+ tree", "[execution][database][dml][insert]") {
     const TempDir temp_dir;
 
