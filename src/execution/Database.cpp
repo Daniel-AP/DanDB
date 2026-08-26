@@ -324,28 +324,19 @@ namespace {
 
     }
 
-    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_table_cursors(
+    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_cursors(
         dandb::btree::BTree& tree,
         dandb::sql::ComparisonOperator comparison_operator,
-        std::span<const std::byte> key
+        std::span<const std::byte> key,
+        std::optional<std::span<const std::byte>> next_key
     ) {
 
         std::vector<dandb::btree::BTreeCursor> cursors;
 
-        const auto next_key_result = next_key(key);
-
         switch(comparison_operator) {
             case dandb::sql::ComparisonOperator::Equal: {
-                auto cursor_result = next_key_result.has_value()
-                    ? tree.scan_range(
-                        key,
-                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()}
-                    )
-                    : tree.scan_range(key, std::nullopt);
-
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
+                auto cursor_result = tree.scan_range(key, next_key);
+                if(!cursor_result.ok()) return cursor_result.status();
 
                 cursors.push_back(std::move(cursor_result.value()));
                 return cursors;
@@ -353,20 +344,13 @@ namespace {
 
             case dandb::sql::ComparisonOperator::NotEqual: {
                 auto before_cursor_result = tree.scan_range(std::nullopt, key);
-                if(!before_cursor_result.ok()) {
-                    return before_cursor_result.status();
-                }
+                if(!before_cursor_result.ok()) return before_cursor_result.status();
 
                 cursors.push_back(std::move(before_cursor_result.value()));
 
-                if(next_key_result.has_value()) {
-                    auto after_cursor_result = tree.scan_range(
-                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()},
-                        std::nullopt
-                    );
-                    if(!after_cursor_result.ok()) {
-                        return after_cursor_result.status();
-                    }
+                if(next_key.has_value()) {
+                    auto after_cursor_result = tree.scan_range(next_key, std::nullopt);
+                    if(!after_cursor_result.ok()) return after_cursor_result.status();
 
                     cursors.push_back(std::move(after_cursor_result.value()));
                 }
@@ -376,42 +360,25 @@ namespace {
 
             case dandb::sql::ComparisonOperator::Less: {
                 auto cursor_result = tree.scan_range(std::nullopt, key);
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
+                if(!cursor_result.ok()) return cursor_result.status();
 
                 cursors.push_back(std::move(cursor_result.value()));
                 return cursors;
             }
 
             case dandb::sql::ComparisonOperator::LessEqual: {
-                auto cursor_result = next_key_result.has_value()
-                    ? tree.scan_range(
-                        std::nullopt,
-                        std::span<const std::byte>{next_key_result->data(), next_key_result->size()}
-                    )
-                    : tree.scan();
-
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
+                auto cursor_result = tree.scan_range(std::nullopt, next_key);
+                if(!cursor_result.ok()) return cursor_result.status();
 
                 cursors.push_back(std::move(cursor_result.value()));
                 return cursors;
             }
 
             case dandb::sql::ComparisonOperator::Greater: {
-                if(!next_key_result.has_value()) {
-                    return cursors;
-                }
+                if(!next_key.has_value()) return cursors;
 
-                auto cursor_result = tree.scan_range(
-                    std::span<const std::byte>{next_key_result->data(), next_key_result->size()},
-                    std::nullopt
-                );
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
+                auto cursor_result = tree.scan_range(next_key, std::nullopt);
+                if(!cursor_result.ok()) return cursor_result.status();
 
                 cursors.push_back(std::move(cursor_result.value()));
                 return cursors;
@@ -419,9 +386,7 @@ namespace {
 
             case dandb::sql::ComparisonOperator::GreaterEqual: {
                 auto cursor_result = tree.scan_range(key, std::nullopt);
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
+                if(!cursor_result.ok()) return cursor_result.status();
 
                 cursors.push_back(std::move(cursor_result.value()));
                 return cursors;
@@ -429,10 +394,25 @@ namespace {
 
             case dandb::sql::ComparisonOperator::IsNull:
             case dandb::sql::ComparisonOperator::IsNotNull:
-                return dandb::core::Status::InternalError("Cannot open primary-key cursors for a null predicate");
+                return dandb::core::Status::InternalError("Cannot open cursors for a null predicate");
         }
 
-        return dandb::core::Status::InternalError("Cannot open primary-key cursors for an unknown comparison operator");
+        return dandb::core::Status::InternalError("Cannot open cursors for an unknown comparison operator");
+
+    }
+
+    dandb::core::Result<std::vector<dandb::btree::BTreeCursor>> open_table_cursors(
+        dandb::btree::BTree& tree,
+        dandb::sql::ComparisonOperator comparison_operator,
+        std::span<const std::byte> key
+    ) {
+
+        const auto next_key_result = next_key(key);
+        std::optional<std::span<const std::byte>> next_table_key;
+
+        if(next_key_result.has_value()) next_table_key.emplace(next_key_result->data(), next_key_result->size());
+
+        return open_cursors(tree, comparison_operator, key, next_table_key);
 
     }
 
@@ -442,119 +422,19 @@ namespace {
         std::span<const std::byte> indexed_key_prefix
     ) {
 
-        if(indexed_key_prefix.size() > tree.key_size()) {
-            return dandb::core::Status::InvalidArgument("Cannot open secondary-index cursors: indexed key prefix is larger than the B+ tree key");
-        }
+        if(indexed_key_prefix.size() > tree.key_size()) return dandb::core::Status::InvalidArgument("Cannot open secondary-index cursors: indexed key prefix is larger than the B+ tree key");
 
-        std::vector<std::byte> lower_bound(indexed_key_prefix.begin(), indexed_key_prefix.end());
-        lower_bound.resize(tree.key_size(), std::byte{ 0x00 });
+        std::vector<std::byte> key(indexed_key_prefix.begin(), indexed_key_prefix.end());
+        key.resize(tree.key_size(), std::byte{ 0x00 });
 
-        std::optional<std::vector<std::byte>> next_lower_bound = next_key(indexed_key_prefix);
-        if(next_lower_bound.has_value()) {
-            next_lower_bound->resize(tree.key_size(), std::byte{ 0x00 });
-        }
+        auto next_key_result = next_key(indexed_key_prefix);
+        if(next_key_result.has_value()) next_key_result->resize(tree.key_size(), std::byte{ 0x00 });
 
-        std::vector<dandb::btree::BTreeCursor> cursors;
+        std::optional<std::span<const std::byte>> next_secondary_key;
 
-        switch(comparison_operator) {
-            case dandb::sql::ComparisonOperator::Equal: {
-                auto cursor_result = next_lower_bound.has_value()
-                    ? tree.scan_range(
-                        lower_bound,
-                        std::span<const std::byte>{next_lower_bound->data(), next_lower_bound->size()}
-                    )
-                    : tree.scan_range(lower_bound, std::nullopt);
+        if(next_key_result.has_value()) next_secondary_key.emplace(next_key_result->data(), next_key_result->size());
 
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
-
-                cursors.push_back(std::move(cursor_result.value()));
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::NotEqual: {
-                auto before_cursor_result = tree.scan_range(std::nullopt, lower_bound);
-                if(!before_cursor_result.ok()) {
-                    return before_cursor_result.status();
-                }
-
-                cursors.push_back(std::move(before_cursor_result.value()));
-
-                if(next_lower_bound.has_value()) {
-                    auto after_cursor_result = tree.scan_range(
-                        std::span<const std::byte>{next_lower_bound->data(), next_lower_bound->size()},
-                        std::nullopt
-                    );
-                    if(!after_cursor_result.ok()) {
-                        return after_cursor_result.status();
-                    }
-
-                    cursors.push_back(std::move(after_cursor_result.value()));
-                }
-
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::Less: {
-                auto cursor_result = tree.scan_range(std::nullopt, lower_bound);
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
-
-                cursors.push_back(std::move(cursor_result.value()));
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::LessEqual: {
-                auto cursor_result = next_lower_bound.has_value()
-                    ? tree.scan_range(
-                        std::nullopt,
-                        std::span<const std::byte>{next_lower_bound->data(), next_lower_bound->size()}
-                    )
-                    : tree.scan();
-
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
-
-                cursors.push_back(std::move(cursor_result.value()));
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::Greater: {
-                if(!next_lower_bound.has_value()) {
-                    return cursors;
-                }
-
-                auto cursor_result = tree.scan_range(
-                    std::span<const std::byte>{next_lower_bound->data(), next_lower_bound->size()},
-                    std::nullopt
-                );
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
-
-                cursors.push_back(std::move(cursor_result.value()));
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::GreaterEqual: {
-                auto cursor_result = tree.scan_range(lower_bound, std::nullopt);
-                if(!cursor_result.ok()) {
-                    return cursor_result.status();
-                }
-
-                cursors.push_back(std::move(cursor_result.value()));
-                return cursors;
-            }
-
-            case dandb::sql::ComparisonOperator::IsNull:
-            case dandb::sql::ComparisonOperator::IsNotNull:
-                return dandb::core::Status::InternalError("Cannot open secondary-index cursors for a null predicate");
-        }
-
-        return dandb::core::Status::InternalError("Cannot open secondary-index cursors for an unknown comparison operator");
+        return open_cursors(tree, comparison_operator, key, next_secondary_key);
 
     }
 
