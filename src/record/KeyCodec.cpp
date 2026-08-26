@@ -15,6 +15,8 @@ namespace dandb::record {
             return core::Status::InvalidArgument("Cannot encode key: null keys are not supported");
         }
 
+        // B tree keys are compared byte by byte
+        // Flipping the sign bit and using big endian encoding preserves signed integer order
         switch(value.type().kind()) {
             case LogicalType::Kind::Int8: {
                 std::vector<std::byte> bytes(1);

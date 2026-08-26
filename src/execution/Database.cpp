@@ -303,6 +303,8 @@ namespace {
 
     }
 
+    // Returns the smallest same length key that is lexicographically greater
+    // Used as the exclusive scan range upper bound for equality and less than or equal predicates
     std::optional<std::vector<std::byte>> next_key(std::span<const std::byte> key) {
 
         std::vector<std::byte> successor(key.begin(), key.end());
@@ -424,6 +426,8 @@ namespace {
 
         if(indexed_key_prefix.size() > tree.key_size()) return dandb::core::Status::InvalidArgument("Cannot open secondary-index cursors: indexed key prefix is larger than the B+ tree key");
 
+        // Secondary keys append the primary key to the indexed column prefix
+        // Zero padding gives the inclusive start and the next prefix gives the exclusive end
         std::vector<std::byte> key(indexed_key_prefix.begin(), indexed_key_prefix.end());
         key.resize(tree.key_size(), std::byte{ 0x00 });
 
