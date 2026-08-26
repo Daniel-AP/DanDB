@@ -593,6 +593,8 @@ namespace dandb::execution {
                     return execute_create_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundCreateIndexStatement>) {
                     return execute_create_index_statement(bound_statement);
+                } else if constexpr(std::is_same_v<BoundStatementType, sql::DropIndexStatement>) {
+                    return execute_drop_index_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundDropTableStatement>) {
                     return execute_drop_table_statement(bound_statement);
                 } else if constexpr(std::is_same_v<BoundStatementType, sql::BoundSelectStatement>) {
@@ -788,6 +790,17 @@ namespace dandb::execution {
         }
 
         return ExecutionResult{commit_status, "Index '"+statement.index_name+"' created"};
+
+    }
+
+    ExecutionResult Database::execute_drop_index_statement(const sql::DropIndexStatement& statement) {
+
+        const auto status = catalog_.drop_index(statement.index_name.text);
+        if(!status.ok()) {
+            return ExecutionResult{status};
+        }
+
+        return ExecutionResult{status, "Index '"+statement.index_name.text+"' dropped"};
 
     }
 
