@@ -185,6 +185,177 @@ TEST_CASE("Database persists a table created through SQL", "[execution][database
     REQUIRE(reopened_database_result.value().close().ok());
 }
 
+TEST_CASE("Database preserves case-sensitive table names with mixed-case keywords", "[execution][database][ddl][identifiers]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute(
+        "cReAtE tAbLe Users (Id INT64 pRiMaRy kEy);"
+    );
+
+    REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
+    REQUIRE(create_results[0].status.ok());
+
+    const auto exact_case_results = database.execute("sElEcT * fRoM Users;");
+
+    REQUIRE(exact_case_results.size() == 1);
+    INFO(exact_case_results[0].status.message());
+    REQUIRE(exact_case_results[0].status.ok());
+    REQUIRE(exact_case_results[0].row_set.has_value());
+    REQUIRE(exact_case_results[0].row_set->rows.empty());
+
+    const auto different_case_results = database.execute("SELECT * FROM users;");
+
+    REQUIRE(different_case_results.size() == 1);
+    REQUIRE(different_case_results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database treats case-only table-name variants as distinct", "[execution][database][ddl][identifiers]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE Users (Id INT64 PRIMARY KEY);"
+        "CREATE TABLE users (id INT64 PRIMARY KEY);"
+        "INSERT INTO Users VALUES (1);"
+        "INSERT INTO users VALUES (2);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto users_results = database.execute("SELECT Id FROM Users;");
+    const auto lowercase_users_results = database.execute("SELECT id FROM users;");
+
+    REQUIRE(users_results.size() == 1);
+    REQUIRE(users_results[0].status.ok());
+    REQUIRE(users_results[0].row_set.has_value());
+    REQUIRE(users_results[0].row_set->rows.size() == 1);
+    REQUIRE(users_results[0].row_set->rows[0].value(0).as_integer() == 1);
+
+    REQUIRE(lowercase_users_results.size() == 1);
+    REQUIRE(lowercase_users_results[0].status.ok());
+    REQUIRE(lowercase_users_results[0].row_set.has_value());
+    REQUIRE(lowercase_users_results[0].row_set->rows.size() == 1);
+    REQUIRE(lowercase_users_results[0].row_set->rows[0].value(0).as_integer() == 2);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database treats case-only column-name variants as distinct", "[execution][database][ddl][identifiers]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE Users (Id INT64 PRIMARY KEY, id INT64 NOT NULL);"
+        "INSERT INTO Users VALUES (1, 2);"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto upper_case_results = database.execute("SELECT Id FROM Users;");
+    const auto lower_case_results = database.execute("SELECT id FROM Users;");
+    const auto different_case_results = database.execute("SELECT ID FROM Users;");
+
+    REQUIRE(upper_case_results.size() == 1);
+    REQUIRE(upper_case_results[0].status.ok());
+    REQUIRE(upper_case_results[0].row_set.has_value());
+    REQUIRE(upper_case_results[0].row_set->rows.size() == 1);
+    REQUIRE(upper_case_results[0].row_set->rows[0].value(0).as_integer() == 1);
+
+    REQUIRE(lower_case_results.size() == 1);
+    REQUIRE(lower_case_results[0].status.ok());
+    REQUIRE(lower_case_results[0].row_set.has_value());
+    REQUIRE(lower_case_results[0].row_set->rows.size() == 1);
+    REQUIRE(lower_case_results[0].row_set->rows[0].value(0).as_integer() == 2);
+
+    REQUIRE(different_case_results.size() == 1);
+    REQUIRE(different_case_results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database treats case-only index-name variants as distinct", "[execution][database][ddl][identifiers]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE Users (Id INT64 PRIMARY KEY, Age INT64 NOT NULL);"
+        "CREATE TABLE users (id INT64 PRIMARY KEY, age INT64 NOT NULL);"
+        "CREATE INDEX AgeLookup ON Users(Age);"
+        "CREATE INDEX agelookup ON users(age);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto different_case_results = database.execute("DROP INDEX AGELOOKUP;");
+    const auto upper_case_results = database.execute("DROP INDEX AgeLookup;");
+    const auto lower_case_results = database.execute("DROP INDEX agelookup;");
+
+    REQUIRE(different_case_results.size() == 1);
+    REQUIRE(different_case_results[0].status.code() == StatusCode::NotFound);
+
+    REQUIRE(upper_case_results.size() == 1);
+    REQUIRE(upper_case_results[0].status.ok());
+
+    REQUIRE(lower_case_results.size() == 1);
+    REQUIRE(lower_case_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database reserves system catalog names only with exact case", "[execution][database][ddl][identifiers]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute(
+        "CREATE TABLE DANDB_tables (id INT64 PRIMARY KEY);"
+    );
+
+    REQUIRE(create_results.size() == 1);
+    INFO(create_results[0].status.message());
+    REQUIRE(create_results[0].status.ok());
+
+    const auto select_results = database.execute("SELECT * FROM DANDB_tables;");
+    const auto system_insert_results = database.execute(
+        "INSERT INTO dandb_tables VALUES (99, 'shadow', 1);"
+    );
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.empty());
+
+    REQUIRE(system_insert_results.size() == 1);
+    REQUIRE(system_insert_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database creates an empty index through SQL", "[execution][database][ddl][create-index]") {
 
     const TempDir temp_dir;
