@@ -1464,38 +1464,16 @@ namespace dandb::execution {
 
         }
 
-        auto tree_result = open_table_tree(*table_descriptor);
-        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
+        // Open the table and plan candidate access
 
-        auto tree = std::move(tree_result.value());
-        std::vector<btree::BTreeCursor> cursors;
+        auto table_tree_result = open_table_tree(*table_descriptor);
+        if(!table_tree_result.ok()) return ExecutionResult{table_tree_result.status()};
 
-        const bool uses_primary_key = (
-            statement.predicate.has_value() &&
-            predicate_value.has_value() &&
-            statement.predicate->column.ordinal == schema->primary_key_ordinal()
-        );
+        auto table_tree = std::move(table_tree_result.value());
+        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
+        const auto access_path = plan_access_path(*schema, index_descriptors, statement.predicate);
 
-        if(!uses_primary_key) {
-            auto cursor_result = tree.scan();
-            if(!cursor_result.ok()) {
-                return ExecutionResult{cursor_result.status()};
-            }
-
-            cursors.push_back(std::move(cursor_result.value()));
-        } else {
-            auto key_result = record::KeyCodec::encode(*predicate_value);
-            if(!key_result.ok()) {
-                return ExecutionResult{key_result.status()};
-            }
-
-            auto cursors_result = open_table_cursors(tree, statement.predicate->comparison_operator, key_result.value());
-            if(!cursors_result.ok()) {
-                return ExecutionResult{cursors_result.status()};
-            }
-
-            cursors = std::move(cursors_result.value());
-        }
+        // Begin the statement transaction
 
         const bool owns_transaction = !pager_->in_transaction();
         if(owns_transaction) {
@@ -1516,8 +1494,9 @@ namespace dandb::execution {
             record::Row row;
         };
 
+        // Open indexes maintained by delete
+
         std::vector<AffectedIndex> affected_indexes;
-        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
         affected_indexes.reserve(index_descriptors.size());
 
         for(const auto& index_descriptor: index_descriptors) {
@@ -1548,44 +1527,109 @@ namespace dandb::execution {
 
         }
 
+        // Collect deletion candidates
+
         std::vector<PendingDeletion> pending_deletions;
 
-        for(auto& cursor: cursors) {
-            while(true) {
-                auto entry_result = cursor.next();
-                if(!entry_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(entry_result.status(), owns_transaction)};
-                }
+        auto process_delete_candidate = [&](std::span<const std::byte> primary_key, std::span<const std::byte> row_bytes) -> core::Status {
 
-                if(!entry_result.value().has_value()) {
-                    break;
-                }
+            auto row_result = record::RowCodec::decode(*schema, row_bytes);
+            if(!row_result.ok()) return row_result.status();
 
-                const auto& entry = *entry_result.value();
-                auto row_result = record::RowCodec::decode(*schema, entry.value);
-                if(!row_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(row_result.status(), owns_transaction)};
-                }
+            const auto& row = row_result.value();
 
-                const auto& row = row_result.value();
+            if(statement.predicate.has_value()) {
 
-                if(statement.predicate.has_value()) {
-                    auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                    if(!matches_result.ok()) {
-                        return ExecutionResult{handle_mutation_failure(matches_result.status(), owns_transaction)};
-                    }
+                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
+                if(!matches_result.ok()) return matches_result.status();
+                if(!matches_result.value()) return core::Status::Ok();
 
-                    if(!matches_result.value()) {
-                        continue;
-                    }
-                }
-
-                pending_deletions.push_back(PendingDeletion{
-                    entry.key,
-                    std::move(row_result.value())
-                });
             }
+
+            pending_deletions.push_back(PendingDeletion{
+                std::vector<std::byte>{ primary_key.begin(), primary_key.end() },
+                std::move(row_result.value())
+            });
+
+            return core::Status::Ok();
+
+        };
+
+        // Execute the selected access path
+
+        const auto collect_delete_candidates_status = std::visit(
+            [&](const auto& path) -> core::Status {
+
+                using AccessPathType = std::decay_t<decltype(path)>;
+
+                if constexpr(std::is_same_v<AccessPathType, FullTableScanPath>) {
+
+                    auto cursor_result = table_tree.scan();
+                    if(!cursor_result.ok()) return cursor_result.status();
+
+                    std::vector<btree::BTreeCursor> cursors;
+                    cursors.push_back(std::move(cursor_result.value()));
+
+                    return consume_table_cursors(cursors, process_delete_candidate);
+
+                } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
+
+                    const bool has_primary_key_predicate = (
+                        statement.predicate.has_value() &&
+                        predicate_value.has_value()
+                    );
+
+                    if(!has_primary_key_predicate) {
+                        return core::Status::InternalError("Cannot execute DELETE: primary-key access path has no converted literal value");
+                    }
+
+                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    if(!key_result.ok()) return key_result.status();
+
+                    auto cursors_result = open_table_cursors(table_tree, statement.predicate->comparison_operator, key_result.value());
+                    if(!cursors_result.ok()) return cursors_result.status();
+
+                    auto cursors = std::move(cursors_result.value());
+                    return consume_table_cursors(cursors, process_delete_candidate);
+
+                } else {
+
+                    const bool has_secondary_index_predicate = (
+                        statement.predicate.has_value() &&
+                        predicate_value.has_value()
+                    );
+
+                    if(!has_secondary_index_predicate) {
+                        return core::Status::InternalError("Cannot execute DELETE: secondary-index access path has no converted literal value");
+                    }
+
+                    auto index_tree_result = open_index_tree(path.index_descriptor);
+                    if(!index_tree_result.ok()) return index_tree_result.status();
+
+                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    if(!key_result.ok()) return key_result.status();
+
+                    auto cursors_result = open_secondary_index_cursors(
+                        index_tree_result.value(),
+                        statement.predicate->comparison_operator,
+                        key_result.value()
+                    );
+                    if(!cursors_result.ok()) return cursors_result.status();
+
+                    auto cursors = std::move(cursors_result.value());
+                    return consume_secondary_index_cursors(cursors, table_tree, process_delete_candidate);
+
+                }
+
+            },
+            access_path
+        );
+
+        if(!collect_delete_candidates_status.ok()) {
+            return ExecutionResult{handle_mutation_failure(collect_delete_candidates_status, owns_transaction)};
         }
+
+        // Apply pending deletions
 
         std::size_t rows_affected = 0;
 
@@ -1619,12 +1663,13 @@ namespace dandb::execution {
 
             }
 
-            const auto erase_status = tree.erase(pending_deletion.primary_key);
+            const auto erase_status = table_tree.erase(pending_deletion.primary_key);
             if(!erase_status.ok()) {
                 return ExecutionResult{handle_mutation_failure(erase_status, owns_transaction)};
             }
 
             rows_affected++;
+            
         }
 
         if(!owns_transaction) {
