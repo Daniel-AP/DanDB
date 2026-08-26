@@ -7,6 +7,7 @@
 #include <dandb/core/Status.h>
 #include <dandb/storage/PageId.h>
 #include <dandb/storage/Pager.h>
+#include <testutil/BTreeValidator.h>
 #include <testutil/TempDir.h>
 
 #include <array>
@@ -26,6 +27,7 @@ using dandb::core::StatusCode;
 using dandb::storage::INVALID_PAGE_ID;
 using dandb::storage::PageId;
 using dandb::storage::Pager;
+using dandb::testutil::validate_btree;
 using dandb::testutil::TempDir;
 
 namespace {
@@ -85,7 +87,7 @@ TEST_CASE("BTree validate accepts an empty tree", "[btree][validator]") {
     auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
     REQUIRE(tree_result.ok());
 
-    REQUIRE(tree_result.value().validate().ok());
+    REQUIRE(validate_btree(pager, tree_result.value()).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -110,7 +112,7 @@ TEST_CASE("BTree validate accepts a split tree", "[btree][validator]") {
         REQUIRE(tree.insert(key, value).ok());
     }
 
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -149,7 +151,7 @@ TEST_CASE("BTree validate rejects a separator below its right subtree minimum", 
         REQUIRE(root_page_view_result.value().set_key_at(0, invalid_separator).ok());
     }
 
-    require_corruption(tree.validate());
+    require_corruption(validate_btree(pager, tree));
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -187,7 +189,7 @@ TEST_CASE("BTree validate rejects unsorted leaf keys", "[btree][validator]") {
         overwrite_leaf_key(mutable_page_result.value()->data(), 1, VALUE_SIZE, key_5);
     }
 
-    require_corruption(tree.validate());
+    require_corruption(validate_btree(pager, tree));
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -236,7 +238,7 @@ TEST_CASE("BTree validate rejects broken leaf sibling links", "[btree][validator
         left_leaf_view_result.value().set_next_leaf_page_id(INVALID_PAGE_ID);
     }
 
-    require_corruption(tree.validate());
+    require_corruption(validate_btree(pager, tree));
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -286,7 +288,7 @@ TEST_CASE("BTree validate rejects an internal page with no separator keys", "[bt
         root_internal_result.value().set_first_child_page_id(child_page_id);
     }
 
-    require_corruption(tree.validate());
+    require_corruption(validate_btree(pager, tree));
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());

@@ -45,8 +45,6 @@ namespace dandb::btree {
                 std::optional<std::span<const std::byte>> lower_bound,
                 std::optional<std::span<const std::byte>> upper_bound
             ) const;
-            core::Status validate() const;
-
             storage::PageId root_page_id() const;
             std::uint16_t key_size() const;
             std::uint16_t value_size() const;

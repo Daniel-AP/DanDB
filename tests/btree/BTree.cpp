@@ -7,6 +7,7 @@
 #include <dandb/core/Status.h>
 #include <dandb/storage/PageId.h>
 #include <dandb/storage/Pager.h>
+#include <testutil/BTreeValidator.h>
 #include <testutil/TempDir.h>
 
 #include <array>
@@ -24,6 +25,7 @@ using dandb::btree::initialize_leaf;
 using dandb::core::StatusCode;
 using dandb::storage::PageId;
 using dandb::storage::Pager;
+using dandb::testutil::validate_btree;
 using dandb::testutil::TempDir;
 
 namespace {
@@ -773,7 +775,7 @@ TEST_CASE("BTree update_value replaces an existing value", "[btree][tree]") {
     REQUIRE(tree.update_value(key_10, updated_value).ok());
 
     require_found_value(tree, 10, 20);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -803,7 +805,7 @@ TEST_CASE("BTree update_value reports a missing key without changing the tree", 
     REQUIRE(status.code() == StatusCode::NotFound);
 
     require_found_value(tree, 10, 10);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -1236,7 +1238,7 @@ TEST_CASE("BTree erase removes every entry from a root leaf", "[btree][tree]") {
     REQUIRE(tree.erase(key_10).ok());
 
     require_missing_key(tree, 10);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -1275,7 +1277,7 @@ TEST_CASE("BTree erase reports a missing key without changing the tree", "[btree
     REQUIRE(erase_status.code() == StatusCode::NotFound);
 
     require_found_value(tree, 10, 10);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -1304,7 +1306,7 @@ TEST_CASE("BTree erase rejects a key with an invalid size", "[btree][tree]") {
     REQUIRE(erase_status.code() == StatusCode::InvalidArgument);
 
     require_found_value(tree, 10, 10);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -1335,7 +1337,7 @@ TEST_CASE("BTree erase refreshes a separator after removing a leaf first key", "
     require_found_value(tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_missing_key(tree, 20);
     require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -1378,7 +1380,7 @@ TEST_CASE("BTree erase borrows from the right leaf sibling", "[btree][tree]") {
     require_missing_key(tree, 10);
     require_found_value(tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
     require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     auto cursor_result = tree.scan();
     REQUIRE(cursor_result.ok());
@@ -1420,7 +1422,7 @@ TEST_CASE("BTree erase borrows from the left leaf sibling", "[btree][tree]") {
     require_found_value(tree, 15, SMALL_LEAF_VALUE_SIZE, 15);
     require_missing_key(tree, 20);
     require_missing_key(tree, 30);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -1465,7 +1467,7 @@ TEST_CASE("BTree erase merges leaves and preserves scan order", "[btree][tree]")
     require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
     require_found_value(tree, 40, SMALL_LEAF_VALUE_SIZE, 40);
     require_found_value(tree, 50, SMALL_LEAF_VALUE_SIZE, 50);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     auto cursor_result = tree.scan();
     REQUIRE(cursor_result.ok());
@@ -1508,7 +1510,7 @@ TEST_CASE("BTree erase refreshes a middle leaf separator after borrowing from th
     require_found_value(tree, 50, LEAF_BORROW_VALUE_SIZE, 50);
     require_found_value(tree, 60, LEAF_BORROW_VALUE_SIZE, 60);
     require_found_value(tree, 70, LEAF_BORROW_VALUE_SIZE, 70);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -1546,7 +1548,7 @@ TEST_CASE("BTree erase borrows from the right internal sibling", "[btree][tree]"
     REQUIRE_FALSE(erased_value.ok());
     REQUIRE(erased_value.status().code() == StatusCode::NotFound);
     REQUIRE(tree.root_page_id() == root_before_erase);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
@@ -1581,7 +1583,7 @@ TEST_CASE("BTree erase merges internal children and shrinks the root", "[btree][
     }
 
     REQUIRE(tree.root_page_id() != old_root_page_id);
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -1619,7 +1621,7 @@ TEST_CASE("BTree erase refreshes an internal separator before merging a child", 
         REQUIRE(tree.erase(key).ok());
     }
 
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     for(std::uint8_t key_value: { 20, 30, 50, 60, 80, 90, 100 }) {
         const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
@@ -1647,7 +1649,7 @@ TEST_CASE("BTree erase preserves a multi-level tree through a delete sequence", 
         insert_sized_entry(tree, SMALL_INTERNAL_KEY_SIZE, SMALL_INTERNAL_VALUE_SIZE, key_value);
     }
 
-    REQUIRE(tree.validate().ok());
+    REQUIRE(validate_btree(pager, tree).ok());
 
     for(std::uint8_t key_value: { 40, 10, 70, 20, 80, 30, 60, 50, 90, 100 }) {
         const auto key = make_sized_key(SMALL_INTERNAL_KEY_SIZE, key_value);
@@ -1657,7 +1659,7 @@ TEST_CASE("BTree erase preserves a multi-level tree through a delete sequence", 
         REQUIRE_FALSE(erased_value.ok());
         REQUIRE(erased_value.status().code() == StatusCode::NotFound);
 
-        const auto validation_status = tree.validate();
+        const auto validation_status = validate_btree(pager, tree);
         CAPTURE(key_value);
         INFO(validation_status.message());
         REQUIRE(validation_status.ok());
@@ -1693,7 +1695,7 @@ TEST_CASE("BTree committed inserts survive Pager reopen", "[btree][tree][transac
         }
 
         root_page_id = tree.root_page_id();
-        REQUIRE(tree.validate().ok());
+        REQUIRE(validate_btree(pager, tree).ok());
         REQUIRE(pager.commit_transaction().ok());
         REQUIRE(pager.close().ok());
     }
@@ -1706,7 +1708,7 @@ TEST_CASE("BTree committed inserts survive Pager reopen", "[btree][tree][transac
     REQUIRE(reopened_tree_result.ok());
 
     auto& reopened_tree = reopened_tree_result.value();
-    REQUIRE(reopened_tree.validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_tree).ok());
     require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_found_value(reopened_tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
     require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
@@ -1750,7 +1752,7 @@ TEST_CASE("BTree rolled back inserts do not survive Pager reopen", "[btree][tree
         }
 
         REQUIRE(tree.root_page_id() != root_page_id);
-        REQUIRE(tree.validate().ok());
+        REQUIRE(validate_btree(pager, tree).ok());
         REQUIRE(pager.rollback_transaction().ok());
         REQUIRE(pager.close().ok());
     }
@@ -1763,7 +1765,7 @@ TEST_CASE("BTree rolled back inserts do not survive Pager reopen", "[btree][tree
     REQUIRE(reopened_tree_result.ok());
 
     auto& reopened_tree = reopened_tree_result.value();
-    REQUIRE(reopened_tree.validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_tree).ok());
     require_missing_key(reopened_tree, 10);
     require_missing_key(reopened_tree, 20);
     require_missing_key(reopened_tree, 30);
@@ -1816,7 +1818,7 @@ TEST_CASE("BTree committed deletes survive Pager reopen", "[btree][tree][transac
         REQUIRE(tree.erase(key_20).ok());
 
         root_page_id = tree.root_page_id();
-        REQUIRE(tree.validate().ok());
+        REQUIRE(validate_btree(pager, tree).ok());
         REQUIRE(pager.commit_transaction().ok());
         REQUIRE(pager.close().ok());
     }
@@ -1829,7 +1831,7 @@ TEST_CASE("BTree committed deletes survive Pager reopen", "[btree][tree][transac
     REQUIRE(reopened_tree_result.ok());
 
     auto& reopened_tree = reopened_tree_result.value();
-    REQUIRE(reopened_tree.validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_tree).ok());
     require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_missing_key(reopened_tree, 20);
     require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
@@ -1866,7 +1868,7 @@ TEST_CASE("BTree rolled back deletes do not survive Pager reopen", "[btree][tree
 
         auto key_20 = make_key(20);
         REQUIRE(tree.erase(key_20).ok());
-        REQUIRE(tree.validate().ok());
+        REQUIRE(validate_btree(pager, tree).ok());
 
         REQUIRE(pager.rollback_transaction().ok());
         REQUIRE(pager.close().ok());
@@ -1880,7 +1882,7 @@ TEST_CASE("BTree rolled back deletes do not survive Pager reopen", "[btree][tree
     REQUIRE(reopened_tree_result.ok());
 
     auto& reopened_tree = reopened_tree_result.value();
-    REQUIRE(reopened_tree.validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_tree).ok());
     require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_found_value(reopened_tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
     require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
@@ -1915,7 +1917,7 @@ TEST_CASE("BTree checkpoint preserves committed tree changes after Pager reopen"
         REQUIRE(tree.erase(key_20).ok());
 
         root_page_id = tree.root_page_id();
-        REQUIRE(tree.validate().ok());
+        REQUIRE(validate_btree(pager, tree).ok());
         REQUIRE(pager.commit_transaction().ok());
         REQUIRE(pager.checkpoint().ok());
         REQUIRE(pager.close().ok());
@@ -1929,7 +1931,7 @@ TEST_CASE("BTree checkpoint preserves committed tree changes after Pager reopen"
     REQUIRE(reopened_tree_result.ok());
 
     auto& reopened_tree = reopened_tree_result.value();
-    REQUIRE(reopened_tree.validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_tree).ok());
     require_found_value(reopened_tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_missing_key(reopened_tree, 20);
     require_found_value(reopened_tree, 30, SMALL_LEAF_VALUE_SIZE, 30);

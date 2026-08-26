@@ -42,7 +42,6 @@ add_library(dandb_core STATIC
     src/record/Value.cpp
     src/btree/BTreePage.cpp
     src/btree/BTree.cpp
-    src/btree/BTreeValidator.cpp
     src/btree/BTreeCursor.cpp
     src/catalog/TableDescriptor.cpp
     src/catalog/ColumnDescriptor.cpp
@@ -108,6 +107,7 @@ add_executable(dandb_tests
     tests/record/Schema.cpp
     tests/record/Value.cpp
     tests/storage/PageId.cpp
+    tests/testutil/BTreeValidator.cpp
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
     tests/platform/DatabasePath.cpp

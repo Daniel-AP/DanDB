@@ -3,7 +3,6 @@
 #include <dandb/btree/BTreeInternalPage.h>
 #include <dandb/btree/BTreeLeafPage.h>
 #include <dandb/btree/BTreePage.h>
-#include <dandb/btree/BTreeValidator.h>
 #include <dandb/core/Status.h>
 #include <dandb/storage/Page.h>
 #include <dandb/storage/PageHandle.h>
@@ -564,10 +563,6 @@ namespace dandb::btree {
 
         }
 
-    }
-
-    core::Status BTree::validate() const {
-        return BTreeValidator::validate(*pager_, root_page_id_, key_size_, value_size_);
     }
 
     storage::PageId BTree::root_page_id() const {

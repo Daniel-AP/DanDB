@@ -1,4 +1,4 @@
-#include <dandb/btree/BTreeValidator.h>
+#include <testutil/BTreeValidator.h>
 
 #include <dandb/btree/BTreeInternalPage.h>
 #include <dandb/btree/BTreeLeafPage.h>
@@ -12,7 +12,12 @@
 #include <vector>
 #include <unordered_set>
 
-namespace dandb::btree {
+namespace dandb::testutil {
+
+    using btree::BTreeInternalPage;
+    using btree::BTreeLeafPage;
+    using btree::BTreePage;
+    using btree::BTreePageKind;
     namespace {
 
         struct KeyRange {
@@ -402,12 +407,14 @@ namespace dandb::btree {
 
     }
 
-    core::Status BTreeValidator::validate(
+    core::Status validate_btree(
         storage::Pager& pager,
-        storage::PageId root_page_id,
-        std::uint16_t key_size,
-        std::uint16_t value_size
+        const btree::BTree& tree
     ) {
+
+        const auto root_page_id = tree.root_page_id();
+        const auto key_size = tree.key_size();
+        const auto value_size = tree.value_size();
 
         if(!root_page_id.is_valid()) {
             return core::Status::InvalidArgument("Cannot validate B+ tree: root page id is invalid");

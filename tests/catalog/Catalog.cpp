@@ -9,6 +9,7 @@
 #include <dandb/record/LogicalType.h>
 #include <dandb/record/Schema.h>
 #include <dandb/storage/Pager.h>
+#include <testutil/BTreeValidator.h>
 #include <testutil/TempDir.h>
 
 #include <cstddef>
@@ -24,6 +25,7 @@ using dandb::record::Column;
 using dandb::record::LogicalType;
 using dandb::record::Schema;
 using dandb::storage::Pager;
+using dandb::testutil::validate_btree;
 using dandb::testutil::TempDir;
 
 namespace {
@@ -277,7 +279,7 @@ TEST_CASE("Catalog creates table metadata that survives reopening", "[catalog][c
             static_cast<std::uint16_t>(schema.row_size())
         );
         REQUIRE(table_tree_result.ok());
-        REQUIRE(table_tree_result.value().validate().ok());
+        REQUIRE(validate_btree(pager, table_tree_result.value()).ok());
 
         REQUIRE(pager.close().ok());
     }
@@ -368,7 +370,7 @@ TEST_CASE("Catalog creates an internal index for a unique column", "[catalog][cr
         static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
     );
     REQUIRE(unique_tree_result.ok());
-    REQUIRE(unique_tree_result.value().validate().ok());
+    REQUIRE(validate_btree(pager, unique_tree_result.value()).ok());
 
     REQUIRE(pager.close().ok());
 
@@ -409,7 +411,7 @@ TEST_CASE("Catalog creates an internal index for a unique column", "[catalog][cr
         static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
     );
     REQUIRE(reopened_unique_tree_result.ok());
-    REQUIRE(reopened_unique_tree_result.value().validate().ok());
+    REQUIRE(validate_btree(reopened_pager, reopened_unique_tree_result.value()).ok());
 
     REQUIRE(reopened_pager.close().ok());
 }
@@ -496,7 +498,7 @@ TEST_CASE("Catalog creates secondary index metadata that survives reopening", "[
             static_cast<std::uint16_t>(schema.primary_key_column().logical_type().fixed_size())
         );
         REQUIRE(index_tree_result.ok());
-        REQUIRE(index_tree_result.value().validate().ok());
+        REQUIRE(validate_btree(pager, index_tree_result.value()).ok());
 
         REQUIRE(pager.close().ok());
     }
