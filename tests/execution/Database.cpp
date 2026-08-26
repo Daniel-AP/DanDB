@@ -1406,6 +1406,258 @@ TEST_CASE("Database maintains non-unique indexes on UPDATE", "[execution][databa
     REQUIRE(pager_result.value().close().ok());
 }
 
+TEST_CASE("Database updates matching rows through a non-unique secondary index", "[execution][database][dml][update][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "name STRING(64)"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+        "INSERT INTO users VALUES (3, 30, 'Linus');"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET name = 'Updated' WHERE age = 20;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 2);
+
+    const auto select_results = database.execute("SELECT id, name FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 3);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(1).as_string() == "Updated");
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(select_results[0].row_set->rows[1].value(1).as_string() == "Updated");
+    REQUIRE(select_results[0].row_set->rows[2].value(0).as_integer() == 3);
+    REQUIRE(select_results[0].row_set->rows[2].value(1).as_string() == "Linus");
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database updates one row through a unique secondary index", "[execution][database][dml][update][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "code INT64 UNIQUE, "
+        "name STRING(64)"
+        ");"
+        "INSERT INTO users VALUES (1, 10, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+        "INSERT INTO users VALUES (3, 30, 'Linus');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET name = 'Updated' WHERE code = 20;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id, name FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 3);
+    REQUIRE(select_results[0].row_set->rows[0].value(1).as_string() == "Ada");
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(select_results[0].row_set->rows[1].value(1).as_string() == "Updated");
+    REQUIRE(select_results[0].row_set->rows[2].value(1).as_string() == "Linus");
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database updates an indexed predicate column without skipping rows", "[execution][database][dml][update][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 20);"
+        "INSERT INTO users VALUES (3, 30);"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET age = 30 WHERE age = 20;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 2);
+
+    const auto old_age_results = database.execute("SELECT id FROM users WHERE age = 20;");
+
+    REQUIRE(old_age_results.size() == 1);
+    REQUIRE(old_age_results[0].status.ok());
+    REQUIRE(old_age_results[0].row_set.has_value());
+    REQUIRE(old_age_results[0].row_set->rows.empty());
+
+    const auto new_age_results = database.execute("SELECT id FROM users WHERE age = 30;");
+
+    REQUIRE(new_age_results.size() == 1);
+    REQUIRE(new_age_results[0].status.ok());
+    REQUIRE(new_age_results[0].row_set.has_value());
+    REQUIRE(new_age_results[0].row_set->rows.size() == 3);
+    REQUIRE(new_age_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(new_age_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(new_age_results[0].row_set->rows[2].value(0).as_integer() == 3);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database falls back to a table scan for an unindexed UPDATE predicate", "[execution][database][dml][update][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "name STRING(64)"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20, 'Ada');"
+        "INSERT INTO users VALUES (2, 20, 'Grace');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET age = 30 WHERE name = 'Grace';");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.ok());
+    REQUIRE(update_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id, age FROM users;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 2);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(1).as_integer() == 20);
+    REQUIRE(select_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(select_results[0].row_set->rows[1].value(1).as_integer() == 30);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database restores rows and indexes after a secondary-index UPDATE fails", "[execution][database][dml][update][index]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "code INT64 UNIQUE"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20, 10);"
+        "INSERT INTO users VALUES (2, 20, 20);"
+        "INSERT INTO users VALUES (3, 30, 30);"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_results = database.execute("UPDATE users SET code = 30 WHERE age = 20;");
+
+    REQUIRE(update_results.size() == 1);
+    REQUIRE(update_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE_FALSE(update_results[0].rows_affected.has_value());
+
+    const auto table_results = database.execute("SELECT id, age, code FROM users;");
+
+    REQUIRE(table_results.size() == 1);
+    REQUIRE(table_results[0].status.ok());
+    REQUIRE(table_results[0].row_set.has_value());
+    REQUIRE(table_results[0].row_set->rows.size() == 3);
+    REQUIRE(table_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(table_results[0].row_set->rows[0].value(1).as_integer() == 20);
+    REQUIRE(table_results[0].row_set->rows[0].value(2).as_integer() == 10);
+    REQUIRE(table_results[0].row_set->rows[1].value(0).as_integer() == 2);
+    REQUIRE(table_results[0].row_set->rows[1].value(1).as_integer() == 20);
+    REQUIRE(table_results[0].row_set->rows[1].value(2).as_integer() == 20);
+    REQUIRE(table_results[0].row_set->rows[2].value(0).as_integer() == 3);
+    REQUIRE(table_results[0].row_set->rows[2].value(1).as_integer() == 30);
+    REQUIRE(table_results[0].row_set->rows[2].value(2).as_integer() == 30);
+
+    const auto age_lookup_results = database.execute("SELECT id FROM users WHERE age = 20;");
+
+    REQUIRE(age_lookup_results.size() == 1);
+    REQUIRE(age_lookup_results[0].status.ok());
+    REQUIRE(age_lookup_results[0].row_set.has_value());
+    REQUIRE(age_lookup_results[0].row_set->rows.size() == 2);
+    REQUIRE(age_lookup_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(age_lookup_results[0].row_set->rows[1].value(0).as_integer() == 2);
+
+    const auto code_lookup_results = database.execute("SELECT id FROM users WHERE code = 10;");
+
+    REQUIRE(code_lookup_results.size() == 1);
+    REQUIRE(code_lookup_results[0].status.ok());
+    REQUIRE(code_lookup_results[0].row_set.has_value());
+    REQUIRE(code_lookup_results[0].row_set->rows.size() == 1);
+    REQUIRE(code_lookup_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database rolls back a multi-row UPDATE that duplicates a unique index", "[execution][database][dml][update][index]") {
     const TempDir temp_dir;
 
