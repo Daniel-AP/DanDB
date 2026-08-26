@@ -485,6 +485,8 @@ namespace dandb::execution {
         auto tokens_result = lexer.tokenize();
 
         if(!tokens_result.ok()) {
+            if(tokens_result.status().code() != core::StatusCode::IncompleteInput && pager_->in_transaction()) pager_->mark_transaction_failed();
+
             return { ExecutionResult{tokens_result.status()} };
         }
 
