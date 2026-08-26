@@ -1748,6 +1748,223 @@ TEST_CASE("Database executes SELECT statements", "[execution][database][dml][sel
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database evaluates predicates for every logical type", "[execution][database][dml][predicate]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE predicate_values ("
+        "id INT64 PRIMARY KEY, "
+        "int8_value INT8 NOT NULL, "
+        "int16_value INT16 NOT NULL, "
+        "int32_value INT32 NOT NULL, "
+        "int64_value INT64 NOT NULL, "
+        "double_value DOUBLE NOT NULL, "
+        "string_value STRING(16) NOT NULL, "
+        "bool_value BOOL NOT NULL"
+        ");"
+        "INSERT INTO predicate_values VALUES (1, 1, 10, 100, 1000, 1.5, 'Ada', FALSE);"
+        "INSERT INTO predicate_values VALUES (2, 2, 20, 200, 2000, 2.5, 'Grace', TRUE);"
+        "INSERT INTO predicate_values VALUES (3, 3, 30, 300, 3000, 3.5, 'Linus', TRUE);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto require_selected_ids = [&database](
+        std::string_view statement_text,
+        const std::vector<std::int64_t>& expected_ids
+    ) {
+        const auto results = database.execute(statement_text);
+
+        INFO(statement_text);
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+
+        const auto& row_set = *results[0].row_set;
+        REQUIRE(row_set.rows.size() == expected_ids.size());
+        for(std::size_t index = 0; index < expected_ids.size(); ++index) {
+            REQUIRE(row_set.rows[index].value(0).as_integer() == expected_ids[index]);
+        }
+    };
+
+    require_selected_ids("SELECT id FROM predicate_values WHERE int8_value < 2;", { 1 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE int16_value <= 20;", { 1, 2 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE int32_value > 100;", { 2, 3 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE int64_value >= 3000;", { 3 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE double_value = 2.5;", { 2 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE string_value != 'Grace';", { 1, 3 });
+    require_selected_ids("SELECT id FROM predicate_values WHERE bool_value = TRUE;", { 2, 3 });
+
+    const auto incompatible_type_results = database.execute(
+        "SELECT id FROM predicate_values WHERE int8_value = '1';"
+    );
+
+    REQUIRE(incompatible_type_results.size() == 1);
+    REQUIRE(incompatible_type_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database applies NULL predicate rules across statements", "[execution][database][dml][predicate]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "value STRING(16), "
+        "label STRING(16) NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, NULL, 'Missing');"
+        "INSERT INTO users VALUES (2, 'Ada', 'Ada');"
+        "INSERT INTO users VALUES (3, 'Linus', 'Linus');"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const std::vector<std::string_view> comparison_operators{
+        "=", "!=", "<", "<=", ">", ">="
+    };
+
+    for(const auto comparison_operator: comparison_operators) {
+        const auto statement_text = std::string("SELECT id FROM users WHERE value ")
+            +std::string(comparison_operator)+" NULL;";
+        const auto results = database.execute(statement_text);
+
+        INFO(statement_text);
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+        REQUIRE(results[0].row_set->rows.empty());
+    }
+
+    const auto update_null_results = database.execute(
+        "UPDATE users SET label = 'Updated' WHERE value IS NULL;"
+    );
+
+    REQUIRE(update_null_results.size() == 1);
+    REQUIRE(update_null_results[0].status.ok());
+    REQUIRE(update_null_results[0].rows_affected == 1);
+
+    const auto update_comparison_results = database.execute(
+        "UPDATE users SET label = 'Invalid' WHERE value != NULL;"
+    );
+
+    REQUIRE(update_comparison_results.size() == 1);
+    REQUIRE(update_comparison_results[0].status.ok());
+    REQUIRE(update_comparison_results[0].rows_affected == 0);
+
+    const auto delete_comparison_results = database.execute(
+        "DELETE FROM users WHERE value < NULL;"
+    );
+
+    REQUIRE(delete_comparison_results.size() == 1);
+    REQUIRE(delete_comparison_results[0].status.ok());
+    REQUIRE(delete_comparison_results[0].rows_affected == 0);
+
+    const auto delete_not_null_results = database.execute(
+        "DELETE FROM users WHERE value IS NOT NULL;"
+    );
+
+    REQUIRE(delete_not_null_results.size() == 1);
+    REQUIRE(delete_not_null_results[0].status.ok());
+    REQUIRE(delete_not_null_results[0].rows_affected == 2);
+
+    const auto remaining_rows_results = database.execute("SELECT id, label FROM users;");
+
+    REQUIRE(remaining_rows_results.size() == 1);
+    REQUIRE(remaining_rows_results[0].status.ok());
+    REQUIRE(remaining_rows_results[0].row_set.has_value());
+    REQUIRE(remaining_rows_results[0].row_set->rows.size() == 1);
+    REQUIRE(remaining_rows_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(remaining_rows_results[0].row_set->rows[0].value(1).as_string() == "Updated");
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database returns the same predicate matches with and without an index", "[execution][database][dml][predicate][index]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "indexed_value INT64 NOT NULL, "
+        "table_scan_value INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_indexed_value ON users(indexed_value);"
+        "INSERT INTO users VALUES (1, 20, 20);"
+        "INSERT INTO users VALUES (2, 30, 30);"
+        "INSERT INTO users VALUES (3, 20, 20);"
+        "INSERT INTO users VALUES (4, 10, 10);"
+    );
+
+    REQUIRE(setup_results.size() == 6);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto selected_ids = [&database](std::string_view statement_text) {
+        const auto results = database.execute(statement_text);
+
+        INFO(statement_text);
+        REQUIRE(results.size() == 1);
+        REQUIRE(results[0].status.ok());
+        REQUIRE(results[0].row_set.has_value());
+
+        std::vector<std::int64_t> ids;
+        ids.reserve(results[0].row_set->rows.size());
+        for(const auto& row: results[0].row_set->rows) {
+            ids.push_back(row.value(0).as_integer());
+        }
+
+        std::sort(ids.begin(), ids.end());
+        return ids;
+    };
+
+    const auto require_equivalent_matches = [&selected_ids](
+        std::string_view comparison_operator,
+        const std::vector<std::int64_t>& expected_ids
+    ) {
+        const auto indexed_statement = std::string("SELECT id FROM users WHERE indexed_value ")
+            +std::string(comparison_operator)+" 20;";
+        const auto table_scan_statement = std::string("SELECT id FROM users WHERE table_scan_value ")
+            +std::string(comparison_operator)+" 20;";
+
+        const auto indexed_ids = selected_ids(indexed_statement);
+        const auto table_scan_ids = selected_ids(table_scan_statement);
+
+        INFO(comparison_operator);
+        REQUIRE(indexed_ids == expected_ids);
+        REQUIRE(table_scan_ids == expected_ids);
+    };
+
+    require_equivalent_matches("=", { 1, 3 });
+    require_equivalent_matches("!=", { 2, 4 });
+    require_equivalent_matches("<", { 4 });
+    require_equivalent_matches("<=", { 1, 3, 4 });
+    require_equivalent_matches(">", { 2 });
+    require_equivalent_matches(">=", { 1, 2, 3 });
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database selects through a non-unique secondary index", "[execution][database][dml][select][index]") {
     const TempDir temp_dir;
 
