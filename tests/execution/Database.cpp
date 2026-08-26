@@ -2907,3 +2907,109 @@ TEST_CASE("Database restores a non-unique index entry after DELETE rollback", "[
     REQUIRE(index_entry_result.value() == id_key);
     REQUIRE(pager_result.value().close().ok());
 }
+
+TEST_CASE("Database preserves indexed rows through rollback, recovery, and checkpoint", "[execution][database][d12-t11]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "email STRING(64) UNIQUE, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 'ada@example.com', 20);"
+        "INSERT INTO users VALUES (2, 'grace@example.com', 30);"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto rollback_results = database.execute(
+        "BEGIN;"
+        "UPDATE users SET age = 25 WHERE age = 20;"
+        "DELETE FROM users WHERE email = 'grace@example.com';"
+        "ROLLBACK;"
+    );
+
+    REQUIRE(rollback_results.size() == 4);
+    for(const auto& result: rollback_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto rollback_state_results = database.execute(
+        "SELECT id FROM users WHERE age = 20;"
+        "SELECT id FROM users WHERE email = 'grace@example.com';"
+    );
+
+    REQUIRE(rollback_state_results.size() == 2);
+    REQUIRE(rollback_state_results[0].status.ok());
+    REQUIRE(rollback_state_results[0].row_set.has_value());
+    REQUIRE(rollback_state_results[0].row_set->rows.size() == 1);
+    REQUIRE(rollback_state_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(rollback_state_results[1].status.ok());
+    REQUIRE(rollback_state_results[1].row_set.has_value());
+    REQUIRE(rollback_state_results[1].row_set->rows.size() == 1);
+    REQUIRE(rollback_state_results[1].row_set->rows[0].value(0).as_integer() == 2);
+
+    const auto commit_results = database.execute(
+        "BEGIN;"
+        "UPDATE users SET age = 25 WHERE age = 20;"
+        "DELETE FROM users WHERE email = 'grace@example.com';"
+        "COMMIT;"
+    );
+
+    REQUIRE(commit_results.size() == 4);
+    for(const auto& result: commit_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database.close().ok());
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id FROM users WHERE age = 25;"
+        "SELECT id FROM users WHERE email = 'grace@example.com';"
+        "CHECKPOINT;"
+    );
+
+    REQUIRE(recovery_results.size() == 3);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.empty());
+    REQUIRE(recovery_results[2].status.ok());
+    REQUIRE(recovered_database.close().ok());
+
+    auto checkpointed_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(checkpointed_database_result.ok());
+
+    auto& checkpointed_database = checkpointed_database_result.value();
+    const auto checkpointed_results = checkpointed_database.execute(
+        "SELECT id FROM users WHERE email = 'ada@example.com';"
+        "INSERT INTO users VALUES (2, 'ada@example.com', 30);"
+    );
+
+    REQUIRE(checkpointed_results.size() == 2);
+    REQUIRE(checkpointed_results[0].status.ok());
+    REQUIRE(checkpointed_results[0].row_set.has_value());
+    REQUIRE(checkpointed_results[0].row_set->rows.size() == 1);
+    REQUIRE(checkpointed_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(checkpointed_results[1].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(checkpointed_database.close().ok());
+}
