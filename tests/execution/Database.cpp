@@ -2,6 +2,7 @@
 
 #include <dandb/btree/BTree.h>
 #include <dandb/catalog/Catalog.h>
+#include <dandb/catalog/IndexDescriptor.h>
 #include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
 #include <dandb/execution/Database.h>
@@ -38,6 +39,73 @@ namespace {
         const auto key_result = KeyCodec::encode(Value::int64(value));
         REQUIRE(key_result.ok());
         return key_result.value();
+
+    }
+
+    BTree open_int64_index_tree(
+        Pager& pager,
+        const dandb::catalog::IndexDescriptor& index_descriptor
+    ) {
+
+        const std::uint16_t key_size = index_descriptor.unique() ? 8 : 16;
+        auto index_tree_result = BTree::open_existing(
+            pager,
+            index_descriptor.root_page_id(),
+            key_size,
+            static_cast<std::uint16_t>(8)
+        );
+        REQUIRE(index_tree_result.ok());
+        return std::move(index_tree_result.value());
+
+    }
+
+    std::vector<std::byte> int64_index_key(
+        const dandb::catalog::IndexDescriptor& index_descriptor,
+        std::int64_t indexed_value,
+        std::int64_t primary_key
+    ) {
+
+        auto key = encode_int64_key(indexed_value);
+        if(!index_descriptor.unique()) {
+            const auto primary_key_bytes = encode_int64_key(primary_key);
+            key.insert(key.end(), primary_key_bytes.begin(), primary_key_bytes.end());
+        }
+
+        return key;
+
+    }
+
+    void require_int64_index_entry(
+        Pager& pager,
+        const dandb::catalog::IndexDescriptor& index_descriptor,
+        std::int64_t indexed_value,
+        std::int64_t primary_key
+    ) {
+
+        auto index_tree = open_int64_index_tree(pager, index_descriptor);
+        const auto entry_result = index_tree.find(
+            int64_index_key(index_descriptor, indexed_value, primary_key)
+        );
+
+        REQUIRE(entry_result.ok());
+        REQUIRE(entry_result.value() == encode_int64_key(primary_key));
+
+    }
+
+    void require_missing_int64_index_entry(
+        Pager& pager,
+        const dandb::catalog::IndexDescriptor& index_descriptor,
+        std::int64_t indexed_value,
+        std::int64_t primary_key
+    ) {
+
+        auto index_tree = open_int64_index_tree(pager, index_descriptor);
+        const auto entry_result = index_tree.find(
+            int64_index_key(index_descriptor, indexed_value, primary_key)
+        );
+
+        REQUIRE_FALSE(entry_result.ok());
+        REQUIRE(entry_result.status().code() == StatusCode::NotFound);
 
     }
 
@@ -348,6 +416,152 @@ TEST_CASE("Database rejects a duplicate unique index without persisting metadata
     const auto* table_descriptor = catalog_result.value().find_table("users");
     REQUIRE(table_descriptor != nullptr);
     REQUIRE(catalog_result.value().indexes_for_table(table_descriptor->table_id()).size() == 1);
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "[execution][database][ddl][create-index][d12-t09]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "account_code INT64 UNIQUE, "
+        "tax_code INT64 UNIQUE, "
+        "age INT64 NOT NULL, "
+        "score INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "CREATE UNIQUE INDEX users_by_score ON users(score);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto duplicate_primary_index_results = database.execute(
+        "CREATE INDEX users_by_id ON users(id);"
+    );
+    REQUIRE(duplicate_primary_index_results.size() == 1);
+    REQUIRE(duplicate_primary_index_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(duplicate_primary_index_results[0].status.message() == "Cannot create index: column already has an index");
+
+    const auto duplicate_internal_unique_index_results = database.execute(
+        "CREATE INDEX users_by_account_code ON users(account_code);"
+    );
+    REQUIRE(duplicate_internal_unique_index_results.size() == 1);
+    REQUIRE(duplicate_internal_unique_index_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(duplicate_internal_unique_index_results[0].status.message() == "Cannot create index: column already has an index");
+
+    const auto duplicate_user_index_results = database.execute(
+        "CREATE INDEX users_by_age_again ON users(age);"
+    );
+    REQUIRE(duplicate_user_index_results.size() == 1);
+    REQUIRE(duplicate_user_index_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(duplicate_user_index_results[0].status.message() == "Cannot create index: column already has an index");
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+    const auto& catalog = catalog_result.value();
+
+    const auto* table_descriptor = catalog.find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+
+    const auto indexes = catalog.indexes_for_table(table_descriptor->table_id());
+    REQUIRE(indexes.size() == 5);
+
+    std::size_t primary_index_count = 0;
+    std::size_t internal_unique_index_count = 0;
+    for(const auto& index: indexes) {
+        if(index.primary()) {
+            primary_index_count++;
+        } else if(index.internal() && index.unique()) {
+            internal_unique_index_count++;
+        }
+    }
+
+    REQUIRE(primary_index_count == 1);
+    REQUIRE(internal_unique_index_count == 2);
+
+    const auto* age_index = catalog.find_index("users_by_age");
+    REQUIRE(age_index != nullptr);
+    REQUIRE_FALSE(age_index->unique());
+    REQUIRE_FALSE(age_index->primary());
+    REQUIRE_FALSE(age_index->internal());
+
+    const auto* score_index = catalog.find_index("users_by_score");
+    REQUIRE(score_index != nullptr);
+    REQUIRE(score_index->unique());
+    REQUIRE_FALSE(score_index->primary());
+    REQUIRE_FALSE(score_index->internal());
+
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database drops one user index while another remains usable", "[execution][database][ddl][drop-index][d12-t09]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL, "
+        "score INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "CREATE UNIQUE INDEX users_by_score ON users(score);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto drop_index_results = database.execute("DROP INDEX users_by_age;");
+    REQUIRE(drop_index_results.size() == 1);
+    INFO(drop_index_results[0].status.message());
+    REQUIRE(drop_index_results[0].status.ok());
+
+    const auto insert_results = database.execute("INSERT INTO users VALUES (1, 20, 30);");
+    REQUIRE(insert_results.size() == 1);
+    INFO(insert_results[0].status.message());
+    REQUIRE(insert_results[0].status.ok());
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+    const auto& catalog = catalog_result.value();
+
+    REQUIRE(catalog.find_index("users_by_age") == nullptr);
+
+    const auto* score_index = catalog.find_index("users_by_score");
+    REQUIRE(score_index != nullptr);
+    REQUIRE(score_index->unique());
+    REQUIRE_FALSE(score_index->internal());
+    require_int64_index_entry(pager_result.value(), *score_index, 30, 1);
+
     REQUIRE(pager_result.value().close().ok());
 
 }
@@ -995,6 +1209,194 @@ TEST_CASE("Database maintains user-created unique indexes on INSERT", "[executio
     REQUIRE(code_result.ok());
     REQUIRE(code_result.value() == id_one_key);
     REQUIRE(pager_result.value().close().ok());
+}
+
+TEST_CASE("Database maintains every secondary index with multiple user indexes", "[execution][database][dml][index][d12-t09]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "account_code INT64 UNIQUE, "
+        "tax_code INT64 UNIQUE, "
+        "age INT64 NOT NULL, "
+        "score INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "CREATE UNIQUE INDEX users_by_score ON users(score);"
+        "INSERT INTO users VALUES (1, 101, 1001, 20, 30);"
+        "INSERT INTO users VALUES (2, 102, 1002, 20, 31);"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto update_age_results = database.execute("UPDATE users SET age = 21 WHERE id = 1;");
+    REQUIRE(update_age_results.size() == 1);
+    INFO(update_age_results[0].status.message());
+    REQUIRE(update_age_results[0].status.ok());
+    REQUIRE(update_age_results[0].rows_affected == 1);
+
+    const auto update_score_results = database.execute("UPDATE users SET score = 32 WHERE id = 1;");
+    REQUIRE(update_score_results.size() == 1);
+    INFO(update_score_results[0].status.message());
+    REQUIRE(update_score_results[0].status.ok());
+    REQUIRE(update_score_results[0].rows_affected == 1);
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+    const auto& catalog = catalog_result.value();
+
+    const auto* table_descriptor = catalog.find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+
+    const auto* account_code_column = catalog.find_column(table_descriptor->table_id(), "account_code");
+    REQUIRE(account_code_column != nullptr);
+
+    const auto* tax_code_column = catalog.find_column(table_descriptor->table_id(), "tax_code");
+    REQUIRE(tax_code_column != nullptr);
+
+    const dandb::catalog::IndexDescriptor* account_code_index = nullptr;
+    const dandb::catalog::IndexDescriptor* tax_code_index = nullptr;
+    for(const auto& index: catalog.indexes_for_table(table_descriptor->table_id())) {
+        if(index.internal() && index.indexed_column_id() == account_code_column->column_id()) {
+            account_code_index = &index;
+        }
+        if(index.internal() && index.indexed_column_id() == tax_code_column->column_id()) {
+            tax_code_index = &index;
+        }
+    }
+
+    REQUIRE(account_code_index != nullptr);
+    REQUIRE(tax_code_index != nullptr);
+
+    const auto* age_index = catalog.find_index("users_by_age");
+    REQUIRE(age_index != nullptr);
+
+    const auto* score_index = catalog.find_index("users_by_score");
+    REQUIRE(score_index != nullptr);
+
+    require_int64_index_entry(pager_result.value(), *account_code_index, 101, 1);
+    require_int64_index_entry(pager_result.value(), *account_code_index, 102, 2);
+    require_int64_index_entry(pager_result.value(), *tax_code_index, 1001, 1);
+    require_int64_index_entry(pager_result.value(), *tax_code_index, 1002, 2);
+
+    require_missing_int64_index_entry(pager_result.value(), *age_index, 20, 1);
+    require_int64_index_entry(pager_result.value(), *age_index, 21, 1);
+    require_int64_index_entry(pager_result.value(), *age_index, 20, 2);
+
+    require_missing_int64_index_entry(pager_result.value(), *score_index, 30, 1);
+    require_int64_index_entry(pager_result.value(), *score_index, 32, 1);
+    require_int64_index_entry(pager_result.value(), *score_index, 31, 2);
+
+    REQUIRE(pager_result.value().close().ok());
+
+}
+
+TEST_CASE("Database removes entries from every secondary index with multiple user indexes", "[execution][database][dml][delete][index][d12-t09]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "account_code INT64 UNIQUE, "
+        "tax_code INT64 UNIQUE, "
+        "age INT64 NOT NULL, "
+        "score INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "CREATE UNIQUE INDEX users_by_score ON users(score);"
+        "INSERT INTO users VALUES (1, 101, 1001, 20, 30);"
+        "INSERT INTO users VALUES (2, 102, 1002, 20, 31);"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto delete_results = database.execute("DELETE FROM users WHERE id = 1;");
+    REQUIRE(delete_results.size() == 1);
+    INFO(delete_results[0].status.message());
+    REQUIRE(delete_results[0].status.ok());
+    REQUIRE(delete_results[0].rows_affected == 1);
+
+    const auto select_results = database.execute("SELECT id FROM users;");
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.ok());
+    REQUIRE(select_results[0].row_set.has_value());
+    REQUIRE(select_results[0].row_set->rows.size() == 1);
+    REQUIRE(select_results[0].row_set->rows[0].value(0).as_integer() == 2);
+
+    REQUIRE(database.close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    auto catalog_result = Catalog::load(pager_result.value());
+    REQUIRE(catalog_result.ok());
+    const auto& catalog = catalog_result.value();
+
+    const auto* table_descriptor = catalog.find_table("users");
+    REQUIRE(table_descriptor != nullptr);
+
+    const auto* account_code_column = catalog.find_column(table_descriptor->table_id(), "account_code");
+    REQUIRE(account_code_column != nullptr);
+
+    const auto* tax_code_column = catalog.find_column(table_descriptor->table_id(), "tax_code");
+    REQUIRE(tax_code_column != nullptr);
+
+    const dandb::catalog::IndexDescriptor* account_code_index = nullptr;
+    const dandb::catalog::IndexDescriptor* tax_code_index = nullptr;
+    for(const auto& index: catalog.indexes_for_table(table_descriptor->table_id())) {
+        if(index.internal() && index.indexed_column_id() == account_code_column->column_id()) {
+            account_code_index = &index;
+        }
+        if(index.internal() && index.indexed_column_id() == tax_code_column->column_id()) {
+            tax_code_index = &index;
+        }
+    }
+
+    REQUIRE(account_code_index != nullptr);
+    REQUIRE(tax_code_index != nullptr);
+
+    const auto* age_index = catalog.find_index("users_by_age");
+    REQUIRE(age_index != nullptr);
+
+    const auto* score_index = catalog.find_index("users_by_score");
+    REQUIRE(score_index != nullptr);
+
+    require_missing_int64_index_entry(pager_result.value(), *account_code_index, 101, 1);
+    require_missing_int64_index_entry(pager_result.value(), *tax_code_index, 1001, 1);
+    require_missing_int64_index_entry(pager_result.value(), *age_index, 20, 1);
+    require_missing_int64_index_entry(pager_result.value(), *score_index, 30, 1);
+
+    require_int64_index_entry(pager_result.value(), *account_code_index, 102, 2);
+    require_int64_index_entry(pager_result.value(), *tax_code_index, 1002, 2);
+    require_int64_index_entry(pager_result.value(), *age_index, 20, 2);
+    require_int64_index_entry(pager_result.value(), *score_index, 31, 2);
+
+    REQUIRE(pager_result.value().close().ok());
+
 }
 
 TEST_CASE("Database leaves indexes unchanged after a duplicate-primary-key INSERT", "[execution][database][dml][insert][index]") {
