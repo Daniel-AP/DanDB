@@ -3,57 +3,12 @@
 #include "RowValidation.h"
 
 #include <dandb/core/Status.h>
-#include <dandb/record/Column.h>
 #include <dandb/record/Value.h>
 #include <dandb/record/KeyCodec.h>
 
-#include <string>
 #include <utility>
 
 namespace dandb::record {
-
-    core::Result<Value> RowHelpers::value_by_ordinal(
-        const Schema& schema,
-        const Row& row,
-        std::size_t ordinal
-    ) {
-
-        auto row_status = validate_row_against_schema(schema, row);
-        if(!row_status.ok()) {
-            return row_status;
-        }
-
-        if(ordinal >= schema.column_count()) {
-            return core::Status::InvalidArgument("Cannot get value by ordinal: ordinal is out of bounds");
-        }
-
-        return row.value(ordinal);
-
-    }
-
-    core::Result<Value> RowHelpers::value_by_name(
-        const Schema& schema,
-        const Row& row,
-        std::string_view name
-    ) {
-
-        auto row_status = validate_row_against_schema(schema, row);
-        if(!row_status.ok()) {
-            return row_status;
-        }
-
-        for(std::size_t i = 0; i < schema.column_count(); i++) {
-
-            const Column& col = schema.column(i);
-            if(col.name() != name) continue;
-
-            return row.value(i);
-
-        }
-
-        return core::Status::NotFound("Cannot get value by name: no column with name "+std::string(name)+" exists");
-
-    }
 
     core::Result<Row> RowHelpers::build_row(
         const Schema& schema,

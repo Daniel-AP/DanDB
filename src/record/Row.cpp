@@ -18,8 +18,4 @@ namespace dandb::record {
         return values_[ordinal];
     }
 
-    bool Row::is_null(std::size_t ordinal) const {
-        return value(ordinal).is_null();
-    }
-
 }

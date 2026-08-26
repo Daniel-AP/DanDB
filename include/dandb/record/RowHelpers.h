@@ -7,24 +7,11 @@
 
 #include <cstddef>
 #include <vector>
-#include <string_view>
 
 namespace dandb::record {
 
     class RowHelpers {
         public:
-            static core::Result<Value> value_by_ordinal(
-                const Schema& schema,
-                const Row& row,
-                std::size_t ordinal
-            );
-
-            static core::Result<Value> value_by_name(
-                const Schema& schema,
-                const Row& row,
-                std::string_view name
-            );
-
             static core::Result<Row> build_row(
                 const Schema& schema,
                 std::vector<Value> values

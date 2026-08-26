@@ -14,7 +14,6 @@ namespace dandb::record {
             std::size_t value_count() const;
             const std::vector<Value>& values() const;
             const Value& value(std::size_t ordinal) const;
-            bool is_null(std::size_t ordinal) const;
         private:
             std::vector<Value> values_;
     };
