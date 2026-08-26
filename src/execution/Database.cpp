@@ -25,6 +25,30 @@ namespace {
 
     constexpr std::size_t DEFAULT_BUFFER_POOL_CAPACITY = 10;
 
+    // Predicate state
+
+    struct Absent {};
+
+    struct Impossible {};
+
+    struct NullTest {
+        const dandb::sql::BoundPredicate& predicate;
+    };
+
+    struct Comparison {
+        const dandb::sql::BoundPredicate& predicate;
+        dandb::record::Value value;
+    };
+
+    using PredicateState = std::variant<
+        Absent,
+        Impossible,
+        NullTest,
+        Comparison
+    >;
+
+    // Access paths
+
     struct FullTableScanPath {};
 
     struct PrimaryKeyRangePath {};
@@ -42,30 +66,24 @@ namespace {
     AccessPath plan_access_path(
         const dandb::record::Schema& schema,
         std::span<const dandb::catalog::IndexDescriptor> index_descriptors,
-        const std::optional<dandb::sql::BoundPredicate>& predicate
+        const PredicateState& predicate_state
     ) {
 
-        if(!predicate.has_value()) {
+        const auto* comparison = std::get_if<Comparison>(&predicate_state);
+        if(comparison == nullptr) {
             return FullTableScanPath{};
         }
 
-        const bool is_null_predicate = (
-            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNull ||
-            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNotNull
-        );
+        const auto& predicate = comparison->predicate;
 
-        if(is_null_predicate) {
-            return FullTableScanPath{};
-        }
-
-        if(predicate->column.ordinal == schema.primary_key_ordinal()) {
+        if(predicate.column.ordinal == schema.primary_key_ordinal()) {
             return PrimaryKeyRangePath{};
         }
 
         for(const auto& index_descriptor: index_descriptors) {
             if(index_descriptor.primary()) continue;
 
-            if(index_descriptor.indexed_column_id() == predicate->column.column_id) {
+            if(index_descriptor.indexed_column_id() == predicate.column.column_id) {
                 return SecondaryIndexRangePath{ index_descriptor };
             }
         }
@@ -73,6 +91,8 @@ namespace {
         return FullTableScanPath{};
 
     }
+
+    // Cursor consumption
 
     dandb::core::Status consume_table_cursors(std::vector<dandb::btree::BTreeCursor>& cursors, auto&& process_table_row) {
 
@@ -141,6 +161,8 @@ namespace {
 
     }
 
+    // Predicate resolution and evaluation
+
     dandb::core::Result<int> compare_values(const dandb::record::Value& left, const dandb::record::Value& right) {
 
         if(left.type().kind() != right.type().kind()) {
@@ -199,36 +221,85 @@ namespace {
 
     }
 
-    dandb::core::Result<bool> row_matches_predicate(
-        const dandb::record::Row& row,
-        const dandb::sql::BoundPredicate& predicate,
-        const std::optional<dandb::record::Value>& predicate_value
+    dandb::core::Result<PredicateState> resolve_predicate_state(
+        const dandb::record::Schema& schema,
+        const std::optional<dandb::sql::BoundPredicate>& predicate
     ) {
 
-        const auto& row_value = row.value(predicate.column.ordinal);
-
-        if(predicate.comparison_operator == dandb::sql::ComparisonOperator::IsNull) {
-            return row_value.is_null();
+        if(!predicate.has_value()) {
+            return PredicateState{ Absent{} };
         }
 
-        if(predicate.comparison_operator == dandb::sql::ComparisonOperator::IsNotNull) {
-            return !row_value.is_null();
+        const bool is_null_predicate = (
+            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNull ||
+            predicate->comparison_operator == dandb::sql::ComparisonOperator::IsNotNull
+        );
+        if(is_null_predicate) {
+            return PredicateState{ NullTest{ *predicate } };
         }
 
-        if(row_value.is_null()) {
-            return false;
+        if(!predicate->literal.has_value()) {
+            return dandb::core::Status::InternalError("Cannot prepare predicate: comparison predicate has no literal");
         }
 
-        if(!predicate_value.has_value()) {
-            return dandb::core::Status::InternalError("SELECT comparison predicate has no converted literal value");
+        if(predicate->literal->is_null()) {
+            return PredicateState{ Impossible{} };
         }
 
-        auto comparison_result = compare_values(row_value, *predicate_value);
-        if(!comparison_result.ok()) {
-            return comparison_result.status();
+        const auto& predicate_column = schema.column(predicate->column.ordinal);
+        auto predicate_value_result = predicate->literal->convert_to(
+            predicate_column.logical_type(),
+            predicate_column.nullable()
+        );
+        if(!predicate_value_result.ok()) {
+            return predicate_value_result.status();
         }
 
-        return comparison_matches(comparison_result.value(), predicate.comparison_operator);
+        return PredicateState{ Comparison{ *predicate, std::move(predicate_value_result.value()) } };
+
+    }
+
+    dandb::core::Result<bool> row_matches_predicate(
+        const dandb::record::Row& row,
+        const PredicateState& predicate_state
+    ) {
+
+        return std::visit(
+            [&row](const auto& state) -> dandb::core::Result<bool> {
+
+                using PredicateStateType = std::decay_t<decltype(state)>;
+
+                if constexpr(std::is_same_v<PredicateStateType, Absent>) {
+                    return true;
+                } else if constexpr(std::is_same_v<PredicateStateType, Impossible>) {
+                    return false;
+                } else {
+                    const auto& row_value = row.value(state.predicate.column.ordinal);
+
+                    if constexpr(std::is_same_v<PredicateStateType, NullTest>) {
+                        return state.predicate.comparison_operator == dandb::sql::ComparisonOperator::IsNull
+                            ? row_value.is_null()
+                            : !row_value.is_null();
+                    } else {
+                        if(row_value.is_null()) {
+                            return false;
+                        }
+
+                        auto comparison_result = compare_values(row_value, state.value);
+                        if(!comparison_result.ok()) {
+                            return comparison_result.status();
+                        }
+
+                        return comparison_matches(
+                            comparison_result.value(),
+                            state.predicate.comparison_operator
+                        );
+                    }
+                }
+
+            },
+            predicate_state
+        );
 
     }
 
@@ -836,42 +907,17 @@ namespace dandb::execution {
             row_set.column_names.push_back(schema->column(column.ordinal).name());
         }
 
-        // Convert literal to predicate type
-
-        std::optional<record::Value> predicate_value;
-
-        if(statement.predicate.has_value()) {
-            const auto& predicate = *statement.predicate;
-
-            const bool is_null_predicate = (
-                predicate.comparison_operator == sql::ComparisonOperator::IsNull ||
-                predicate.comparison_operator == sql::ComparisonOperator::IsNotNull
-            );
-
-            if(!is_null_predicate) {
-                if(!predicate.literal.has_value()) {
-                    return ExecutionResult{core::Status::InternalError("Cannot execute SELECT: comparison predicate has no literal")};
-                }
-
-                if(predicate.literal->is_null()) {
-                    return ExecutionResult{core::Status::Ok(), std::nullopt, std::move(row_set)};
-                }
-
-                const auto& predicate_column = schema->column(predicate.column.ordinal);
-
-                auto predicate_value_result = predicate.literal->convert_to(
-                    predicate_column.logical_type(),
-                    predicate_column.nullable()
-                );
-                if(!predicate_value_result.ok()) {
-                    return ExecutionResult{predicate_value_result.status()};
-                }
-
-                predicate_value = std::move(predicate_value_result.value());
-            }
+        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        if(!predicate_state_result.ok()) {
+            return ExecutionResult{predicate_state_result.status()};
         }
 
-        auto process_row_bytes = [&statement, schema, &predicate_value, &row_set](
+        auto predicate_state = std::move(predicate_state_result.value());
+        if(std::holds_alternative<Impossible>(predicate_state)) {
+            return ExecutionResult{core::Status::Ok(), std::nullopt, std::move(row_set)};
+        }
+
+        auto process_row_bytes = [&statement, schema, &predicate_state, &row_set](
             std::span<const std::byte>,
             std::span<const std::byte> row_bytes
         ) -> core::Status {
@@ -883,15 +929,13 @@ namespace dandb::execution {
 
             const auto& row = row_result.value();
 
-            if(statement.predicate.has_value()) {
-                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                if(!matches_result.ok()) {
-                    return matches_result.status();
-                }
+            auto matches_result = row_matches_predicate(row, predicate_state);
+            if(!matches_result.ok()) {
+                return matches_result.status();
+            }
 
-                if(!matches_result.value()) {
-                    return core::Status::Ok();
-                }
+            if(!matches_result.value()) {
+                return core::Status::Ok();
             }
 
             std::vector<record::Value> projected_values;
@@ -914,7 +958,7 @@ namespace dandb::execution {
         const auto access_path = plan_access_path(
             *schema,
             catalog_.indexes_for_table(statement.table_id),
-            statement.predicate
+            predicate_state
         );
 
         const auto access_path_status = std::visit(
@@ -936,18 +980,19 @@ namespace dandb::execution {
 
                 } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
 
-                    if(!predicate_value.has_value()) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute SELECT: primary-key access path has no converted literal value");
                     }
 
-                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    auto key_result = record::KeyCodec::encode(comparison->value);
                     if(!key_result.ok()) {
                         return key_result.status();
                     }
 
                     auto cursors_result = open_table_cursors(
                         table_tree,
-                        statement.predicate->comparison_operator,
+                        comparison->predicate.comparison_operator,
                         key_result.value()
                     );
                     if(!cursors_result.ok()) {
@@ -960,7 +1005,8 @@ namespace dandb::execution {
 
                 } else {
 
-                    if(!predicate_value.has_value()) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute SELECT: secondary-index access path has no converted literal value");
                     }
 
@@ -969,14 +1015,14 @@ namespace dandb::execution {
                         return index_tree_result.status();
                     }
 
-                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    auto key_result = record::KeyCodec::encode(comparison->value);
                     if(!key_result.ok()) {
                         return key_result.status();
                     }
 
                     auto cursors_result = open_secondary_index_cursors(
                         index_tree_result.value(),
-                        statement.predicate->comparison_operator,
+                        comparison->predicate.comparison_operator,
                         key_result.value()
                     );
                     if(!cursors_result.ok()) {
@@ -1152,34 +1198,14 @@ namespace dandb::execution {
         const std::vector<std::size_t> assignment_ordinals{ statement.assignment.column.ordinal };
         const std::vector<record::Value> assignment_values{ std::move(assignment_value_result.value()) };
 
-        std::optional<record::Value> predicate_value;
+        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        if(!predicate_state_result.ok()) {
+            return ExecutionResult{predicate_state_result.status()};
+        }
 
-        if(statement.predicate.has_value()) {
-
-            const auto& predicate = *statement.predicate;
-            const bool is_null_predicate = (
-                predicate.comparison_operator == sql::ComparisonOperator::IsNull ||
-                predicate.comparison_operator == sql::ComparisonOperator::IsNotNull
-            );
-
-            if(!is_null_predicate) {
-
-                if(!predicate.literal.has_value()) {
-                    return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: comparison predicate has no literal")};
-                }
-
-                if(predicate.literal->is_null()) {
-                    return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, std::size_t{ 0 }};
-                }
-
-                const auto& predicate_column = schema->column(predicate.column.ordinal);
-                auto predicate_value_result = predicate.literal->convert_to(predicate_column.logical_type(), predicate_column.nullable());
-                if(!predicate_value_result.ok()) return ExecutionResult{predicate_value_result.status()};
-
-                predicate_value = std::move(predicate_value_result.value());
-
-            }
-
+        auto predicate_state = std::move(predicate_state_result.value());
+        if(std::holds_alternative<Impossible>(predicate_state)) {
+            return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, std::size_t{ 0 }};
         }
 
         // Open the table and plan candidate access
@@ -1189,7 +1215,7 @@ namespace dandb::execution {
 
         auto table_tree = std::move(table_tree_result.value());
         const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
-        const auto access_path = plan_access_path(*schema, index_descriptors, statement.predicate);
+        const auto access_path = plan_access_path(*schema, index_descriptors, predicate_state);
 
         // Begin the statement transaction
 
@@ -1245,13 +1271,9 @@ namespace dandb::execution {
 
             const auto& row = row_result.value();
 
-            if(statement.predicate.has_value()) {
-
-                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                if(!matches_result.ok()) return matches_result.status();
-                if(!matches_result.value()) return core::Status::Ok();
-
-            }
+            auto matches_result = row_matches_predicate(row, predicate_state);
+            if(!matches_result.ok()) return matches_result.status();
+            if(!matches_result.value()) return core::Status::Ok();
 
             auto updated_row_result = record::RowHelpers::replace_non_primary_key_values(*schema, row, assignment_ordinals, assignment_values);
             if(!updated_row_result.ok()) return updated_row_result.status();
@@ -1333,19 +1355,19 @@ namespace dandb::execution {
 
                 } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
 
-                    const bool has_primary_key_predicate = (
-                        statement.predicate.has_value() &&
-                        predicate_value.has_value()
-                    );
-
-                    if(!has_primary_key_predicate) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute UPDATE: primary-key access path has no converted literal value");
                     }
 
-                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    auto key_result = record::KeyCodec::encode(comparison->value);
                     if(!key_result.ok()) return key_result.status();
 
-                    auto cursors_result = open_table_cursors(table_tree, statement.predicate->comparison_operator, key_result.value());
+                    auto cursors_result = open_table_cursors(
+                        table_tree,
+                        comparison->predicate.comparison_operator,
+                        key_result.value()
+                    );
                     if(!cursors_result.ok()) return cursors_result.status();
 
                     auto cursors = std::move(cursors_result.value());
@@ -1353,12 +1375,8 @@ namespace dandb::execution {
 
                 } else {
 
-                    const bool has_secondary_index_predicate = (
-                        statement.predicate.has_value() &&
-                        predicate_value.has_value()
-                    );
-
-                    if(!has_secondary_index_predicate) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute UPDATE: secondary-index access path has no converted literal value");
                     }
 
@@ -1374,10 +1392,14 @@ namespace dandb::execution {
                         auto index_tree_result = open_index_tree(path.index_descriptor);
                         if(!index_tree_result.ok()) return index_tree_result.status();
 
-                        auto key_result = record::KeyCodec::encode(*predicate_value);
+                        auto key_result = record::KeyCodec::encode(comparison->value);
                         if(!key_result.ok()) return key_result.status();
 
-                        auto cursors_result = open_secondary_index_cursors(index_tree_result.value(), statement.predicate->comparison_operator, key_result.value());
+                        auto cursors_result = open_secondary_index_cursors(
+                            index_tree_result.value(),
+                            comparison->predicate.comparison_operator,
+                            key_result.value()
+                        );
                         if(!cursors_result.ok()) return cursors_result.status();
 
                         auto cursors = std::move(cursors_result.value());
@@ -1447,34 +1469,14 @@ namespace dandb::execution {
             return ExecutionResult{core::Status::InternalError("Cannot execute DELETE: bound table has no schema")};
         }
 
-        std::optional<record::Value> predicate_value;
+        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        if(!predicate_state_result.ok()) {
+            return ExecutionResult{predicate_state_result.status()};
+        }
 
-        if(statement.predicate.has_value()) {
-
-            const auto& predicate = *statement.predicate;
-            const bool is_null_predicate = (
-                predicate.comparison_operator == sql::ComparisonOperator::IsNull ||
-                predicate.comparison_operator == sql::ComparisonOperator::IsNotNull
-            );
-
-            if(!is_null_predicate) {
-                if(!predicate.literal.has_value()) {
-                    return ExecutionResult{core::Status::InternalError("Cannot execute DELETE: comparison predicate has no literal")};
-                }
-
-                if(predicate.literal->is_null()) {
-                    return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, std::size_t{ 0 }};
-                }
-
-                const auto& predicate_column = schema->column(predicate.column.ordinal);
-                auto predicate_value_result = predicate.literal->convert_to(predicate_column.logical_type(), predicate_column.nullable());
-                if(!predicate_value_result.ok()) {
-                    return ExecutionResult{predicate_value_result.status()};
-                }
-
-                predicate_value = std::move(predicate_value_result.value());
-            }
-
+        auto predicate_state = std::move(predicate_state_result.value());
+        if(std::holds_alternative<Impossible>(predicate_state)) {
+            return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, std::size_t{ 0 }};
         }
 
         // Open the table and plan candidate access
@@ -1484,7 +1486,7 @@ namespace dandb::execution {
 
         auto table_tree = std::move(table_tree_result.value());
         const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
-        const auto access_path = plan_access_path(*schema, index_descriptors, statement.predicate);
+        const auto access_path = plan_access_path(*schema, index_descriptors, predicate_state);
 
         // Begin the statement transaction
 
@@ -1551,13 +1553,9 @@ namespace dandb::execution {
 
             const auto& row = row_result.value();
 
-            if(statement.predicate.has_value()) {
-
-                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                if(!matches_result.ok()) return matches_result.status();
-                if(!matches_result.value()) return core::Status::Ok();
-
-            }
+            auto matches_result = row_matches_predicate(row, predicate_state);
+            if(!matches_result.ok()) return matches_result.status();
+            if(!matches_result.value()) return core::Status::Ok();
 
             pending_deletions.push_back(PendingDeletion{
                 std::vector<std::byte>{ primary_key.begin(), primary_key.end() },
@@ -1587,19 +1585,19 @@ namespace dandb::execution {
 
                 } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
 
-                    const bool has_primary_key_predicate = (
-                        statement.predicate.has_value() &&
-                        predicate_value.has_value()
-                    );
-
-                    if(!has_primary_key_predicate) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute DELETE: primary-key access path has no converted literal value");
                     }
 
-                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    auto key_result = record::KeyCodec::encode(comparison->value);
                     if(!key_result.ok()) return key_result.status();
 
-                    auto cursors_result = open_table_cursors(table_tree, statement.predicate->comparison_operator, key_result.value());
+                    auto cursors_result = open_table_cursors(
+                        table_tree,
+                        comparison->predicate.comparison_operator,
+                        key_result.value()
+                    );
                     if(!cursors_result.ok()) return cursors_result.status();
 
                     auto cursors = std::move(cursors_result.value());
@@ -1607,24 +1605,20 @@ namespace dandb::execution {
 
                 } else {
 
-                    const bool has_secondary_index_predicate = (
-                        statement.predicate.has_value() &&
-                        predicate_value.has_value()
-                    );
-
-                    if(!has_secondary_index_predicate) {
+                    const auto* comparison = std::get_if<Comparison>(&predicate_state);
+                    if(comparison == nullptr) {
                         return core::Status::InternalError("Cannot execute DELETE: secondary-index access path has no converted literal value");
                     }
 
                     auto index_tree_result = open_index_tree(path.index_descriptor);
                     if(!index_tree_result.ok()) return index_tree_result.status();
 
-                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    auto key_result = record::KeyCodec::encode(comparison->value);
                     if(!key_result.ok()) return key_result.status();
 
                     auto cursors_result = open_secondary_index_cursors(
                         index_tree_result.value(),
-                        statement.predicate->comparison_operator,
+                        comparison->predicate.comparison_operator,
                         key_result.value()
                     );
                     if(!cursors_result.ok()) return cursors_result.status();
