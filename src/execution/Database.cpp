@@ -74,7 +74,7 @@ namespace {
 
     }
 
-    dandb::core::Status consume_table_cursors(std::vector<dandb::btree::BTreeCursor>& cursors, auto&& process_row_bytes) {
+    dandb::core::Status consume_table_cursors(std::vector<dandb::btree::BTreeCursor>& cursors, auto&& process_table_row) {
 
         for(auto& cursor: cursors) {
             while(true) {
@@ -87,8 +87,11 @@ namespace {
                     break;
                 }
 
-                const auto process_status = process_row_bytes(
-                    std::span<const std::byte>{entry_result.value()->value}
+                const auto& entry = *entry_result.value();
+
+                const auto process_status = process_table_row(
+                    std::span<const std::byte>{entry.key},
+                    std::span<const std::byte>{entry.value}
                 );
                 if(!process_status.ok()) {
                     return process_status;
@@ -103,7 +106,7 @@ namespace {
     dandb::core::Status consume_secondary_index_cursors(
         std::vector<dandb::btree::BTreeCursor>& cursors,
         const dandb::btree::BTree& table_tree,
-        auto&& process_row_bytes
+        auto&& process_table_row
     ) {
 
         for(auto& cursor: cursors) {
@@ -117,12 +120,15 @@ namespace {
                     break;
                 }
 
-                auto table_row_result = table_tree.find(entry_result.value()->value);
+                const auto& index_entry = *entry_result.value();
+
+                auto table_row_result = table_tree.find(index_entry.value);
                 if(!table_row_result.ok()) {
                     return table_row_result.status();
                 }
 
-                const auto process_status = process_row_bytes(
+                const auto process_status = process_table_row(
+                    std::span<const std::byte>{index_entry.value},
                     std::span<const std::byte>{table_row_result.value()}
                 );
                 if(!process_status.ok()) {
@@ -852,7 +858,10 @@ namespace dandb::execution {
             }
         }
 
-        auto process_row_bytes = [&statement, schema, &predicate_value, &row_set](std::span<const std::byte> row_bytes) -> core::Status {
+        auto process_row_bytes = [&statement, schema, &predicate_value, &row_set](
+            std::span<const std::byte>,
+            std::span<const std::byte> row_bytes
+        ) -> core::Status {
 
             auto row_result = record::RowCodec::decode(*schema, row_bytes);
             if(!row_result.ok()) {
@@ -1111,6 +1120,8 @@ namespace dandb::execution {
 
     ExecutionResult Database::execute_update_statement(const sql::BoundUpdateStatement& statement) {
 
+        // Validate metadata and convert values
+
         const auto* table_descriptor = catalog_.find_table(statement.table_id);
         if(table_descriptor == nullptr) {
             return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: bound table is missing from catalog")};
@@ -1123,9 +1134,7 @@ namespace dandb::execution {
 
         const auto& assignment_column = schema->column(statement.assignment.column.ordinal);
         auto assignment_value_result = statement.assignment.value.convert_to(assignment_column.logical_type(), assignment_column.nullable());
-        if(!assignment_value_result.ok()) {
-            return ExecutionResult{assignment_value_result.status()};
-        }
+        if(!assignment_value_result.ok()) return ExecutionResult{assignment_value_result.status()};
 
         const std::vector<std::size_t> assignment_ordinals{ statement.assignment.column.ordinal };
         const std::vector<record::Value> assignment_values{ std::move(assignment_value_result.value()) };
@@ -1141,6 +1150,7 @@ namespace dandb::execution {
             );
 
             if(!is_null_predicate) {
+
                 if(!predicate.literal.has_value()) {
                     return ExecutionResult{core::Status::InternalError("Cannot execute UPDATE: comparison predicate has no literal")};
                 }
@@ -1151,93 +1161,57 @@ namespace dandb::execution {
 
                 const auto& predicate_column = schema->column(predicate.column.ordinal);
                 auto predicate_value_result = predicate.literal->convert_to(predicate_column.logical_type(), predicate_column.nullable());
-                if(!predicate_value_result.ok()) {
-                    return ExecutionResult{predicate_value_result.status()};
-                }
+                if(!predicate_value_result.ok()) return ExecutionResult{predicate_value_result.status()};
 
                 predicate_value = std::move(predicate_value_result.value());
+
             }
 
         }
 
-        auto tree_result = open_table_tree(*table_descriptor);
-        if(!tree_result.ok()) return ExecutionResult{tree_result.status()};
+        // Open the table and plan candidate access
 
-        auto tree = std::move(tree_result.value());
-        std::vector<btree::BTreeCursor> cursors;
+        auto table_tree_result = open_table_tree(*table_descriptor);
+        if(!table_tree_result.ok()) return ExecutionResult{table_tree_result.status()};
 
-        const bool uses_primary_key = (
-            statement.predicate.has_value() &&
-            predicate_value.has_value() &&
-            statement.predicate->column.ordinal == schema->primary_key_ordinal()
-        );
+        auto table_tree = std::move(table_tree_result.value());
+        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
+        const auto access_path = plan_access_path(*schema, index_descriptors, statement.predicate);
 
-        if(!uses_primary_key) {
-            auto cursor_result = tree.scan();
-            if(!cursor_result.ok()) {
-                return ExecutionResult{cursor_result.status()};
-            }
-
-            cursors.push_back(std::move(cursor_result.value()));
-        } else {
-            auto key_result = record::KeyCodec::encode(*predicate_value);
-            if(!key_result.ok()) {
-                return ExecutionResult{key_result.status()};
-            }
-
-            auto cursors_result = open_table_cursors(tree, statement.predicate->comparison_operator, key_result.value());
-            if(!cursors_result.ok()) {
-                return ExecutionResult{cursors_result.status()};
-            }
-
-            cursors = std::move(cursors_result.value());
-        }
+        // Begin the statement transaction
 
         const bool owns_transaction = !pager_->in_transaction();
+
         if(owns_transaction) {
             const auto begin_status = pager_->begin_transaction();
-            if(!begin_status.ok()) {
-                return ExecutionResult{begin_status};
-            }
+            if(!begin_status.ok()) return ExecutionResult{begin_status};
         }
+
+        // Open indexes affected by the assignment
 
         struct AffectedIndex {
             btree::BTree tree;
             std::size_t indexed_column_ordinal;
             bool unique;
         };
-        
-        struct PendingIndexUpdate {
-            AffectedIndex* index;
-            std::vector<std::byte> old_key;
-            std::vector<std::byte> new_key;
-        };
 
         std::vector<AffectedIndex> affected_indexes;
-        const auto index_descriptors = catalog_.indexes_for_table(statement.table_id);
         affected_indexes.reserve(index_descriptors.size());
 
         for(const auto& index_descriptor: index_descriptors) {
 
             if(index_descriptor.primary()) continue;
 
-            const auto* indexed_column = catalog_.find_column(
-                statement.table_id,
-                index_descriptor.indexed_column_id()
-            );
+            const auto* indexed_column = catalog_.find_column(statement.table_id, index_descriptor.indexed_column_id());
+
             if(indexed_column == nullptr) {
-                return ExecutionResult{handle_mutation_failure(
-                    core::Status::InternalError("Cannot execute UPDATE: indexed column is missing from catalog"),
-                    owns_transaction
-                )};
+                return ExecutionResult{handle_mutation_failure(core::Status::InternalError("Cannot execute UPDATE: indexed column is missing from catalog"), owns_transaction)};
             }
 
             if(indexed_column->ordinal() != statement.assignment.column.ordinal) continue;
 
             auto index_tree_result = open_index_tree(index_descriptor);
-            if(!index_tree_result.ok()) {
-                return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
-            }
+            if(!index_tree_result.ok()) return ExecutionResult{handle_mutation_failure(index_tree_result.status(), owns_transaction)};
 
             affected_indexes.push_back(AffectedIndex{
                 std::move(index_tree_result.value()),
@@ -1249,126 +1223,200 @@ namespace dandb::execution {
 
         std::size_t rows_affected = 0;
 
-        for(auto& cursor: cursors) {
-            while(true) {
-                auto entry_result = cursor.next();
-                if(!entry_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(entry_result.status(), owns_transaction)};
-                }
+        // Process one candidate row
 
-                if(!entry_result.value().has_value()) {
-                    break;
-                }
+        auto process_update_candidate = [&](std::span<const std::byte> primary_key, std::span<const std::byte> row_bytes) -> core::Status {
 
-                const auto& entry = *entry_result.value();
-                auto row_result = record::RowCodec::decode(*schema, entry.value);
-                if(!row_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(row_result.status(), owns_transaction)};
-                }
+            auto row_result = record::RowCodec::decode(*schema, row_bytes);
+            if(!row_result.ok()) return row_result.status();
 
-                const auto& row = row_result.value();
+            const auto& row = row_result.value();
 
-                if(statement.predicate.has_value()) {
-                    auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
-                    if(!matches_result.ok()) {
-                        return ExecutionResult{handle_mutation_failure(matches_result.status(), owns_transaction)};
-                    }
+            if(statement.predicate.has_value()) {
 
-                    if(!matches_result.value()) {
-                        continue;
-                    }
-                }
+                auto matches_result = row_matches_predicate(row, *statement.predicate, predicate_value);
+                if(!matches_result.ok()) return matches_result.status();
+                if(!matches_result.value()) return core::Status::Ok();
 
-                auto updated_row_result = record::RowHelpers::replace_non_primary_key_values(*schema, row, assignment_ordinals, assignment_values);
-                if(!updated_row_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(updated_row_result.status(), owns_transaction)};
-                }
-
-                auto row_bytes_result = record::RowCodec::encode(*schema, updated_row_result.value());
-                if(!row_bytes_result.ok()) {
-                    return ExecutionResult{handle_mutation_failure(row_bytes_result.status(), owns_transaction)};
-                }
-
-                std::vector<PendingIndexUpdate> pending_index_updates;
-                pending_index_updates.reserve(affected_indexes.size());
-
-                for(auto& affected_index: affected_indexes) {
-
-                    auto old_index_key_result = record::RowHelpers::indexed_key_bytes(
-                        *schema,
-                        row,
-                        affected_index.indexed_column_ordinal
-                    );
-                    if(!old_index_key_result.ok()) {
-                        return ExecutionResult{handle_mutation_failure(old_index_key_result.status(), owns_transaction)};
-                    }
-
-                    auto new_index_key_result = record::RowHelpers::indexed_key_bytes(
-                        *schema,
-                        updated_row_result.value(),
-                        affected_index.indexed_column_ordinal
-                    );
-                    if(!new_index_key_result.ok()) {
-                        return ExecutionResult{handle_mutation_failure(new_index_key_result.status(), owns_transaction)};
-                    }
-
-                    auto old_index_key = std::move(old_index_key_result.value());
-                    auto new_index_key = std::move(new_index_key_result.value());
-
-                    if(!affected_index.unique) {
-                        old_index_key.insert(old_index_key.end(), entry.key.begin(), entry.key.end());
-                        new_index_key.insert(new_index_key.end(), entry.key.begin(), entry.key.end());
-                    }
-
-                    if(old_index_key == new_index_key) continue;
-
-                    pending_index_updates.push_back(PendingIndexUpdate{
-                        &affected_index,
-                        std::move(old_index_key),
-                        std::move(new_index_key)
-                    });
-
-                }
-
-                for(auto& pending_index_update: pending_index_updates) {
-                    const auto erase_status = pending_index_update.index->tree.erase(pending_index_update.old_key);
-                    if(!erase_status.ok()) {
-                        return ExecutionResult{handle_mutation_failure(erase_status, owns_transaction)};
-                    }
-                }
-
-                const auto update_status = tree.update_value(entry.key, row_bytes_result.value());
-                if(!update_status.ok()) {
-                    return ExecutionResult{handle_mutation_failure(update_status, owns_transaction)};
-                }
-
-                for(auto& pending_index_update: pending_index_updates) {
-                    const auto insert_status = pending_index_update.index->tree.insert(
-                        pending_index_update.new_key,
-                        entry.key
-                    );
-                    if(!insert_status.ok()) {
-                        return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
-                    }
-                }
-
-                rows_affected++;
             }
+
+            auto updated_row_result = record::RowHelpers::replace_non_primary_key_values(*schema, row, assignment_ordinals, assignment_values);
+            if(!updated_row_result.ok()) return updated_row_result.status();
+
+            auto updated_row_bytes_result = record::RowCodec::encode(*schema, updated_row_result.value());
+            if(!updated_row_bytes_result.ok()) return updated_row_bytes_result.status();
+
+            struct PendingIndexUpdate {
+
+                AffectedIndex* index;
+                std::vector<std::byte> old_key;
+                std::vector<std::byte> new_key;
+
+            };
+
+            std::vector<PendingIndexUpdate> pending_index_updates;
+            pending_index_updates.reserve(affected_indexes.size());
+
+            for(auto& affected_index: affected_indexes) {
+
+                auto old_index_key_result = record::RowHelpers::indexed_key_bytes(*schema, row, affected_index.indexed_column_ordinal);
+                if(!old_index_key_result.ok()) return old_index_key_result.status();
+
+                auto new_index_key_result = record::RowHelpers::indexed_key_bytes(*schema, updated_row_result.value(), affected_index.indexed_column_ordinal);
+                if(!new_index_key_result.ok()) return new_index_key_result.status();
+
+                auto old_index_key = std::move(old_index_key_result.value());
+                auto new_index_key = std::move(new_index_key_result.value());
+
+                if(!affected_index.unique) {
+                    old_index_key.insert(old_index_key.end(), primary_key.begin(), primary_key.end());
+                    new_index_key.insert(new_index_key.end(), primary_key.begin(), primary_key.end());
+                }
+
+                if(old_index_key == new_index_key) continue;
+
+                pending_index_updates.push_back(PendingIndexUpdate{
+                    &affected_index,
+                    std::move(old_index_key),
+                    std::move(new_index_key)
+                });
+
+            }
+
+            for(auto& pending_index_update: pending_index_updates) {
+                const auto erase_status = pending_index_update.index->tree.erase(pending_index_update.old_key);
+                if(!erase_status.ok()) return erase_status;
+            }
+
+            const auto update_status = table_tree.update_value(primary_key, updated_row_bytes_result.value());
+            if(!update_status.ok()) return update_status;
+
+            for(auto& pending_index_update: pending_index_updates) {
+                const auto insert_status = pending_index_update.index->tree.insert(pending_index_update.new_key, primary_key);
+                if(!insert_status.ok()) return insert_status;
+            }
+
+            rows_affected++;
+            return core::Status::Ok();
+
+        };
+
+        // Execute the selected access path
+
+        const auto update_rows_status = std::visit(
+            [&](const auto& path) -> core::Status {
+
+                using AccessPathType = std::decay_t<decltype(path)>;
+
+                if constexpr(std::is_same_v<AccessPathType, FullTableScanPath>) {
+
+                    auto cursor_result = table_tree.scan();
+                    if(!cursor_result.ok()) return cursor_result.status();
+
+                    std::vector<btree::BTreeCursor> cursors;
+                    cursors.push_back(std::move(cursor_result.value()));
+
+                    return consume_table_cursors(cursors, process_update_candidate);
+
+                } else if constexpr(std::is_same_v<AccessPathType, PrimaryKeyRangePath>) {
+
+                    const bool has_primary_key_predicate = (
+                        statement.predicate.has_value() &&
+                        predicate_value.has_value()
+                    );
+
+                    if(!has_primary_key_predicate) {
+                        return core::Status::InternalError("Cannot execute UPDATE: primary-key access path has no converted literal value");
+                    }
+
+                    auto key_result = record::KeyCodec::encode(*predicate_value);
+                    if(!key_result.ok()) return key_result.status();
+
+                    auto cursors_result = open_table_cursors(table_tree, statement.predicate->comparison_operator, key_result.value());
+                    if(!cursors_result.ok()) return cursors_result.status();
+
+                    auto cursors = std::move(cursors_result.value());
+                    return consume_table_cursors(cursors, process_update_candidate);
+
+                } else {
+
+                    const bool has_secondary_index_predicate = (
+                        statement.predicate.has_value() &&
+                        predicate_value.has_value()
+                    );
+
+                    if(!has_secondary_index_predicate) {
+                        return core::Status::InternalError("Cannot execute UPDATE: secondary-index access path has no converted literal value");
+                    }
+
+                    struct PendingUpdate {
+                        std::vector<std::byte> primary_key;
+                        std::vector<std::byte> row_bytes;
+                    };
+
+                    std::vector<PendingUpdate> pending_updates;
+
+                    {
+
+                        auto index_tree_result = open_index_tree(path.index_descriptor);
+                        if(!index_tree_result.ok()) return index_tree_result.status();
+
+                        auto key_result = record::KeyCodec::encode(*predicate_value);
+                        if(!key_result.ok()) return key_result.status();
+
+                        auto cursors_result = open_secondary_index_cursors(index_tree_result.value(), statement.predicate->comparison_operator, key_result.value());
+                        if(!cursors_result.ok()) return cursors_result.status();
+
+                        auto cursors = std::move(cursors_result.value());
+
+                        const auto pending_updates_status = consume_secondary_index_cursors(
+                            cursors,
+                            table_tree,
+                            [&](std::span<const std::byte> primary_key, std::span<const std::byte> row_bytes) -> core::Status {
+
+                                pending_updates.push_back(PendingUpdate{
+                                    std::vector<std::byte>{ primary_key.begin(), primary_key.end() },
+                                    std::vector<std::byte>{ row_bytes.begin(), row_bytes.end() }
+                                });
+
+                                return core::Status::Ok();
+
+                            }
+                        );
+                        if(!pending_updates_status.ok()) return pending_updates_status;
+
+                    }
+
+                    for(const auto& pending_update: pending_updates) {
+
+                        const auto update_status = process_update_candidate(pending_update.primary_key, pending_update.row_bytes);
+                        if(!update_status.ok()) return update_status;
+
+                    }
+
+                    return core::Status::Ok();
+
+                }
+
+            },
+            access_path
+        );
+
+        if(!update_rows_status.ok()) {
+            return ExecutionResult{handle_mutation_failure(update_rows_status, owns_transaction)};
         }
+
+        // Finish the transaction
 
         if(!owns_transaction) {
             return ExecutionResult{core::Status::Ok(), std::nullopt, std::nullopt, rows_affected};
         }
 
         const auto commit_status = pager_->commit_transaction();
-        if(!commit_status.ok()) {
-            return ExecutionResult{commit_status};
-        }
+        if(!commit_status.ok()) return ExecutionResult{commit_status};
 
         const auto catalog_status = catalog_.on_transaction_committed();
-        if(!catalog_status.ok()) {
-            return ExecutionResult{catalog_status};
-        }
+        if(!catalog_status.ok()) return ExecutionResult{catalog_status};
 
         return ExecutionResult{commit_status, std::nullopt, std::nullopt, rows_affected};
 
