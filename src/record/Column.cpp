@@ -15,24 +15,24 @@ namespace dandb::record {
         bool unique
     ) {
         
-        if(name.empty()) {
-            return core::Status::InvalidArgument("Cannot create column: name cannot be empty");
-        }
+        if(name.empty()) return core::Status::InvalidArgument("Column name cannot be empty");
 
         if(pk && nullable) {
-            return core::Status::InvalidArgument("Cannot create column: primary key column cannot be nullable");
+            return core::Status::InvalidArgument("Column '"+name+"' cannot be both nullable and PRIMARY KEY");
         }
 
         if(unique && nullable) {
-            return core::Status::InvalidArgument("Cannot create column: unique column cannot be nullable");
+            return core::Status::InvalidArgument("Column '"+name+"' cannot be both nullable and UNIQUE");
         }
 
         if(pk && !logical_type.can_be_indexed()) {
-            return core::Status::InvalidArgument("Cannot create column: primary key column type must be indexable");
+            const std::string message = "Column '"+name+"' cannot use "+logical_type.display_name()+" as PRIMARY KEY";
+            return core::Status::InvalidArgument(message);
         }
 
         if(unique && !logical_type.can_be_indexed()) {
-            return core::Status::InvalidArgument("Cannot create column: unique column type must be indexable");
+            const std::string message = "Column '"+name+"' cannot use "+logical_type.display_name()+" as UNIQUE";
+            return core::Status::InvalidArgument(message);
         }
 
         return Column(

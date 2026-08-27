@@ -112,25 +112,22 @@ namespace dandb::catalog {
 
     core::Status Catalog::create_table(std::string name, const record::Schema& schema) {
 
-        if(name.empty()) {
-            return core::Status::InvalidArgument("Cannot create table: name cannot be empty");
-        }
+        if(name.empty()) return core::Status::InvalidArgument("Table name cannot be empty");
 
-        if(name.size() > CATALOG_NAME_CAPACITY) {
-            return core::Status::InvalidArgument("Cannot create table: name exceeds the catalog capacity");
-        }
+        const bool table_name_is_too_long = name.size() > CATALOG_NAME_CAPACITY;
+        if(table_name_is_too_long) return core::Status::InvalidArgument("Table name exceeds the maximum length");
 
-        if(find_table(name) != nullptr) {
-            return core::Status::AlreadyExists("Cannot create table: a table with this name already exists");
-        }
+        if(find_table(name) != nullptr) return core::Status::AlreadyExists("Table already exists");
 
-        if(has_reserved_catalog_prefix(name)) {
-            return core::Status::InvalidArgument("Cannot create table: name uses the reserved catalog prefix");
+        const bool table_name_has_reserved_prefix = has_reserved_catalog_prefix(name);
+        if(table_name_has_reserved_prefix) {
+            return core::Status::InvalidArgument("Table name uses the reserved 'dandb_' prefix");
         }
 
         for(const auto& column: schema.columns()) {
-            if(column.name().size() > CATALOG_NAME_CAPACITY) {
-                return core::Status::InvalidArgument("Cannot create table: column name exceeds the catalog capacity");
+            const bool column_name_is_too_long = column.name().size() > CATALOG_NAME_CAPACITY;
+            if(column_name_is_too_long) {
+                return core::Status::InvalidArgument("A column name exceeds the maximum length");
             }
         }
 

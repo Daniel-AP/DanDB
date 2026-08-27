@@ -15,6 +15,7 @@
 #include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <system_error>
 #include <type_traits>
 #include <utility>
@@ -62,6 +63,23 @@ namespace {
         PrimaryKeyRangePath,
         SecondaryIndexRangePath
     >;
+
+    dandb::core::Status make_create_table_failure(dandb::core::Status status, std::string_view table_name) {
+
+        const auto status_code = status.code();
+        const bool is_invalid_argument = status_code == dandb::core::StatusCode::InvalidArgument;
+        const bool is_already_exists = status_code == dandb::core::StatusCode::AlreadyExists;
+        const bool is_user_error = is_invalid_argument || is_already_exists;
+        if(!is_user_error) return status;
+
+        const std::string message = "Cannot create table '"+std::string(table_name)+"': "+status.message();
+        if(is_invalid_argument) {
+            return dandb::core::Status::InvalidArgument(message);
+        }
+
+        return dandb::core::Status::AlreadyExists(message);
+
+    }
 
     AccessPath plan_access_path(
         const dandb::record::Schema& schema,
@@ -602,21 +620,19 @@ namespace dandb::execution {
 
         for(const auto& column_definition: statement.columns) {
 
-            const bool nullable = !(
-                column_definition.constraints.primary_key ||
-                column_definition.constraints.unique ||
-                column_definition.constraints.not_null
-            );
+            const auto& constraints = column_definition.constraints;
+            const bool nullable = !constraints.primary_key && !constraints.unique && !constraints.not_null;
 
             auto column_result = record::Column::create(
                 column_definition.name.text,
                 column_definition.type.logical_type,
                 nullable,
-                column_definition.constraints.primary_key,
-                column_definition.constraints.primary_key || column_definition.constraints.unique
+                constraints.primary_key,
+                constraints.primary_key || constraints.unique
             );
             if(!column_result.ok()) {
-                return ExecutionResult{column_result.status()};
+                const auto status = make_create_table_failure(column_result.status(), statement.table_name.text);
+                return ExecutionResult{status};
             }
 
             columns.push_back(std::move(column_result.value()));
@@ -625,12 +641,13 @@ namespace dandb::execution {
 
         auto schema_result = record::Schema::create(std::move(columns));
         if(!schema_result.ok()) {
-            return ExecutionResult{schema_result.status()};
+            const auto status = make_create_table_failure(schema_result.status(), statement.table_name.text);
+            return ExecutionResult{status};
         }
 
         const auto status = catalog_.create_table(statement.table_name.text, schema_result.value());
         if(!status.ok()) {
-            return ExecutionResult{status};
+            return ExecutionResult{make_create_table_failure(status, statement.table_name.text)};
         }
 
         return ExecutionResult{status, "Table '"+statement.table_name.text+"' created"};

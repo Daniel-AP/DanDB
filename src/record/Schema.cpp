@@ -22,17 +22,17 @@ namespace dandb::record {
 
     core::Result<Schema> Schema::create(std::vector<Column> columns) {
 
-        if(columns.empty()) {
-            return core::Status::InvalidArgument("Cannot create schema: schema must have at least one column");
-        }
+        if(columns.empty()) return core::Status::InvalidArgument("At least one column is required");
 
         std::unordered_set<std::string> seen_names;
 
-        for(const auto& col: columns) {
-            if(seen_names.contains(col.name())) {
-                return core::Status::InvalidArgument("Cannot create schema: duplicate column name");
+        for(const auto& column: columns) {
+            if(seen_names.contains(column.name())) {
+                const std::string message = "Duplicate column name '"+column.name()+"'";
+                return core::Status::InvalidArgument(message);
             }
-            seen_names.insert(col.name());
+
+            seen_names.insert(column.name());
         }
 
         std::size_t primary_key_ordinal;
@@ -40,31 +40,29 @@ namespace dandb::record {
 
         for(std::size_t i = 0; i < columns.size(); i++) {
 
-            const Column& col = columns[i];
-            if(col.pk() && primary_key_count > 0) {
-                return core::Status::InvalidArgument("Cannot create schema: schema must have at most one primary key");
+            const Column& column = columns[i];
+            if(column.pk() && primary_key_count > 0) {
+                return core::Status::InvalidArgument("Multiple PRIMARY KEY columns are not allowed");
             }
 
-            if(col.pk()) {
+            if(column.pk()) {
                 primary_key_ordinal = i;
                 primary_key_count++;
             }
 
         }
 
-        if(primary_key_count == 0) {
-            return core::Status::InvalidArgument("Cannot create schema: schema must have exactly one primary key");
-        }
+        if(primary_key_count == 0) return core::Status::InvalidArgument("Exactly one PRIMARY KEY column is required");
 
         std::size_t null_bitmap_size = (columns.size()+7)/8;
         std::size_t row_size = null_bitmap_size;
 
         for(std::size_t i = 0; i < columns.size(); i++) {
 
-            Column& col = columns[i];
+            Column& column = columns[i];
 
-            col.set_layout(i, row_size);
-            row_size += col.logical_type().fixed_size();
+            column.set_layout(i, row_size);
+            row_size += column.logical_type().fixed_size();
 
         }
 
