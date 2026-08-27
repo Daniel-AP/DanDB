@@ -78,6 +78,24 @@ namespace dandb::cli {
         REQUIRE(database.close().ok());
     }
 
+    TEST_CASE("Repl displays an unknown-table error", "[cli][repl]") {
+        const testutil::TempDir temp_dir;
+        auto database_result = execution::Database::open_or_create(temp_dir.database_path());
+        REQUIRE(database_result.ok());
+
+        auto& database = database_result.value();
+
+        std::istringstream input("SELECT * FROM missing;\n.exit\n");
+        std::ostringstream output;
+        std::ostringstream error_output;
+
+        Repl repl(database, input, output, error_output);
+        repl.run();
+
+        REQUIRE(error_output.str() == "SQL error at line 1, column 15: Table 'missing' does not exist\n");
+        REQUIRE(database.close().ok());
+    }
+
     TEST_CASE("Repl stops the current paged result after nonempty pager input", "[cli][repl]") {
         const testutil::TempDir temp_dir;
         auto database_result = execution::Database::open_or_create(temp_dir.database_path());

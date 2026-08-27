@@ -906,6 +906,7 @@ TEST_CASE("Database restores a dropped table after rollback", "[execution][datab
 
     REQUIRE(duplicate_create_results.size() == 1);
     REQUIRE(duplicate_create_results[0].status.code() == StatusCode::AlreadyExists);
+    REQUIRE(duplicate_create_results[0].status.message() == "Cannot create table 'users': Table already exists");
     REQUIRE(database_result.value().close().ok());
 }
 
@@ -919,7 +920,27 @@ TEST_CASE("Database rejects DROP TABLE for a missing table", "[execution][databa
 
     REQUIRE(results.size() == 1);
     REQUIRE(results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(results[0].status.message() == "SQL error at line 1, column 12: Table 'missing' does not exist");
     REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database reports an unknown column with its location", "[execution][database][d13-t05]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute("CREATE TABLE users (id INT64 PRIMARY KEY);");
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto results = database.execute("SELECT missing FROM users;");
+
+    REQUIRE(results.size() == 1);
+    REQUIRE(results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(results[0].status.message() == "SQL error at line 1, column 8: Column 'missing' does not exist");
+    REQUIRE(database.close().ok());
 }
 
 TEST_CASE("Database rejects DROP TABLE for a system table", "[execution][database][ddl]") {
@@ -1051,10 +1072,12 @@ TEST_CASE("Database makes a failed transaction rollback-only", "[execution][data
     const auto error_results = database.execute("SELECT * FROM missing;");
     REQUIRE(error_results.size() == 1);
     REQUIRE(error_results[0].status.code() == StatusCode::NotFound);
+    REQUIRE(error_results[0].status.message() == "SQL error at line 1, column 15: Table 'missing' does not exist");
 
     const auto rejected_results = database.execute("SELECT * FROM dandb_tables;");
     REQUIRE(rejected_results.size() == 1);
     REQUIRE(rejected_results[0].status.code() == StatusCode::TransactionError);
+    REQUIRE(rejected_results[0].status.message() == "Cannot execute statement: transaction is failed; rollback is required");
 
     const auto rollback_results = database.execute("ROLLBACK;");
     REQUIRE(rollback_results.size() == 1);
@@ -1319,8 +1342,66 @@ TEST_CASE("Database rejects overflow values in INSERT rows", "[execution][databa
 
     REQUIRE(insert_results.size() == 1);
     REQUIRE(insert_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(
+        insert_results[0].status.message() ==
+        "Invalid value for column 'id' in table 'users': INT8 value out of range: 128"
+    );
     REQUIRE_FALSE(insert_results[0].rows_affected.has_value());
     REQUIRE(database_result.value().close().ok());
+}
+
+TEST_CASE("Database reports string overflow with table and column context", "[execution][database][d13-t05]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(3)"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto insert_results = database.execute("INSERT INTO users VALUES (1, 'Ada Lovelace');");
+
+    REQUIRE(insert_results.size() == 1);
+    REQUIRE(insert_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(
+        insert_results[0].status.message() ==
+        "Invalid value for column 'name' in table 'users': STRING(3) value length exceeds capacity"
+    );
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database reports invalid predicate values with table and column context", "[execution][database][d13-t05]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto create_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT8"
+        ");"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto select_results = database.execute("SELECT id FROM users WHERE age = 128;");
+
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(
+        select_results[0].status.message() ==
+        "Invalid value for column 'age' in table 'users': INT8 value out of range: 128"
+    );
+    REQUIRE(database.close().ok());
 }
 
 TEST_CASE("Database removes INSERT rows after manual transaction rollback", "[execution][database][dml][insert]") {
@@ -2846,6 +2927,10 @@ TEST_CASE("Database rejects an overflowing UPDATE in a manual transaction", "[ex
 
     REQUIRE(update_results.size() == 1);
     REQUIRE(update_results[0].status.code() == StatusCode::InvalidArgument);
+    REQUIRE(
+        update_results[0].status.message() ==
+        "Invalid value for column 'age' in table 'users': INT8 value out of range: 128"
+    );
     REQUIRE_FALSE(update_results[0].rows_affected.has_value());
 
     const auto rejected_results = database.execute("SELECT age FROM users WHERE id = 1;");

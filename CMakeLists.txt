@@ -136,6 +136,7 @@ add_executable(dandb_tests
     tests/sql/Binder.cpp
     tests/execution/Database.cpp
     src/cli/ErrorFormatter.cpp
+    tests/cli/ErrorFormatter.cpp
     tests/cli/Repl.cpp
     src/cli/Repl.cpp
 )
