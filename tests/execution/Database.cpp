@@ -6,6 +6,7 @@
 #include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
 #include <dandb/execution/Database.h>
+#include <dandb/platform/FileFaultInjector.h>
 #include <dandb/record/KeyCodec.h>
 #include <dandb/record/Value.h>
 #include <dandb/storage/Pager.h>
@@ -33,6 +34,19 @@ using dandb::testutil::TempDir;
 namespace {
 
     constexpr std::size_t TEST_BPM_CAPACITY = 10;
+
+    class FailNextSyncInjector final : public dandb::platform::FileFaultInjector {
+        public:
+            dandb::core::Status before_sync() override {
+                if(!fail_next_sync_) return dandb::core::Status::Ok();
+
+                fail_next_sync_ = false;
+                return dandb::core::Status::IoError("Injected WAL sync failure");
+            }
+
+        private:
+            bool fail_next_sync_ = true;
+    };
 
     std::vector<std::byte> encode_int64_key(std::int64_t value) {
 
@@ -1061,6 +1075,45 @@ TEST_CASE("Database makes a lexer error inside a transaction rollback-only", "[e
     REQUIRE(database.close().ok());
 }
 
+TEST_CASE("Database makes a constraint error inside a transaction rollback-only", "[execution][database][transaction]") {
+    const TempDir temp_dir;
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto create_results = database.execute(
+        "CREATE TABLE users (id INT64 PRIMARY KEY, name STRING(64));"
+    );
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto first_insert_results = database.execute("INSERT INTO users VALUES (1, 'Ada');");
+    REQUIRE(first_insert_results.size() == 1);
+    REQUIRE(first_insert_results[0].status.ok());
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto constraint_error_results = database.execute("INSERT INTO users VALUES (1, 'Grace');");
+    REQUIRE(constraint_error_results.size() == 1);
+    REQUIRE(constraint_error_results[0].status.code() == StatusCode::ConstraintViolation);
+
+    const auto rejected_results = database.execute("SELECT * FROM users;");
+    REQUIRE(rejected_results.size() == 1);
+    REQUIRE(rejected_results[0].status.code() == StatusCode::TransactionError);
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.ok());
+
+    const auto reused_results = database.execute("INSERT INTO users VALUES (2, 'Grace');");
+    REQUIRE(reused_results.size() == 1);
+    REQUIRE(reused_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
 TEST_CASE("Database keeps a transaction usable after incomplete parser input", "[execution][database][transaction]") {
     const TempDir temp_dir;
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -1087,6 +1140,52 @@ TEST_CASE("Database keeps a transaction usable after incomplete parser input", "
     const auto rollback_results = database.execute("ROLLBACK;");
     REQUIRE(rollback_results.size() == 1);
     REQUIRE(rollback_results[0].status.ok());
+    REQUIRE(database.close().ok());
+}
+
+TEST_CASE("Database rejects SQL while a transaction is unresolved", "[execution][database][transaction]") {
+    const TempDir temp_dir;
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+
+    REQUIRE(database_result.ok());
+    auto& database = database_result.value();
+
+    const auto create_results = database.execute("CREATE TABLE users (id INT64 PRIMARY KEY);");
+    REQUIRE(create_results.size() == 1);
+    REQUIRE(create_results[0].status.ok());
+
+    const auto begin_results = database.execute("BEGIN;");
+    REQUIRE(begin_results.size() == 1);
+    REQUIRE(begin_results[0].status.ok());
+
+    const auto insert_results = database.execute("INSERT INTO users VALUES (1);");
+    REQUIRE(insert_results.size() == 1);
+    REQUIRE(insert_results[0].status.ok());
+
+    FailNextSyncInjector injector;
+    database.set_wal_fault_injector(&injector);
+
+    const auto commit_results = database.execute("COMMIT;");
+    REQUIRE(commit_results.size() == 1);
+    REQUIRE(commit_results[0].status.code() == StatusCode::IoError);
+
+    constexpr std::string_view UNRESOLVED_MESSAGE =
+        "Cannot execute statement: transaction is unresolved; close and reopen the database to recover";
+
+    const auto malformed_results = database.execute("!;");
+    REQUIRE(malformed_results.size() == 1);
+    REQUIRE(malformed_results[0].status.code() == StatusCode::TransactionError);
+    REQUIRE(malformed_results[0].status.message() == UNRESOLVED_MESSAGE);
+
+    const auto select_results = database.execute("SELECT * FROM users;");
+    REQUIRE(select_results.size() == 1);
+    REQUIRE(select_results[0].status.code() == StatusCode::TransactionError);
+    REQUIRE(select_results[0].status.message() == UNRESOLVED_MESSAGE);
+
+    const auto rollback_results = database.execute("ROLLBACK;");
+    REQUIRE(rollback_results.size() == 1);
+    REQUIRE(rollback_results[0].status.code() == StatusCode::TransactionError);
+    REQUIRE(rollback_results[0].status.message() == UNRESOLVED_MESSAGE);
     REQUIRE(database.close().ok());
 }
 
