@@ -10,6 +10,7 @@
 #include <cstddef>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -106,7 +107,7 @@ namespace dandb::sql {
             core::Result<BoundPredicate> bind_predicate(catalog::TableId table_id, const Predicate& predicate) const;
             core::Result<BoundAssignment> bind_assignment(catalog::TableId table_id, const Assignment& assignment) const;
 
-            core::Status validate_non_system_table(catalog::TableId table_id) const;
+            core::Status validate_non_system_table(catalog::TableId table_id, const Identifier& table_name, std::string_view action) const;
     };
 
 }

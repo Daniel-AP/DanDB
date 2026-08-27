@@ -677,21 +677,21 @@ TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "
     );
     REQUIRE(duplicate_primary_index_results.size() == 1);
     REQUIRE(duplicate_primary_index_results[0].status.code() == StatusCode::InvalidArgument);
-    REQUIRE(duplicate_primary_index_results[0].status.message() == "Cannot create index: column already has an index");
+    REQUIRE(duplicate_primary_index_results[0].status.message() == "Cannot create index 'users_by_id': column 'id' in table 'users' already has an index");
 
     const auto duplicate_internal_unique_index_results = database.execute(
         "CREATE INDEX users_by_account_code ON users(account_code);"
     );
     REQUIRE(duplicate_internal_unique_index_results.size() == 1);
     REQUIRE(duplicate_internal_unique_index_results[0].status.code() == StatusCode::InvalidArgument);
-    REQUIRE(duplicate_internal_unique_index_results[0].status.message() == "Cannot create index: column already has an index");
+    REQUIRE(duplicate_internal_unique_index_results[0].status.message() == "Cannot create index 'users_by_account_code': column 'account_code' in table 'users' already has an index");
 
     const auto duplicate_user_index_results = database.execute(
         "CREATE INDEX users_by_age_again ON users(age);"
     );
     REQUIRE(duplicate_user_index_results.size() == 1);
     REQUIRE(duplicate_user_index_results[0].status.code() == StatusCode::InvalidArgument);
-    REQUIRE(duplicate_user_index_results[0].status.message() == "Cannot create index: column already has an index");
+    REQUIRE(duplicate_user_index_results[0].status.message() == "Cannot create index 'users_by_age_again': column 'age' in table 'users' already has an index");
 
     REQUIRE(database.close().ok());
 

@@ -467,15 +467,9 @@ namespace dandb::catalog {
             return core::Status::NotFound("Cannot create index: table was not found");
         }
 
-        const bool is_system_table = (
-            table_id == DANDB_TABLES_ID ||
-            table_id == DANDB_COLUMNS_ID ||
-            table_id == DANDB_INDEXES_ID ||
-            table_id == DANDB_INDEX_COLUMNS_ID
-        );
-        if(is_system_table) {
-            return core::Status::InvalidArgument("Cannot create index: system tables cannot be indexed");
-        }
+        const auto& table_name = table_it->second.table_descriptor.name();
+        const bool is_system_table = table_id == DANDB_TABLES_ID || table_id == DANDB_COLUMNS_ID || table_id == DANDB_INDEXES_ID || table_id == DANDB_INDEX_COLUMNS_ID;
+        if(is_system_table) return core::Status::InvalidArgument("Cannot create index: table '"+table_name+"' is a system table and cannot be indexed");
 
         if(!column_id.is_valid()) {
             return core::Status::InvalidArgument("Cannot create index: column id cannot be invalid");
@@ -497,35 +491,21 @@ namespace dandb::catalog {
             return core::Status::InternalError("Cannot create index: table has no primary key column");
         }
 
-        if(new_index_name.empty()) {
-            return core::Status::InvalidArgument("Cannot create index: name cannot be empty");
-        }
+        if(new_index_name.empty()) return core::Status::InvalidArgument("Cannot create index: name cannot be empty");
 
-        if(new_index_name.size() > CATALOG_NAME_CAPACITY) {
-            return core::Status::InvalidArgument("Cannot create index: name exceeds the catalog capacity");
-        }
+        if(new_index_name.size() > CATALOG_NAME_CAPACITY) return core::Status::InvalidArgument("Cannot create index: index name exceeds the maximum length of "+std::to_string(CATALOG_NAME_CAPACITY)+" characters");
 
-        if(has_reserved_catalog_prefix(new_index_name)) {
-            return core::Status::InvalidArgument("Cannot create index: name uses the reserved catalog prefix");
-        }
+        if(has_reserved_catalog_prefix(new_index_name)) return core::Status::InvalidArgument("Cannot create index: name uses the reserved catalog prefix");
 
-        if(find_index(new_index_name) != nullptr) {
-            return core::Status::AlreadyExists("Cannot create index: an index with this name already exists");
-        }
+        if(find_index(new_index_name) != nullptr) return core::Status::AlreadyExists("Cannot create index '"+new_index_name+"': an index with this name already exists");
 
         for(const auto& index: table_it->second.indexes) {
-            if(index.indexed_column_id() == column_id) {
-                return core::Status::InvalidArgument("Cannot create index: column already has an index");
-            }
+            if(index.indexed_column_id() == column_id) return core::Status::InvalidArgument("Cannot create index '"+new_index_name+"': column '"+new_indexed_column->name()+"' in table '"+table_name+"' already has an index");
         }
 
-        if(!new_indexed_column->logical_type().can_be_indexed()) {
-            return core::Status::InvalidArgument("Cannot create index: column type cannot be indexed");
-        }
+        if(!new_indexed_column->logical_type().can_be_indexed()) return core::Status::InvalidArgument("Cannot create index '"+new_index_name+"': column '"+new_indexed_column->name()+"' in table '"+table_name+"' has type "+new_indexed_column->logical_type().display_name()+", which cannot be indexed");
 
-        if(new_indexed_column->nullable()) {
-            return core::Status::InvalidArgument("Cannot create index: nullable columns cannot be indexed");
-        }
+        if(new_indexed_column->nullable()) return core::Status::InvalidArgument("Cannot create index '"+new_index_name+"': column '"+new_indexed_column->name()+"' in table '"+table_name+"' is nullable; indexed columns must be NOT NULL");
 
         // Include the primary key in non-unique index keys
         const std::size_t new_indexed_column_size = new_indexed_column->logical_type().fixed_size();
@@ -679,13 +659,9 @@ namespace dandb::catalog {
     core::Status Catalog::drop_index(std::string_view index_name) {
 
         const IndexDescriptor* index_to_drop = find_index(index_name);
-        if(index_to_drop == nullptr) {
-            return core::Status::NotFound("Cannot drop index: index was not found");
-        }
+        if(index_to_drop == nullptr) return core::Status::NotFound("Cannot drop index '"+std::string(index_name)+"': index does not exist");
 
-        if(index_to_drop->internal()) {
-            return core::Status::InvalidArgument("Cannot drop index: internal indexes cannot be dropped");
-        }
+        if(index_to_drop->internal()) return core::Status::InvalidArgument("Cannot drop index '"+std::string(index_name)+"': the index is internal and cannot be dropped");
 
         const IndexId index_to_drop_id = index_to_drop->index_id();
         const TableId index_to_drop_table_id = index_to_drop->table_id();
@@ -794,16 +770,9 @@ namespace dandb::catalog {
         }
 
         const TableId table_id = table_descriptor->table_id();
-        bool is_system_table = (
-            table_id == DANDB_TABLES_ID ||
-            table_id == DANDB_COLUMNS_ID ||
-            table_id == DANDB_INDEXES_ID ||
-            table_id == DANDB_INDEX_COLUMNS_ID
-        );
+        const bool is_system_table = table_id == DANDB_TABLES_ID || table_id == DANDB_COLUMNS_ID || table_id == DANDB_INDEXES_ID || table_id == DANDB_INDEX_COLUMNS_ID;
 
-        if(is_system_table) {
-            return core::Status::InvalidArgument("Cannot drop table: system tables cannot be dropped");
-        }
+        if(is_system_table) return core::Status::InvalidArgument("Cannot drop table '"+std::string(name)+"': system tables cannot be dropped");
 
         // Get the system table schemas
         auto tables_schema_result = SystemTables::tables_schema();

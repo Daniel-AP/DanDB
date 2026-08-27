@@ -91,7 +91,7 @@ namespace dandb::sql {
         auto table_result = bind_table(statement.table_name);
         if(!table_result.ok()) return table_result.status();
 
-        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        const auto non_system_table_status = validate_non_system_table(table_result.value(), statement.table_name, "write to");
         if(!non_system_table_status.ok()) return non_system_table_status;
 
         std::vector<record::LiteralValue> values;
@@ -127,7 +127,7 @@ namespace dandb::sql {
         auto table_result = bind_table(statement.table_name);
         if(!table_result.ok()) return table_result.status();
 
-        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        const auto non_system_table_status = validate_non_system_table(table_result.value(), statement.table_name, "write to");
         if(!non_system_table_status.ok()) return non_system_table_status;
 
         auto assignment_result = bind_assignment(table_result.value(), statement.assignment);
@@ -154,7 +154,7 @@ namespace dandb::sql {
         auto table_result = bind_table(statement.table_name);
         if(!table_result.ok()) return table_result.status();
 
-        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        const auto non_system_table_status = validate_non_system_table(table_result.value(), statement.table_name, "write to");
         if(!non_system_table_status.ok()) return non_system_table_status;
 
         BoundDeleteStatement bound_statement{
@@ -177,7 +177,7 @@ namespace dandb::sql {
         auto table_result = bind_table(statement.table_name);
         if(!table_result.ok()) return table_result.status();
 
-        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        const auto non_system_table_status = validate_non_system_table(table_result.value(), statement.table_name, "create an index on");
         if(!non_system_table_status.ok()) return non_system_table_status;
 
         auto column_result = bind_column(table_result.value(), statement.column_name);
@@ -197,7 +197,7 @@ namespace dandb::sql {
         auto table_result = bind_table(statement.table_name);
         if(!table_result.ok()) return table_result.status();
 
-        const auto non_system_table_status = validate_non_system_table(table_result.value());
+        const auto non_system_table_status = validate_non_system_table(table_result.value(), statement.table_name, "drop");
         if(!non_system_table_status.ok()) return non_system_table_status;
 
         return BoundDropTableStatement{
@@ -308,20 +308,12 @@ namespace dandb::sql {
 
     }
 
-    core::Status Binder::validate_non_system_table(catalog::TableId table_id) const {
+    core::Status Binder::validate_non_system_table(catalog::TableId table_id, const Identifier& table_name, std::string_view action) const {
 
-        bool is_system_table = (
-            table_id == catalog::DANDB_TABLES_ID ||
-            table_id == catalog::DANDB_COLUMNS_ID ||
-            table_id == catalog::DANDB_INDEXES_ID ||
-            table_id == catalog::DANDB_INDEX_COLUMNS_ID
-        );
+        const bool is_system_table = table_id == catalog::DANDB_TABLES_ID || table_id == catalog::DANDB_COLUMNS_ID || table_id == catalog::DANDB_INDEXES_ID || table_id == catalog::DANDB_INDEX_COLUMNS_ID;
+        if(!is_system_table) return core::Status::Ok();
 
-        if(is_system_table) {
-            return core::Status::InvalidArgument("Cannot write to a system table");
-        }
-
-        return core::Status::Ok();
+        return core::Status::InvalidArgument(make_binder_error_message(table_name.location, "Cannot "+std::string(action)+" system table '"+table_name.text+"'"));
 
     }
 
