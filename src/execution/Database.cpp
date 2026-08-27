@@ -529,6 +529,10 @@ namespace dandb::execution {
         return pager_->close();
     }
 
+    void Database::set_wal_fault_injector(platform::FileFaultInjector* fault_injector) {
+        pager_->set_wal_fault_injector(fault_injector);
+    }
+
     ExecutionResult Database::execute_statement(const sql::Statement& statement) {
 
         if(pager_->transaction_unresolved()) {

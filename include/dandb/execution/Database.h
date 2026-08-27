@@ -22,6 +22,10 @@ namespace dandb::sql {
     struct BoundUpdateStatement;
 }
 
+namespace dandb::platform {
+    class FileFaultInjector;
+}
+
 namespace dandb::execution {
 
     class Database {
@@ -35,6 +39,7 @@ namespace dandb::execution {
 
             std::vector<ExecutionResult> execute(std::string_view sql_string);
             core::Status close();
+            void set_wal_fault_injector(platform::FileFaultInjector* fault_injector);
 
         private:
             Database(std::unique_ptr<storage::Pager> pager, catalog::Catalog catalog);
