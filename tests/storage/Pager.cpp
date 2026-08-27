@@ -453,6 +453,7 @@ TEST_CASE("Pager commit sync failure leaves transaction unresolved", "[storage][
     pager.set_wal_fault_injector(&injector);
 
     REQUIRE(pager.begin_transaction().ok());
+    REQUIRE_FALSE(pager.transaction_unresolved());
 
     {
         auto allocated = pager.new_page();
@@ -468,16 +469,19 @@ TEST_CASE("Pager commit sync failure leaves transaction unresolved", "[storage][
     REQUIRE_FALSE(failed_commit.ok());
     REQUIRE(failed_commit.code() == StatusCode::IoError);
     REQUIRE(pager.in_transaction());
+    REQUIRE(pager.transaction_unresolved());
 
     injector.fail_sync = false;
 
     const auto retry_commit = pager.commit_transaction();
     REQUIRE_FALSE(retry_commit.ok());
     REQUIRE(retry_commit.code() == StatusCode::TransactionError);
+    REQUIRE(pager.transaction_unresolved());
 
     const auto rollback_status = pager.rollback_transaction();
     REQUIRE_FALSE(rollback_status.ok());
     REQUIRE(rollback_status.code() == StatusCode::TransactionError);
+    REQUIRE(pager.transaction_unresolved());
 
     const auto new_page_result = pager.new_page();
     REQUIRE_FALSE(new_page_result.ok());
