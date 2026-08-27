@@ -99,6 +99,14 @@ namespace {
 
     }
 
+    dandb::core::Status make_duplicate_key_failure(dandb::core::Status status, std::string message) {
+
+        if(status.code() != dandb::core::StatusCode::ConstraintViolation) return status;
+
+        return dandb::core::Status::ConstraintViolation(std::move(message));
+
+    }
+
     AccessPath plan_access_path(
         const dandb::record::Schema& schema,
         std::span<const dandb::catalog::IndexDescriptor> index_descriptors,
@@ -781,7 +789,15 @@ namespace dandb::execution {
 
             const auto insert_status = index_tree.insert(index_key, entry.key);
             if(!insert_status.ok()) {
-                return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+                return ExecutionResult{handle_mutation_failure(
+                    make_duplicate_key_failure(
+                        insert_status,
+                        "Cannot create unique index '"+statement.index_name+"' on table '"+
+                            table_descriptor->name()+"': duplicate values in column '"+
+                            schema->column(statement.indexed_column.ordinal).name()+"'"
+                    ),
+                    owns_transaction
+                )};
             }
 
         }
@@ -1051,7 +1067,13 @@ namespace dandb::execution {
 
         const auto insert_status = tree.insert(primary_key_bytes_result.value(), row_bytes_result.value());
         if(!insert_status.ok()) {
-            return ExecutionResult{handle_mutation_failure(insert_status, owns_transaction)};
+            return ExecutionResult{handle_mutation_failure(
+                make_duplicate_key_failure(
+                    insert_status,
+                    "Cannot insert into table '"+table_descriptor->name()+"': duplicate primary key value"
+                ),
+                owns_transaction
+            )};
 
         }
 
@@ -1098,7 +1120,14 @@ namespace dandb::execution {
                 primary_key_bytes_result.value()
             );
             if(!index_insert_status.ok()) {
-                return ExecutionResult{handle_mutation_failure(index_insert_status, owns_transaction)};
+                return ExecutionResult{handle_mutation_failure(
+                    make_duplicate_key_failure(
+                        index_insert_status,
+                        "Cannot insert into table '"+table_descriptor->name()+
+                            "': duplicate value for unique column '"+indexed_column->name()+"'"
+                    ),
+                    owns_transaction
+                )};
             }
 
         }
@@ -1278,7 +1307,13 @@ namespace dandb::execution {
 
             for(auto& pending_index_update: pending_index_updates) {
                 const auto insert_status = pending_index_update.index->tree.insert(pending_index_update.new_key, primary_key);
-                if(!insert_status.ok()) return insert_status;
+                if(!insert_status.ok()) {
+                    return make_duplicate_key_failure(
+                        insert_status,
+                        "Cannot update table '"+table_descriptor->name()+
+                            "': duplicate value for unique column '"+assignment_column.name()+"'"
+                    );
+                }
             }
 
             rows_affected++;

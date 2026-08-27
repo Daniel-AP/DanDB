@@ -589,6 +589,10 @@ TEST_CASE("Database rejects a duplicate unique index without persisting metadata
 
     REQUIRE(create_index_results.size() == 1);
     REQUIRE(create_index_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(
+        create_index_results[0].status.message() ==
+        "Cannot create unique index 'users_by_age' on table 'users': duplicate values in column 'age'"
+    );
     REQUIRE(database_result.value().close().ok());
 
     auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
@@ -1288,6 +1292,10 @@ TEST_CASE("Database rejects INSERT rows with duplicate primary keys", "[executio
 
     REQUIRE(duplicate_insert_results.size() == 1);
     REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(
+        duplicate_insert_results[0].status.message() ==
+        "Cannot insert into table 'users': duplicate primary key value"
+    );
     REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
     REQUIRE(database_result.value().close().ok());
 }
@@ -1470,6 +1478,10 @@ TEST_CASE("Database maintains internal unique indexes on INSERT", "[execution][d
     const auto duplicate_insert_results = database.execute("INSERT INTO users VALUES (2, 20);");
     REQUIRE(duplicate_insert_results.size() == 1);
     REQUIRE(duplicate_insert_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(
+        duplicate_insert_results[0].status.message() ==
+        "Cannot insert into table 'users': duplicate value for unique column 'code'"
+    );
     REQUIRE_FALSE(duplicate_insert_results[0].rows_affected.has_value());
 
     const auto missing_row_results = database.execute("SELECT id FROM users WHERE id = 2;");
@@ -2605,6 +2617,10 @@ TEST_CASE("Database restores rows and indexes after a secondary-index UPDATE fai
 
     REQUIRE(update_results.size() == 1);
     REQUIRE(update_results[0].status.code() == StatusCode::ConstraintViolation);
+    REQUIRE(
+        update_results[0].status.message() ==
+        "Cannot update table 'users': duplicate value for unique column 'code'"
+    );
     REQUIRE_FALSE(update_results[0].rows_affected.has_value());
 
     const auto table_results = database.execute("SELECT id, age, code FROM users;");
