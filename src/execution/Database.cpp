@@ -81,6 +81,24 @@ namespace {
 
     }
 
+    dandb::core::Status make_value_error_failure(
+        dandb::core::Status status,
+        std::string_view table_name,
+        std::string_view column_name
+    ) {
+
+        const auto status_code = status.code();
+        const bool is_invalid_argument = status_code == dandb::core::StatusCode::InvalidArgument;
+        const bool is_constraint_violation = status_code == dandb::core::StatusCode::ConstraintViolation;
+        const bool is_value_error = is_invalid_argument || is_constraint_violation;
+        if(!is_value_error) return status;
+
+        const std::string message = "Invalid value for column '"+std::string(column_name)+"' in table '"+std::string(table_name)+"': "+status.message();
+        if(is_invalid_argument) return dandb::core::Status::InvalidArgument(message);
+        return dandb::core::Status::ConstraintViolation(message);
+
+    }
+
     AccessPath plan_access_path(
         const dandb::record::Schema& schema,
         std::span<const dandb::catalog::IndexDescriptor> index_descriptors,
@@ -241,6 +259,7 @@ namespace {
 
     dandb::core::Result<PredicateState> resolve_predicate_state(
         const dandb::record::Schema& schema,
+        std::string_view table_name,
         const std::optional<dandb::sql::BoundPredicate>& predicate
     ) {
 
@@ -270,7 +289,11 @@ namespace {
             predicate_column.nullable()
         );
         if(!predicate_value_result.ok()) {
-            return predicate_value_result.status();
+            return make_value_error_failure(
+                predicate_value_result.status(),
+                table_name,
+                predicate_column.name()
+            );
         }
 
         return PredicateState{ Comparison{ *predicate, std::move(predicate_value_result.value()) } };
@@ -824,7 +847,7 @@ namespace dandb::execution {
             row_set.column_names.push_back(schema->column(column.ordinal).name());
         }
 
-        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        auto predicate_state_result = resolve_predicate_state(*schema, table_descriptor->name(), statement.predicate);
         if(!predicate_state_result.ok()) {
             return ExecutionResult{predicate_state_result.status()};
         }
@@ -987,7 +1010,11 @@ namespace dandb::execution {
             const auto& column = schema->column(ordinal);
             auto value_result = statement.values[ordinal].convert_to(column.logical_type(), column.nullable());
             if(!value_result.ok()) {
-                return ExecutionResult{value_result.status()};
+                return ExecutionResult{make_value_error_failure(
+                    value_result.status(),
+                    table_descriptor->name(),
+                    column.name()
+                )};
             }
 
             values.push_back(std::move(value_result.value()));
@@ -1110,12 +1137,18 @@ namespace dandb::execution {
 
         const auto& assignment_column = schema->column(statement.assignment.column.ordinal);
         auto assignment_value_result = statement.assignment.value.convert_to(assignment_column.logical_type(), assignment_column.nullable());
-        if(!assignment_value_result.ok()) return ExecutionResult{assignment_value_result.status()};
+        if(!assignment_value_result.ok()) {
+            return ExecutionResult{make_value_error_failure(
+                assignment_value_result.status(),
+                table_descriptor->name(),
+                assignment_column.name()
+            )};
+        }
 
         const std::vector<std::size_t> assignment_ordinals{ statement.assignment.column.ordinal };
         const std::vector<record::Value> assignment_values{ std::move(assignment_value_result.value()) };
 
-        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        auto predicate_state_result = resolve_predicate_state(*schema, table_descriptor->name(), statement.predicate);
         if(!predicate_state_result.ok()) {
             return ExecutionResult{predicate_state_result.status()};
         }
@@ -1386,7 +1419,7 @@ namespace dandb::execution {
             return ExecutionResult{core::Status::InternalError("Cannot execute DELETE: bound table has no schema")};
         }
 
-        auto predicate_state_result = resolve_predicate_state(*schema, statement.predicate);
+        auto predicate_state_result = resolve_predicate_state(*schema, table_descriptor->name(), statement.predicate);
         if(!predicate_state_result.ok()) {
             return ExecutionResult{predicate_state_result.status()};
         }
