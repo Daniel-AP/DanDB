@@ -1,4 +1,5 @@
 #include "Repl.h"
+#include "ErrorFormatter.h"
 
 #include <dandb/execution/Database.h>
 
@@ -31,7 +32,7 @@ int main(int argument_count, char* arguments[]) {
 
     auto database_result = dandb::execution::Database::open_or_create(database_path);
     if(!database_result.ok()) {
-        std::cerr << database_result.status().message() << '\n';
+        std::cerr << dandb::cli::format_status(database_result.status()) << '\n';
         return 1;
     }
 
@@ -44,7 +45,7 @@ int main(int argument_count, char* arguments[]) {
 
     const auto close_status = database.close();
     if(!close_status.ok()) {
-        std::cerr << close_status.message() << '\n';
+        std::cerr << dandb::cli::format_status(close_status) << '\n';
         return 1;
     }
 

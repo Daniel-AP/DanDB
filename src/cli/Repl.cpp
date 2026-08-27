@@ -1,4 +1,5 @@
 #include "Repl.h"
+#include "ErrorFormatter.h"
 
 #include <dandb/core/Status.h>
 #include <dandb/record/LogicalType.h>
@@ -134,7 +135,7 @@ namespace dandb::cli {
         for(const auto& result: results) {
 
             if(!result.status.ok()) {
-                error_output_ << result.status.message() << '\n';
+                error_output_ << format_status(result.status) << '\n';
                 continue;
             }
 

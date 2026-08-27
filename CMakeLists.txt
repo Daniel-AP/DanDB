@@ -66,6 +66,7 @@ target_include_directories(dandb_core
 
 add_executable(dandb_cli
     src/cli/Main.cpp
+    src/cli/ErrorFormatter.cpp
     src/cli/Repl.cpp
 )
 
@@ -134,6 +135,7 @@ add_executable(dandb_tests
     tests/sql/Parser.cpp
     tests/sql/Binder.cpp
     tests/execution/Database.cpp
+    src/cli/ErrorFormatter.cpp
     tests/cli/Repl.cpp
     src/cli/Repl.cpp
 )
