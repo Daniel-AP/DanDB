@@ -423,7 +423,7 @@ TEST_CASE("Parser reports incomplete input for a transaction statement without a
 
     REQUIRE_FALSE(statement_result.ok());
     REQUIRE(statement_result.status().code() == StatusCode::IncompleteInput);
-    REQUIRE(statement_result.status().message() == "expected ';' after statement");
+    REQUIRE(statement_result.status().message() == "SQL error at line 1, column 6: expected ';' after statement");
 }
 
 TEST_CASE("Parser reports incomplete input at required parser boundaries", "[sql][parser]") {

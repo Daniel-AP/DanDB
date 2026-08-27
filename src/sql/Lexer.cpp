@@ -72,6 +72,14 @@ namespace dandb::sql {
             );
         }
 
+        core::Status make_incomplete_input_error(SourceLocation location, std::string_view message) {
+            return core::Status::IncompleteInput(
+                "SQL error at line "+std::to_string(location.line)+
+                ", column "+std::to_string(location.column)+": "+
+                std::string(message)
+            );
+        }
+
     }
 
     Lexer::Lexer(std::string_view source) : source_(source) {}
@@ -210,7 +218,7 @@ namespace dandb::sql {
         }
 
         if(is_at_end()) {
-            return core::Status::IncompleteInput("unterminated string literal");
+            return make_incomplete_input_error(start_location_, "unterminated string literal");
         }
 
         consume_char();

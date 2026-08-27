@@ -18,6 +18,14 @@ namespace dandb::sql {
             );
         }
 
+        core::Status make_incomplete_input_error(SourceLocation location, std::string message) {
+            return core::Status::IncompleteInput(
+                "SQL error at line "+std::to_string(location.line)+
+                ", column "+std::to_string(location.column)+": "+
+                std::move(message)
+            );
+        }
+
         core::Result<std::int64_t> parse_integer_literal(std::string_view lexeme, SourceLocation location) {
 
             std::int64_t value = 0;
@@ -305,7 +313,7 @@ namespace dandb::sql {
                 return ColumnType{std::move(logical_type_result.value()), type_token.location};
             }
             default:
-                if(is_at_end()) return core::Status::IncompleteInput("expected column type");
+                if(is_at_end()) return make_incomplete_input_error(current_token().location, "expected column type");
                 return make_parser_error(current_token().location, "expected column type");
 
         }
@@ -611,7 +619,7 @@ namespace dandb::sql {
                     location
                 };
             } else {
-                if(is_at_end()) return core::Status::IncompleteInput("expected 'NULL' or 'NOT' after 'IS'");
+                if(is_at_end()) return make_incomplete_input_error(current_token().location, "expected 'NULL' or 'NOT' after 'IS'");
                 return make_parser_error(current_token().location, "expected 'NULL' or 'NOT' after 'IS'");
             }
         }
@@ -653,7 +661,7 @@ namespace dandb::sql {
                 consume_token();
                 return ComparisonOperator::GreaterEqual;
             default:
-                if(is_at_end()) return core::Status::IncompleteInput("expected comparison operator");
+                if(is_at_end()) return make_incomplete_input_error(current_token().location, "expected comparison operator");
                 return make_parser_error(current_token().location, "expected comparison operator");
         }
 
@@ -708,7 +716,7 @@ namespace dandb::sql {
                 };
             }
             default:
-                if(is_at_end()) return core::Status::IncompleteInput("expected literal");
+                if(is_at_end()) return make_incomplete_input_error(current_token().location, "expected literal");
                 return make_parser_error(current_token().location, "expected literal");
         }
 
@@ -738,7 +746,7 @@ namespace dandb::sql {
     core::Status Parser::expect_kind(TokenKind expected_kind, std::string_view message) {
 
         if(is_at_end() && expected_kind != TokenKind::EndOfInput) {
-            return core::Status::IncompleteInput(std::string(message));
+            return make_incomplete_input_error(current_token().location, std::string(message));
         }
 
         if(current_token().kind != expected_kind) {

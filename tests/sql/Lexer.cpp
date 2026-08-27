@@ -120,7 +120,7 @@ TEST_CASE("Lexer reports incomplete input for an unterminated string literal", "
 
     REQUIRE_FALSE(result.ok());
     REQUIRE(result.status().code() == StatusCode::IncompleteInput);
-    REQUIRE(result.status().message() == "unterminated string literal");
+    REQUIRE(result.status().message() == "SQL error at line 1, column 1: unterminated string literal");
 }
 
 TEST_CASE("Lexer reports the location of an invalid character", "[sql][lexer]") {

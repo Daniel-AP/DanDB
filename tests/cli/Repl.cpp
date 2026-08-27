@@ -74,7 +74,7 @@ namespace dandb::cli {
         repl.run();
 
         REQUIRE(output.str().find("...> ") != std::string::npos);
-        REQUIRE(error_output.str() == "expected ';' after statement\n");
+        REQUIRE(error_output.str() == "SQL error at line 2, column 1: expected ';' after statement\n");
         REQUIRE(database.close().ok());
     }
 
