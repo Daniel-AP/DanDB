@@ -481,6 +481,10 @@ namespace dandb::execution {
 
     std::vector<ExecutionResult> Database::execute(std::string_view sql_string) {
 
+        if(pager_->transaction_unresolved()) {
+            return { ExecutionResult{core::Status::TransactionError("Cannot execute statement: transaction is unresolved; close and reopen the database to recover")} };
+        }
+
         sql::Lexer lexer(sql_string);
         auto tokens_result = lexer.tokenize();
 
@@ -526,6 +530,12 @@ namespace dandb::execution {
     }
 
     ExecutionResult Database::execute_statement(const sql::Statement& statement) {
+
+        if(pager_->transaction_unresolved()) {
+            return ExecutionResult{
+                core::Status::TransactionError("Cannot execute statement: transaction is unresolved; close and reopen the database to recover")
+            };
+        }
 
         const bool rollback_statement = std::holds_alternative<sql::RollbackStatement>(statement);
 
