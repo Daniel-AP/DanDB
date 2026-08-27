@@ -605,6 +605,47 @@ TEST_CASE("Database rejects a duplicate unique index without persisting metadata
 
 }
 
+TEST_CASE("Database clears failed autocommit CREATE INDEX catalog state", "[execution][database][ddl][create-index][d13-t04]") {
+
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    const auto failed_create_results = database.execute(
+        "CREATE UNIQUE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(failed_create_results.size() == 1);
+    REQUIRE(failed_create_results[0].status.code() == StatusCode::ConstraintViolation);
+
+    const auto create_index_results = database.execute(
+        "CREATE INDEX users_by_age ON users(age);"
+    );
+
+    REQUIRE(create_index_results.size() == 1);
+    INFO(create_index_results[0].status.message());
+    REQUIRE(create_index_results[0].status.ok());
+    REQUIRE(database.close().ok());
+
+}
+
 TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "[execution][database][ddl][create-index][d12-t09]") {
 
     const TempDir temp_dir;
