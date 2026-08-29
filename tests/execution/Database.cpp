@@ -10,6 +10,7 @@
 #include <dandb/record/KeyCodec.h>
 #include <dandb/record/Value.h>
 #include <dandb/storage/Pager.h>
+#include <dandb/wal/WalHeader.h>
 #include <testutil/TempDir.h>
 
 #include <cstddef>
@@ -3695,4 +3696,300 @@ TEST_CASE("Database preserves indexed rows through rollback, recovery, and check
     REQUIRE(checkpointed_results[0].row_set->rows[0].value(0).as_integer() == 1);
     REQUIRE(checkpointed_results[1].status.code() == StatusCode::ConstraintViolation);
     REQUIRE(checkpointed_database.close().ok());
+}
+
+TEST_CASE("Database recovers a SQL-created table and row before checkpoint", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64) NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+    );
+
+    REQUIRE(setup_results.size() == 2);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) > dandb::wal::WAL_HEADER_SIZE);
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id, name FROM users;"
+        "SELECT name FROM dandb_tables WHERE name = 'users';"
+    );
+
+    REQUIRE(recovery_results.size() == 2);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(1).as_string() == "Ada");
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[1].row_set->rows[0].value(0).as_string() == "users");
+    REQUIRE(recovered_database.close().ok());
+}
+
+TEST_CASE("Database recovers a SQL-created index and row before checkpoint", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) > dandb::wal::WAL_HEADER_SIZE);
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id FROM users WHERE age = 20;"
+        "SELECT name FROM dandb_indexes WHERE name = 'users_by_age';"
+    );
+
+    REQUIRE(recovery_results.size() == 2);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[1].row_set->rows[0].value(0).as_string() == "users_by_age");
+    REQUIRE(recovered_database.close().ok());
+}
+
+TEST_CASE("Database recovers an updated indexed column before checkpoint", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+        "UPDATE users SET age = 25 WHERE id = 1;"
+    );
+
+    REQUIRE(setup_results.size() == 4);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+    REQUIRE(setup_results[3].rows_affected == 1);
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) > dandb::wal::WAL_HEADER_SIZE);
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id FROM users WHERE age = 25;"
+        "SELECT id FROM users WHERE age = 20;"
+        "SELECT name FROM dandb_indexes WHERE name = 'users_by_age';"
+    );
+
+    REQUIRE(recovery_results.size() == 3);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.empty());
+    REQUIRE(recovery_results[2].status.ok());
+    REQUIRE(recovery_results[2].row_set.has_value());
+    REQUIRE(recovery_results[2].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[2].row_set->rows[0].value(0).as_string() == "users_by_age");
+    REQUIRE(recovered_database.close().ok());
+}
+
+TEST_CASE("Database recovers a delete from an indexed table before checkpoint", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "age INT64 NOT NULL"
+        ");"
+        "CREATE INDEX users_by_age ON users(age);"
+        "INSERT INTO users VALUES (1, 20);"
+        "INSERT INTO users VALUES (2, 30);"
+        "DELETE FROM users WHERE id = 1;"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+    REQUIRE(setup_results[4].rows_affected == 1);
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) > dandb::wal::WAL_HEADER_SIZE);
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id FROM users WHERE age = 20;"
+        "SELECT id FROM users WHERE age = 30;"
+        "SELECT name FROM dandb_indexes WHERE name = 'users_by_age';"
+    );
+
+    REQUIRE(recovery_results.size() == 3);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.empty());
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[1].row_set->rows[0].value(0).as_integer() == 2);
+    REQUIRE(recovery_results[2].status.ok());
+    REQUIRE(recovery_results[2].row_set.has_value());
+    REQUIRE(recovery_results[2].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[2].row_set->rows[0].value(0).as_string() == "users_by_age");
+    REQUIRE(recovered_database.close().ok());
+}
+
+TEST_CASE("Database reopens after checkpoint with an empty WAL", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64) NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "CHECKPOINT;"
+    );
+
+    REQUIRE(setup_results.size() == 3);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) == dandb::wal::WAL_HEADER_SIZE);
+
+    auto reopened_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(reopened_database_result.ok());
+
+    auto& reopened_database = reopened_database_result.value();
+    const auto reopen_results = reopened_database.execute(
+        "SELECT id, name FROM users;"
+        "SELECT name FROM dandb_tables WHERE name = 'users';"
+    );
+
+    REQUIRE(reopen_results.size() == 2);
+    REQUIRE(reopen_results[0].status.ok());
+    REQUIRE(reopen_results[0].row_set.has_value());
+    REQUIRE(reopen_results[0].row_set->rows.size() == 1);
+    REQUIRE(reopen_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(reopen_results[0].row_set->rows[0].value(1).as_string() == "Ada");
+    REQUIRE(reopen_results[1].status.ok());
+    REQUIRE(reopen_results[1].row_set.has_value());
+    REQUIRE(reopen_results[1].row_set->rows.size() == 1);
+    REQUIRE(reopen_results[1].row_set->rows[0].value(0).as_string() == "users");
+    REQUIRE(reopened_database.close().ok());
+}
+
+TEST_CASE("Database does not recover a rolled back transaction", "[execution][database][recovery][d13-t06]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    auto& database = database_result.value();
+    const auto setup_results = database.execute(
+        "CREATE TABLE users ("
+        "id INT64 PRIMARY KEY, "
+        "name STRING(64) NOT NULL"
+        ");"
+        "INSERT INTO users VALUES (1, 'Ada');"
+        "BEGIN;"
+        "INSERT INTO users VALUES (2, 'Grace');"
+        "ROLLBACK;"
+    );
+
+    REQUIRE(setup_results.size() == 5);
+    for(const auto& result: setup_results) {
+        INFO(result.status.message());
+        REQUIRE(result.status.ok());
+    }
+
+    REQUIRE(database.close().ok());
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) > dandb::wal::WAL_HEADER_SIZE);
+
+    auto recovered_database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(recovered_database_result.ok());
+
+    auto& recovered_database = recovered_database_result.value();
+    const auto recovery_results = recovered_database.execute(
+        "SELECT id FROM users WHERE id = 1;"
+        "SELECT id FROM users WHERE id = 2;"
+        "SELECT name FROM dandb_tables WHERE name = 'users';"
+    );
+
+    REQUIRE(recovery_results.size() == 3);
+    REQUIRE(recovery_results[0].status.ok());
+    REQUIRE(recovery_results[0].row_set.has_value());
+    REQUIRE(recovery_results[0].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[0].row_set->rows[0].value(0).as_integer() == 1);
+    REQUIRE(recovery_results[1].status.ok());
+    REQUIRE(recovery_results[1].row_set.has_value());
+    REQUIRE(recovery_results[1].row_set->rows.empty());
+    REQUIRE(recovery_results[2].status.ok());
+    REQUIRE(recovery_results[2].row_set.has_value());
+    REQUIRE(recovery_results[2].row_set->rows.size() == 1);
+    REQUIRE(recovery_results[2].row_set->rows[0].value(0).as_string() == "users");
+    REQUIRE(recovered_database.close().ok());
 }
