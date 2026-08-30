@@ -31,6 +31,26 @@ namespace dandb::cli {
         REQUIRE(database.close().ok());
     }
 
+    TEST_CASE("Repl help lists supported index statements", "[cli][repl]") {
+        const testutil::TempDir temp_dir;
+        auto database_result = execution::Database::open_or_create(temp_dir.database_path());
+        REQUIRE(database_result.ok());
+
+        auto& database = database_result.value();
+
+        std::istringstream input(".help\n.exit\n");
+        std::ostringstream output;
+        std::ostringstream error_output;
+
+        Repl repl(database, input, output, error_output);
+        repl.run();
+
+        REQUIRE(output.str().find("CREATE INDEX") != std::string::npos);
+        REQUIRE(output.str().find("DROP INDEX") != std::string::npos);
+        REQUIRE(error_output.str().empty());
+        REQUIRE(database.close().ok());
+    }
+
     TEST_CASE("Repl displays query rows and execution messages", "[cli][repl]") {
         const testutil::TempDir temp_dir;
         auto database_result = execution::Database::open_or_create(temp_dir.database_path());

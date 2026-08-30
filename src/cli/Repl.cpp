@@ -22,7 +22,7 @@ namespace dandb::cli {
         constexpr std::string_view EXIT_COMMAND = ".exit";
         constexpr std::string_view PAGER_PROMPT = "--More-- Press Enter for more rows; enter text to stop: ";
         constexpr std::string_view HELP_TEXT =
-            "Supported SQL: CREATE TABLE, DROP TABLE, INSERT, SELECT, UPDATE, "
+            "Supported SQL: CREATE TABLE, DROP TABLE, CREATE INDEX, DROP INDEX, INSERT, SELECT, UPDATE, "
             "DELETE, BEGIN, COMMIT, ROLLBACK, CHECKPOINT.\n"
             "End statements with ';'. Commands: .help, .exit.\n"
             "A blank continuation line submits the pending SQL.\n"
