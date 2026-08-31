@@ -75,6 +75,17 @@ target_link_libraries(dandb_cli
         dandb_core
 )
 
+add_executable(dandb_crash_test_worker
+    tests/crash/CrashTestWorker.cpp
+)
+
+target_link_libraries(dandb_crash_test_worker
+    PRIVATE
+        dandb_core
+)
+
+target_compile_features(dandb_crash_test_worker PRIVATE cxx_std_20)
+
 enable_testing()
 
 add_subdirectory(third_party/catch2)
@@ -111,6 +122,9 @@ add_executable(dandb_tests
     tests/testutil/BTreeValidator.cpp
     tests/testutil/TempDir.cpp
     tests/testutil/TempDirTests.cpp
+    tests/testutil/ScopedHandle.cpp
+    tests/testutil/CrashTestHarness.cpp
+    tests/crash/CrashRecovery.cpp
     tests/platform/DatabasePath.cpp
     tests/platform/FileHandle.cpp
     tests/platform/FileLock.cpp
@@ -139,6 +153,13 @@ add_executable(dandb_tests
     tests/cli/ErrorFormatter.cpp
     tests/cli/Repl.cpp
     src/cli/Repl.cpp
+)
+
+add_dependencies(dandb_tests dandb_crash_test_worker)
+
+target_compile_definitions(dandb_tests
+    PRIVATE
+        DANDB_CRASH_TEST_WORKER_PATH="$<TARGET_FILE:dandb_crash_test_worker>"
 )
 
 target_link_libraries(dandb_tests
