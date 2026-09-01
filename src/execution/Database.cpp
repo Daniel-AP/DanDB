@@ -502,16 +502,7 @@ namespace dandb::execution {
 
     core::Result<Database> Database::open_or_create(std::filesystem::path path) {
 
-        std::error_code error_code;
-        const bool database_exists = std::filesystem::exists(path, error_code);
-
-        if(error_code) {
-            return core::Status::IoError("Cannot inspect database path: "+error_code.message());
-        }
-
-        auto pager_result = database_exists
-            ? storage::Pager::open(path, DEFAULT_BUFFER_POOL_CAPACITY)
-            : storage::Pager::create(path, DEFAULT_BUFFER_POOL_CAPACITY);
+        auto pager_result = storage::Pager::open_or_create(path, DEFAULT_BUFFER_POOL_CAPACITY);
 
         if(!pager_result.ok()) {
             return pager_result.status();
