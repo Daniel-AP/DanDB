@@ -1,16 +1,20 @@
 #include <catch_amalgamated.hpp>
 
 #include <dandb/btree/BTree.h>
+#include <dandb/btree/BTreePage.h>
 #include <dandb/catalog/Catalog.h>
 #include <dandb/catalog/IndexDescriptor.h>
+#include <dandb/core/Constants.h>
 #include <dandb/core/Result.h>
 #include <dandb/core/Status.h>
 #include <dandb/execution/Database.h>
 #include <dandb/platform/FileFaultInjector.h>
 #include <dandb/record/KeyCodec.h>
 #include <dandb/record/Value.h>
+#include <dandb/storage/DatabaseHeader.h>
 #include <dandb/storage/Pager.h>
 #include <dandb/wal/WalHeader.h>
+#include <dandb/wal/WalPageFrame.h>
 #include <testutil/TempDir.h>
 
 #include <cstddef>
@@ -121,6 +125,55 @@ namespace {
 
         REQUIRE_FALSE(entry_result.ok());
         REQUIRE(entry_result.status().code() == StatusCode::NotFound);
+
+    }
+
+    void overwrite_file_byte(
+        const std::filesystem::path& path,
+        std::uint64_t offset,
+        std::byte value
+    ) {
+
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(file.is_open());
+
+        file.seekp(static_cast<std::streamoff>(offset));
+        REQUIRE(file.good());
+
+        const char character = static_cast<char>(std::to_integer<unsigned char>(value));
+        file.write(&character, 1);
+        REQUIRE(file.good());
+
+    }
+
+    void flip_file_byte(const std::filesystem::path& path, std::uint64_t offset) {
+
+        std::fstream file(path, std::ios::binary | std::ios::in | std::ios::out);
+        REQUIRE(file.is_open());
+
+        file.seekg(static_cast<std::streamoff>(offset));
+        REQUIRE(file.good());
+
+        char character = '\0';
+        file.read(&character, 1);
+        REQUIRE(file.good());
+
+        character = static_cast<char>(static_cast<unsigned char>(character)^0xFFU);
+
+        file.seekp(static_cast<std::streamoff>(offset));
+        REQUIRE(file.good());
+
+        file.write(&character, 1);
+        REQUIRE(file.good());
+
+    }
+
+    void require_open_corruption(const std::filesystem::path& path) {
+
+        const auto database_result = Database::open_or_create(path);
+
+        REQUIRE_FALSE(database_result.ok());
+        REQUIRE(database_result.status().code() == StatusCode::Corruption);
 
     }
 
@@ -610,7 +663,7 @@ TEST_CASE("Database rejects a duplicate unique index without persisting metadata
 
 }
 
-TEST_CASE("Database clears failed autocommit CREATE INDEX catalog state", "[execution][database][ddl][create-index][d13-t04]") {
+TEST_CASE("Database clears failed autocommit CREATE INDEX catalog state", "[execution][database][ddl][create-index]") {
 
     const TempDir temp_dir;
 
@@ -651,7 +704,7 @@ TEST_CASE("Database clears failed autocommit CREATE INDEX catalog state", "[exec
 
 }
 
-TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "[execution][database][ddl][create-index][d12-t09]") {
+TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "[execution][database][ddl][create-index]") {
 
     const TempDir temp_dir;
 
@@ -742,7 +795,7 @@ TEST_CASE("Database allows multiple user indexes alongside automatic indexes", "
 
 }
 
-TEST_CASE("Database drops one user index while another remains usable", "[execution][database][ddl][drop-index][d12-t09]") {
+TEST_CASE("Database drops one user index while another remains usable", "[execution][database][ddl][drop-index]") {
 
     const TempDir temp_dir;
 
@@ -925,7 +978,7 @@ TEST_CASE("Database rejects DROP TABLE for a missing table", "[execution][databa
     REQUIRE(database_result.value().close().ok());
 }
 
-TEST_CASE("Database reports an unknown column with its location", "[execution][database][d13-t05]") {
+TEST_CASE("Database reports an unknown column with its location", "[execution][database]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -967,6 +1020,83 @@ TEST_CASE("Database rejects an invalid existing database file", "[execution][dat
     auto database_result = Database::open_or_create(temp_dir.database_path());
 
     REQUIRE_FALSE(database_result.ok());
+}
+
+TEST_CASE("Database rejects a corrupted database header", "[execution][database][corruption]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    overwrite_file_byte(
+        temp_dir.database_path(),
+        dandb::storage::DATABASE_MAGIC_BYTES_OFFSET,
+        std::byte{ 'X' }
+    );
+
+    require_open_corruption(temp_dir.database_path());
+}
+
+TEST_CASE("Database rejects a corrupted WAL header", "[execution][database][corruption]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    overwrite_file_byte(
+        temp_dir.wal_path(),
+        dandb::wal::WAL_MAGIC_BYTES_OFFSET,
+        std::byte{ 'X' }
+    );
+
+    require_open_corruption(temp_dir.database_path());
+}
+
+TEST_CASE("Database rejects a corrupted WAL page frame", "[execution][database][corruption]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    REQUIRE(std::filesystem::file_size(temp_dir.wal_path()) >=
+        dandb::wal::WAL_HEADER_SIZE+dandb::wal::WAL_PAGE_FRAME_RECORD_SIZE);
+
+    flip_file_byte(
+        temp_dir.wal_path(),
+        dandb::wal::WAL_HEADER_SIZE+dandb::wal::WAL_PAGE_FRAME_CHECKSUM_OFFSET
+    );
+
+    require_open_corruption(temp_dir.database_path());
+}
+
+TEST_CASE("Database rejects a corrupted system catalog page", "[execution][database][corruption]") {
+    const TempDir temp_dir;
+
+    auto database_result = Database::open_or_create(temp_dir.database_path());
+    REQUIRE(database_result.ok());
+
+    const auto checkpoint_results = database_result.value().execute("CHECKPOINT;");
+    REQUIRE(checkpoint_results.size() == 1);
+    REQUIRE(checkpoint_results[0].status.ok());
+    REQUIRE(database_result.value().close().ok());
+
+    auto pager_result = Pager::open(temp_dir.database_path(), TEST_BPM_CAPACITY);
+    REQUIRE(pager_result.ok());
+
+    const auto system_tables_root_page_id =
+        pager_result.value().database_header().system_tables_root_page_id();
+    REQUIRE(pager_result.value().close().ok());
+
+    overwrite_file_byte(
+        temp_dir.database_path(),
+        system_tables_root_page_id.id*dandb::core::PAGE_SIZE+dandb::btree::BTREE_PAGE_KIND_OFFSET,
+        std::byte{ 0 }
+    );
+
+    require_open_corruption(temp_dir.database_path());
 }
 
 TEST_CASE("Database executes transaction control statements", "[execution][database][transaction]") {
@@ -1351,7 +1481,7 @@ TEST_CASE("Database rejects overflow values in INSERT rows", "[execution][databa
     REQUIRE(database_result.value().close().ok());
 }
 
-TEST_CASE("Database reports string overflow with table and column context", "[execution][database][d13-t05]") {
+TEST_CASE("Database reports string overflow with table and column context", "[execution][database]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -1378,7 +1508,7 @@ TEST_CASE("Database reports string overflow with table and column context", "[ex
     REQUIRE(database.close().ok());
 }
 
-TEST_CASE("Database reports invalid predicate values with table and column context", "[execution][database][d13-t05]") {
+TEST_CASE("Database reports invalid predicate values with table and column context", "[execution][database]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -1670,7 +1800,7 @@ TEST_CASE("Database maintains user-created unique indexes on INSERT", "[executio
     REQUIRE(pager_result.value().close().ok());
 }
 
-TEST_CASE("Database maintains every secondary index with multiple user indexes", "[execution][database][dml][index][d12-t09]") {
+TEST_CASE("Database maintains every secondary index with multiple user indexes", "[execution][database][dml][index]") {
 
     const TempDir temp_dir;
 
@@ -1765,7 +1895,7 @@ TEST_CASE("Database maintains every secondary index with multiple user indexes",
 
 }
 
-TEST_CASE("Database removes entries from every secondary index with multiple user indexes", "[execution][database][dml][delete][index][d12-t09]") {
+TEST_CASE("Database removes entries from every secondary index with multiple user indexes", "[execution][database][dml][delete][index]") {
 
     const TempDir temp_dir;
 
@@ -3592,7 +3722,7 @@ TEST_CASE("Database restores a non-unique index entry after DELETE rollback", "[
     REQUIRE(pager_result.value().close().ok());
 }
 
-TEST_CASE("Database preserves indexed rows through rollback, recovery, and checkpoint", "[execution][database][d12-t11]") {
+TEST_CASE("Database preserves indexed rows through rollback, recovery, and checkpoint", "[execution][database]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3698,7 +3828,7 @@ TEST_CASE("Database preserves indexed rows through rollback, recovery, and check
     REQUIRE(checkpointed_database.close().ok());
 }
 
-TEST_CASE("Database recovers a SQL-created table and row before checkpoint", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database recovers a SQL-created table and row before checkpoint", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3744,7 +3874,7 @@ TEST_CASE("Database recovers a SQL-created table and row before checkpoint", "[e
     REQUIRE(recovered_database.close().ok());
 }
 
-TEST_CASE("Database recovers a SQL-created index and row before checkpoint", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database recovers a SQL-created index and row before checkpoint", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3790,7 +3920,7 @@ TEST_CASE("Database recovers a SQL-created index and row before checkpoint", "[e
     REQUIRE(recovered_database.close().ok());
 }
 
-TEST_CASE("Database recovers an updated indexed column before checkpoint", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database recovers an updated indexed column before checkpoint", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3842,7 +3972,7 @@ TEST_CASE("Database recovers an updated indexed column before checkpoint", "[exe
     REQUIRE(recovered_database.close().ok());
 }
 
-TEST_CASE("Database recovers a delete from an indexed table before checkpoint", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database recovers a delete from an indexed table before checkpoint", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3895,7 +4025,7 @@ TEST_CASE("Database recovers a delete from an indexed table before checkpoint", 
     REQUIRE(recovered_database.close().ok());
 }
 
-TEST_CASE("Database reopens after checkpoint with an empty WAL", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database reopens after checkpoint with an empty WAL", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -3942,7 +4072,7 @@ TEST_CASE("Database reopens after checkpoint with an empty WAL", "[execution][da
     REQUIRE(reopened_database.close().ok());
 }
 
-TEST_CASE("Database does not recover a rolled back transaction", "[execution][database][recovery][d13-t06]") {
+TEST_CASE("Database does not recover a rolled back transaction", "[execution][database][recovery]") {
     const TempDir temp_dir;
 
     auto database_result = Database::open_or_create(temp_dir.database_path());

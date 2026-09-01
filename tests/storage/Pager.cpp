@@ -75,7 +75,7 @@ namespace {
 
 }
 
-TEST_CASE("Pager exposes the stable Day 5 storage API", "[storage][pager]") {
+TEST_CASE("Pager exposes the stable storage API", "[storage][pager]") {
     using CreateResult = decltype(Pager::create(std::filesystem::path{}, 1));
     using OpenResult = decltype(Pager::open(std::filesystem::path{}, 1));
     using GetPageResult = decltype(std::declval<Pager&>().get_page(PageId{ 1 }));
