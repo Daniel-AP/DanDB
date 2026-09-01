@@ -128,7 +128,7 @@ TEST_CASE("DiskManager persists an updated database header page count", "[storag
     REQUIRE(reopened_header.value().page_count() == 2);
 }
 
-TEST_CASE("DiskManager open_existing rejects header page count that does not match file size", "[storage][disk-manager]") {
+TEST_CASE("DiskManager open_existing rejects a header page count beyond the file", "[storage][disk-manager]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.path() / "mismatched_page_count.ddb";
     auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
@@ -146,6 +146,27 @@ TEST_CASE("DiskManager open_existing rejects header page count that does not mat
     REQUIRE_FALSE(opened.ok());
     REQUIRE(opened.status().code() == StatusCode::Corruption);
     REQUIRE_FALSE(opened.status().message().empty());
+}
+
+TEST_CASE("DiskManager open_existing allows surplus pages after an interrupted checkpoint", "[storage][disk-manager]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.path() / "surplus_pages.ddb";
+    const auto initial_header = DatabaseHeader::create_new(DATABASE_ID);
+
+    {
+        auto created = DiskManager::create_new(path, initial_header);
+        REQUIRE(created.ok());
+    }
+
+    std::filesystem::resize_file(path, PAGE_SIZE * 2);
+
+    auto opened = DiskManager::open_existing(path);
+
+    REQUIRE(opened.ok());
+
+    auto header = opened.value().read_header();
+    REQUIRE(header.ok());
+    REQUIRE(header.value().page_count() == INITIAL_DATABASE_PAGE_COUNT);
 }
 
 TEST_CASE("DiskManager persists an updated database header system tables root page id", "[storage][disk-manager]") {
