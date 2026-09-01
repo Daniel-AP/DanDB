@@ -37,6 +37,7 @@ namespace dandb::storage {
 
             static core::Result<Pager> create(std::filesystem::path path, std::size_t bpm_capacity);
             static core::Result<Pager> open(std::filesystem::path path, std::size_t bpm_capacity);
+            static core::Result<Pager> open_or_create(std::filesystem::path path, std::size_t bpm_capacity);
 
             core::Result<PageHandle> get_page(PageId page_id);
             core::Result<PageHandle> new_page();

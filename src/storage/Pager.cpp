@@ -218,6 +218,17 @@ namespace dandb::storage {
 
     }
 
+    core::Result<Pager> Pager::open_or_create(std::filesystem::path path, std::size_t bpm_capacity) {
+
+        auto open_result = open(path, bpm_capacity);
+        if(open_result.ok() || open_result.status().code() != core::StatusCode::NotFound) {
+            return open_result;
+        }
+
+        return create(std::move(path), bpm_capacity);
+
+    }
+
     core::Result<PageHandle> Pager::get_page(PageId page_id) {
 
         if(closed_) {

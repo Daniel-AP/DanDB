@@ -78,6 +78,7 @@ namespace {
 TEST_CASE("Pager exposes the stable storage API", "[storage][pager]") {
     using CreateResult = decltype(Pager::create(std::filesystem::path{}, 1));
     using OpenResult = decltype(Pager::open(std::filesystem::path{}, 1));
+    using OpenOrCreateResult = decltype(Pager::open_or_create(std::filesystem::path{}, 1));
     using GetPageResult = decltype(std::declval<Pager&>().get_page(PageId{ 1 }));
     using NewPageResult = decltype(std::declval<Pager&>().new_page());
     using BeginResult = decltype(std::declval<Pager&>().begin_transaction());
@@ -88,6 +89,7 @@ TEST_CASE("Pager exposes the stable storage API", "[storage][pager]") {
 
     STATIC_REQUIRE(std::is_same_v<CreateResult, Result<Pager>>);
     STATIC_REQUIRE(std::is_same_v<OpenResult, Result<Pager>>);
+    STATIC_REQUIRE(std::is_same_v<OpenOrCreateResult, Result<Pager>>);
     STATIC_REQUIRE(std::is_same_v<GetPageResult, Result<PageHandle>>);
     STATIC_REQUIRE(std::is_same_v<NewPageResult, Result<PageHandle>>);
     STATIC_REQUIRE(std::is_same_v<BeginResult, Status>);
@@ -95,6 +97,17 @@ TEST_CASE("Pager exposes the stable storage API", "[storage][pager]") {
     STATIC_REQUIRE(std::is_same_v<RollbackResult, Status>);
     STATIC_REQUIRE(std::is_same_v<CheckpointResult, Status>);
     STATIC_REQUIRE(std::is_same_v<CloseResult, Status>);
+}
+
+TEST_CASE("Pager creates a missing database through open_or_create", "[storage][pager]") {
+    const dandb::testutil::TempDir temp_dir;
+
+    auto pager_result = Pager::open_or_create(temp_dir.database_path(), TEST_BPM_CAPACITY);
+
+    REQUIRE(pager_result.ok());
+    REQUIRE(std::filesystem::exists(temp_dir.database_path()));
+    REQUIRE(std::filesystem::exists(temp_dir.wal_path()));
+    REQUIRE(pager_result.value().close().ok());
 }
 
 TEST_CASE("Pager can create storage files and close them", "[storage][pager]") {
