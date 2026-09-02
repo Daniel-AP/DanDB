@@ -192,6 +192,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/Main.cpp
         benchmarks/BTreeInsert.cpp
         benchmarks/BTreeLookup.cpp
+        benchmarks/BTreeRangeScan.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
     )
