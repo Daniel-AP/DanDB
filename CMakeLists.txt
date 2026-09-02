@@ -191,6 +191,7 @@ if(DANDB_BUILD_BENCHMARKS)
     add_executable(dandb_benchmarks
         benchmarks/Main.cpp
         benchmarks/BTreeInsert.cpp
+        benchmarks/BTreeLookup.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
     )

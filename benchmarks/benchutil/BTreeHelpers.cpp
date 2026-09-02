@@ -40,6 +40,19 @@ namespace dandb::benchutil {
 
     }
 
+    core::Status populate_tree(btree::BTree& tree, const std::vector<BTreeKey>& keys, const BTreeValue& value) {
+
+        for(const auto& key: keys) {
+
+            const auto insert_status = tree.insert(key, value);
+            if(!insert_status.ok()) return insert_status;
+
+        }
+
+        return core::Status::Ok();
+
+    }
+
     core::Status verify_entry_count(btree::BTree& tree, std::size_t expected_count) {
 
         auto cursor_result = tree.scan();

@@ -21,6 +21,7 @@ namespace dandb::benchutil {
 
     core::Result<std::vector<BTreeKey>> make_sequential_keys(std::size_t entry_count);
     core::Result<std::vector<BTreeKey>> make_shuffled_keys(std::size_t entry_count);
+    core::Status populate_tree(btree::BTree& tree, const std::vector<BTreeKey>& keys, const BTreeValue& value);
     core::Status verify_entry_count(btree::BTree& tree, std::size_t expected_count);
 
 }
