@@ -9,7 +9,8 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "CMAKE_CXX_COMPILER": "g++",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "DANDB_BUILD_BENCHMARKS": "OFF"
             }
         },
         {
@@ -20,7 +21,17 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Release",
                 "CMAKE_CXX_COMPILER": "g++",
-                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON"
+                "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+                "DANDB_BUILD_BENCHMARKS": "OFF"
+            }
+        },
+        {
+            "name": "gxx-release-benchmarks",
+            "displayName": "g++ Release Benchmarks",
+            "inherits": "gxx-release",
+            "binaryDir": "${sourceDir}/out/build/gxx-release-benchmarks",
+            "cacheVariables": {
+                "DANDB_BUILD_BENCHMARKS": "ON"
             }
         }
     ],
@@ -32,6 +43,10 @@
         {
             "name": "gxx-release",
             "configurePreset": "gxx-release"
+        },
+        {
+            "name": "gxx-release-benchmarks",
+            "configurePreset": "gxx-release-benchmarks"
         }
     ],
     "testPresets": [

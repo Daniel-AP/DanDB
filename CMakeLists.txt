@@ -7,6 +7,8 @@ project(
     LANGUAGES CXX
 )
 
+option(DANDB_BUILD_BENCHMARKS "Build DanDB performance benchmarks" OFF)
+
 add_library(dandb_core STATIC
     src/core/Status.cpp
     src/core/Endian.cpp
@@ -177,3 +179,25 @@ target_include_directories(dandb_tests
 target_compile_features(dandb_tests PRIVATE cxx_std_20)
 
 add_test(NAME dandb_tests COMMAND dandb_tests)
+
+if(DANDB_BUILD_BENCHMARKS)
+
+    set(BENCHMARK_ENABLE_GTEST_TESTS OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+
+    add_subdirectory(third_party/benchmark EXCLUDE_FROM_ALL)
+
+    add_executable(dandb_benchmarks
+        benchmarks/Main.cpp
+    )
+
+    target_link_libraries(dandb_benchmarks
+        PRIVATE
+            dandb_core
+            benchmark::benchmark
+    )
+
+    target_compile_features(dandb_benchmarks PRIVATE cxx_std_20)
+
+endif()
