@@ -864,6 +864,7 @@ TEST_CASE("BTree insert splits a full root leaf", "[btree][tree]") {
     REQUIRE(tree_result.ok());
 
     auto& tree = tree_result.value();
+    const auto root_page_id = tree.root_page_id();
     auto key_30 = make_key(30);
     auto value_30 = make_value(SMALL_LEAF_VALUE_SIZE, 30);
     REQUIRE(tree.insert(key_30, value_30).ok());
@@ -879,6 +880,7 @@ TEST_CASE("BTree insert splits a full root leaf", "[btree][tree]") {
     require_found_value(tree, 10, SMALL_LEAF_VALUE_SIZE, 10);
     require_found_value(tree, 20, SMALL_LEAF_VALUE_SIZE, 20);
     require_found_value(tree, 30, SMALL_LEAF_VALUE_SIZE, 30);
+    REQUIRE(tree.root_page_id() == root_page_id);
 
     {
         auto root_page_result = pager.get_page(tree.root_page_id());
@@ -1582,7 +1584,7 @@ TEST_CASE("BTree erase merges internal children and shrinks the root", "[btree][
         REQUIRE(found_value.value() == make_value(SMALL_INTERNAL_VALUE_SIZE, key_value));
     }
 
-    REQUIRE(tree.root_page_id() != old_root_page_id);
+    REQUIRE(tree.root_page_id() == old_root_page_id);
     REQUIRE(validate_btree(pager, tree).ok());
 
     {
@@ -1751,7 +1753,7 @@ TEST_CASE("BTree rolled back inserts do not survive Pager reopen", "[btree][tree
             REQUIRE(tree.insert(key, value).ok());
         }
 
-        REQUIRE(tree.root_page_id() != root_page_id);
+        REQUIRE(tree.root_page_id() == root_page_id);
         REQUIRE(validate_btree(pager, tree).ok());
         REQUIRE(pager.rollback_transaction().ok());
         REQUIRE(pager.close().ok());

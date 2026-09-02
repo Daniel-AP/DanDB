@@ -270,77 +270,117 @@ namespace dandb::btree {
             return core::Status::Ok();
         }
 
-        const auto old_root_page_id = root_page_id_;
         const auto right_child_page_id = split->right_child_page_id;
-        storage::PageId new_root_page_id;
 
-        // Create the new internal root
+        BTreePageKind old_root_page_kind;
+        std::vector<storage::PageId> old_root_child_page_ids;
+        storage::PageId left_child_page_id;
+
+        // Move the old root into a new left child
         {
-            auto new_root_handle_result = pager_->new_page();
-            if(!new_root_handle_result.ok()) {
-                return new_root_handle_result.status();
-            }
 
-            auto& new_root_handle = new_root_handle_result.value();
-
-            const auto new_root_page_result = new_root_handle.mutable_page();
-            if(!new_root_page_result.ok()) {
-                return new_root_page_result.status();
-            }
-
-            auto& new_root_page = new_root_page_result.value();
-            new_root_page_id = new_root_page->id();
-
-            const auto init_internal_status = initialize_internal(new_root_page->data(), key_size_, value_size_);
-            if(!init_internal_status.ok()) {
-                return init_internal_status;
-            }
-
-            auto new_root_page_view_result = BTreeInternalPage<std::byte>::open(new_root_page->data());
-            if(!new_root_page_view_result.ok()) {
-                return new_root_page_view_result.status();
-            }
-
-            auto& new_root_page_view = new_root_page_view_result.value();
-
-            new_root_page_view.set_root(true);
-            new_root_page_view.set_first_child_page_id(old_root_page_id);
-
-            auto insert_status = new_root_page_view.insert_entry(0, split->separator_key, right_child_page_id);
-            if(!insert_status.ok()) {
-                return insert_status;
-            }
-        }
-
-        // The old root becomes the left child
-        {
-            auto old_root_handle_result = pager_->get_page(old_root_page_id);
+            auto old_root_handle_result = pager_->get_page(root_page_id_);
             if(!old_root_handle_result.ok()) {
                 return old_root_handle_result.status();
             }
 
             auto& old_root_handle = old_root_handle_result.value();
+            const auto* old_root_page = old_root_handle.page();
 
-            const auto old_root_page_result = old_root_handle.mutable_page();
-            if(!old_root_page_result.ok()) {
-                return old_root_page_result.status();
-            }
-
-            auto& old_root_page = old_root_page_result.value();
-
-            auto old_root_page_view_result = BTreePage<std::byte>::open(old_root_page->data());
+            auto old_root_page_view_result = BTreePage<const std::byte>::open(old_root_page->data());
             if(!old_root_page_view_result.ok()) {
                 return old_root_page_view_result.status();
             }
 
-            auto& old_root_page_view = old_root_page_view_result.value();
+            old_root_page_kind = old_root_page_view_result.value().kind();
+            if(old_root_page_kind == BTreePageKind::Internal) {
 
-            old_root_page_view.set_root(false);
-            old_root_page_view.set_parent_page_id(new_root_page_id);
+                auto child_page_ids_result = internal_child_page_ids(root_page_id_);
+                if(!child_page_ids_result.ok()) {
+                    return child_page_ids_result.status();
+                }
+
+                old_root_child_page_ids = std::move(child_page_ids_result.value());
+
+            }
+
+            auto left_child_handle_result = pager_->new_page();
+            if(!left_child_handle_result.ok()) {
+                return left_child_handle_result.status();
+            }
+
+            auto& left_child_handle = left_child_handle_result.value();
+            const auto left_child_page_result = left_child_handle.mutable_page();
+            if(!left_child_page_result.ok()) {
+                return left_child_page_result.status();
+            }
+
+            auto& left_child_page = *left_child_page_result.value();
+            left_child_page_id = left_child_page.id();
+            left_child_page.data() = old_root_page->data();
+
+            auto left_child_page_view_result = BTreePage<std::byte>::open(left_child_page.data());
+            if(!left_child_page_view_result.ok()) {
+                return left_child_page_view_result.status();
+            }
+
+            auto& left_child_page_view = left_child_page_view_result.value();
+            left_child_page_view.set_root(false);
+            left_child_page_view.set_parent_page_id(root_page_id_);
+
+        }
+
+        if(old_root_page_kind == BTreePageKind::Internal) {
+
+            const auto parent_status = set_children_parent_page_id(old_root_child_page_ids, left_child_page_id);
+            if(!parent_status.ok()) {
+                return parent_status;
+            }
+
+        }
+
+        // Reuse the original root page as the new internal root
+        {
+
+            auto root_handle_result = pager_->get_page(root_page_id_);
+            if(!root_handle_result.ok()) {
+                return root_handle_result.status();
+            }
+
+            auto& root_handle = root_handle_result.value();
+
+            const auto root_page_result = root_handle.mutable_page();
+            if(!root_page_result.ok()) {
+                return root_page_result.status();
+            }
+
+            auto& root_page = *root_page_result.value();
+
+            const auto init_internal_status = initialize_internal(root_page.data(), key_size_, value_size_);
+            if(!init_internal_status.ok()) {
+                return init_internal_status;
+            }
+
+            auto root_page_view_result = BTreeInternalPage<std::byte>::open(root_page.data());
+            if(!root_page_view_result.ok()) {
+                return root_page_view_result.status();
+            }
+
+            auto& root_page_view = root_page_view_result.value();
+            root_page_view.set_root(true);
+            root_page_view.set_parent_page_id(storage::INVALID_PAGE_ID);
+            root_page_view.set_first_child_page_id(left_child_page_id);
+
+            const auto insert_status = root_page_view.insert_entry(0, split->separator_key, right_child_page_id);
+            if(!insert_status.ok()) {
+                return insert_status;
+            }
+
         }
 
         // The split page becomes the right child
         {
+
             auto right_child_handle_result = pager_->get_page(right_child_page_id);
             if(!right_child_handle_result.ok()) {
                 return right_child_handle_result.status();
@@ -363,10 +403,20 @@ namespace dandb::btree {
             auto& right_child_page_view = right_child_page_view_result.value();
 
             right_child_page_view.set_root(false);
-            right_child_page_view.set_parent_page_id(new_root_page_id);
-        }
+            right_child_page_view.set_parent_page_id(root_page_id_);
 
-        root_page_id_ = new_root_page_id;
+            if(old_root_page_kind == BTreePageKind::Leaf) {
+
+                auto right_child_leaf_page_view_result = BTreeLeafPage<std::byte>::open(right_child_page->data());
+                if(!right_child_leaf_page_view_result.ok()) {
+                    return right_child_leaf_page_view_result.status();
+                }
+
+                right_child_leaf_page_view_result.value().set_previous_leaf_page_id(left_child_page_id);
+
+            }
+
+        }
 
         return core::Status::Ok();
 
@@ -417,63 +467,109 @@ namespace dandb::btree {
             return erase_result.status();
         }
 
-        storage::PageId new_root_page_id;
+        // Identify the only child that will replace the root contents
+        storage::PageId child_page_id;
 
         {
+
             auto root_page_handle_result = pager_->get_page(root_page_id_);
             if(!root_page_handle_result.ok()) {
                 return root_page_handle_result.status();
             }
 
-            auto root_page_result = root_page_handle_result.value().mutable_page();
-            if(!root_page_result.ok()) {
-                return root_page_result.status();
-            }
-
-            auto root_page_view_result = BTreePage<std::byte>::open(root_page_result.value()->data());
+            const auto* root_page = root_page_handle_result.value().page();
+            auto root_page_view_result = BTreePage<const std::byte>::open(root_page->data());
             if(!root_page_view_result.ok()) {
                 return root_page_view_result.status();
             }
 
-            auto& root_page_view = root_page_view_result.value();
+            const auto& root_page_view = root_page_view_result.value();
 
             if(root_page_view.kind() == BTreePageKind::Leaf || root_page_view.key_count() > 0) {
                 return core::Status::Ok();
             }
 
-            auto root_internal_page_view_result = BTreeInternalPage<std::byte>::open(root_page_result.value()->data());
+            auto root_internal_page_view_result = BTreeInternalPage<const std::byte>::open(root_page->data());
             if(!root_internal_page_view_result.ok()) {
                 return root_internal_page_view_result.status();
             }
 
-            auto& root_internal_page_view = root_internal_page_view_result.value();
-            new_root_page_id = root_internal_page_view.first_child_page_id();
-            root_internal_page_view.set_root(false);
+            child_page_id = root_internal_page_view_result.value().first_child_page_id();
+
         }
+
+        // Capture grandchildren before overwriting the root page
+        BTreePageKind child_page_kind;
+        std::vector<storage::PageId> child_page_child_page_ids;
 
         {
-            auto new_root_page_handle_result = pager_->get_page(new_root_page_id);
-            if(!new_root_page_handle_result.ok()) {
-                return new_root_page_handle_result.status();
+
+            auto child_page_handle_result = pager_->get_page(child_page_id);
+            if(!child_page_handle_result.ok()) {
+                return child_page_handle_result.status();
             }
 
-            auto new_root_page_result = new_root_page_handle_result.value().mutable_page();
-            if(!new_root_page_result.ok()) {
-                return new_root_page_result.status();
+            const auto* child_page = child_page_handle_result.value().page();
+            auto child_page_view_result = BTreePage<const std::byte>::open(child_page->data());
+            if(!child_page_view_result.ok()) {
+                return child_page_view_result.status();
             }
 
-            auto new_root_page_view_result = BTreePage<std::byte>::open(new_root_page_result.value()->data());
-            if(!new_root_page_view_result.ok()) {
-                return new_root_page_view_result.status();
+            child_page_kind = child_page_view_result.value().kind();
+            if(child_page_kind == BTreePageKind::Internal) {
+
+                auto child_page_ids_result = internal_child_page_ids(child_page_id);
+                if(!child_page_ids_result.ok()) {
+                    return child_page_ids_result.status();
+                }
+
+                child_page_child_page_ids = std::move(child_page_ids_result.value());
+
             }
 
-            auto& new_root_page_view = new_root_page_view_result.value();
-
-            new_root_page_view.set_root(true);
-            new_root_page_view.set_parent_page_id(storage::INVALID_PAGE_ID);
         }
 
-        root_page_id_ = new_root_page_id;
+        // Copy the child into the stable root page
+        {
+
+            auto child_page_handle_result = pager_->get_page(child_page_id);
+            if(!child_page_handle_result.ok()) {
+                return child_page_handle_result.status();
+            }
+
+            auto root_page_handle_result = pager_->get_page(root_page_id_);
+            if(!root_page_handle_result.ok()) {
+                return root_page_handle_result.status();
+            }
+
+            const auto root_page_result = root_page_handle_result.value().mutable_page();
+            if(!root_page_result.ok()) {
+                return root_page_result.status();
+            }
+
+            auto& root_page = *root_page_result.value();
+            root_page.data() = child_page_handle_result.value().page()->data();
+
+            auto root_page_view_result = BTreePage<std::byte>::open(root_page.data());
+            if(!root_page_view_result.ok()) {
+                return root_page_view_result.status();
+            }
+
+            auto& root_page_view = root_page_view_result.value();
+            root_page_view.set_root(true);
+            root_page_view.set_parent_page_id(storage::INVALID_PAGE_ID);
+
+        }
+
+        // Point copied internal children at the stable root
+        if(child_page_kind == BTreePageKind::Internal) {
+
+            const auto parent_status = set_children_parent_page_id(child_page_child_page_ids, root_page_id_);
+            if(!parent_status.ok()) {
+                return parent_status;
+            }
+
+        }
 
         return core::Status::Ok();
 
@@ -575,6 +671,69 @@ namespace dandb::btree {
 
     std::uint16_t BTree::value_size() const {
         return value_size_;
+    }
+
+    core::Result<std::vector<storage::PageId>> BTree::internal_child_page_ids(storage::PageId internal_page_id) const {
+
+        auto page_handle_result = pager_->get_page(internal_page_id);
+        if(!page_handle_result.ok()) {
+            return page_handle_result.status();
+        }
+
+        const auto* page = page_handle_result.value().page();
+        auto internal_page_result = BTreeInternalPage<const std::byte>::open(page->data());
+        if(!internal_page_result.ok()) {
+            return internal_page_result.status();
+        }
+
+        const auto& internal_page = internal_page_result.value();
+        std::vector<storage::PageId> child_page_ids;
+        child_page_ids.reserve(static_cast<std::size_t>(internal_page.key_count())+1);
+        child_page_ids.push_back(internal_page.first_child_page_id());
+
+        for(std::uint16_t entry_index = 0; entry_index < internal_page.key_count(); entry_index++) {
+
+            auto child_page_id_result = internal_page.right_child_page_id_at(entry_index);
+            if(!child_page_id_result.ok()) {
+                return child_page_id_result.status();
+            }
+
+            child_page_ids.push_back(child_page_id_result.value());
+
+        }
+
+        return child_page_ids;
+
+    }
+
+    core::Status BTree::set_children_parent_page_id(
+        std::span<const storage::PageId> child_page_ids,
+        storage::PageId parent_page_id
+    ) {
+
+        for(const auto child_page_id: child_page_ids) {
+
+            auto child_page_handle_result = pager_->get_page(child_page_id);
+            if(!child_page_handle_result.ok()) {
+                return child_page_handle_result.status();
+            }
+
+            const auto child_page_result = child_page_handle_result.value().mutable_page();
+            if(!child_page_result.ok()) {
+                return child_page_result.status();
+            }
+
+            auto child_page_view_result = BTreePage<std::byte>::open(child_page_result.value()->data());
+            if(!child_page_view_result.ok()) {
+                return child_page_view_result.status();
+            }
+
+            child_page_view_result.value().set_parent_page_id(parent_page_id);
+
+        }
+
+        return core::Status::Ok();
+
     }
 
     core::Result<std::optional<SplitResult>> BTree::insert_into_subtree(

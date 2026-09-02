@@ -125,6 +125,13 @@ namespace dandb::btree {
                 std::uint16_t child_index
             );
 
+            core::Result<std::vector<storage::PageId>> internal_child_page_ids(storage::PageId internal_page_id) const;
+
+            core::Status set_children_parent_page_id(
+                std::span<const storage::PageId> child_page_ids,
+                storage::PageId parent_page_id
+            );
+
             core::Result<bool> page_is_underfull(
                 storage::PageId page_id
             ) const;
