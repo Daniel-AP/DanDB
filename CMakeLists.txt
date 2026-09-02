@@ -191,18 +191,14 @@ if(DANDB_BUILD_BENCHMARKS)
     add_executable(dandb_benchmarks
         benchmarks/Main.cpp
         benchmarks/BTreeInsert.cpp
-        tests/testutil/TempDir.cpp
+        benchmarks/benchutil/BTreeHelpers.cpp
+        benchmarks/benchutil/TempDir.cpp
     )
 
     target_link_libraries(dandb_benchmarks
         PRIVATE
             dandb_core
             benchmark::benchmark
-    )
-
-    target_include_directories(dandb_benchmarks
-        PRIVATE
-            "${CMAKE_CURRENT_SOURCE_DIR}/tests"
     )
 
     target_compile_features(dandb_benchmarks PRIVATE cxx_std_20)

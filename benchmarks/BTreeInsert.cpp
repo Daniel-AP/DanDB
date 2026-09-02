@@ -1,93 +1,28 @@
 #include <benchmark/benchmark.h>
 
-#include <dandb/btree/BTree.h>
-#include <dandb/btree/BTreeCursor.h>
-#include <dandb/core/Status.h>
-#include <dandb/record/KeyCodec.h>
-#include <dandb/storage/Pager.h>
-#include <testutil/TempDir.h>
+#include "benchutil/BTreeHelpers.h"
+#include "benchutil/TempDir.h"
 
-#include <algorithm>
-#include <array>
-#include <cstddef>
+#include <dandb/btree/BTree.h>
+#include <dandb/storage/Pager.h>
+
 #include <cstdint>
-#include <random>
 #include <utility>
 #include <vector>
 
 using dandb::btree::BTree;
-using dandb::core::Result;
-using dandb::core::Status;
-using dandb::record::KeyCodec;
-using dandb::record::Value;
+using dandb::benchutil::BTREE_BUFFER_POOL_CAPACITY;
+using dandb::benchutil::BTREE_KEY_SIZE;
+using dandb::benchutil::BTREE_VALUE_SIZE;
+using dandb::benchutil::BTreeKey;
+using dandb::benchutil::BTreeValue;
+using dandb::benchutil::make_sequential_keys;
+using dandb::benchutil::make_shuffled_keys;
+using dandb::benchutil::TempDir;
+using dandb::benchutil::verify_entry_count;
 using dandb::storage::Pager;
-using dandb::testutil::TempDir;
 
 namespace {
-
-    constexpr std::uint16_t KEY_SIZE = static_cast<std::uint16_t>(sizeof(std::uint64_t));
-    constexpr std::uint16_t VALUE_SIZE = 32;
-    constexpr std::size_t BUFFER_POOL_CAPACITY = 2'500;
-
-    using BTreeKey = std::vector<std::byte>;
-    using BTreeValue = std::array<std::byte, VALUE_SIZE>;
-
-    Result<std::vector<BTreeKey>> make_sequential_keys(std::size_t entry_count) {
-
-        std::vector<BTreeKey> keys;
-        keys.reserve(entry_count);
-
-        for(std::size_t entry_index = 0; entry_index < entry_count; entry_index++) {
-
-            auto key_result = KeyCodec::encode(Value::int64(static_cast<std::int64_t>(entry_index)));
-            if(!key_result.ok()) return key_result.status();
-
-            keys.push_back(std::move(key_result.value()));
-
-        }
-
-        return keys;
-
-    }
-
-    Result<std::vector<BTreeKey>> make_shuffled_keys(std::size_t entry_count) {
-
-        auto keys_result = make_sequential_keys(entry_count);
-        if(!keys_result.ok()) return keys_result.status();
-
-        auto keys = std::move(keys_result.value());
-        std::mt19937_64 random_engine(0xD14B7EEULL);
-        std::shuffle(keys.begin(), keys.end(), random_engine);
-
-        return keys;
-
-    }
-
-    Status verify_entry_count(BTree& tree, std::size_t expected_count) {
-
-        auto cursor_result = tree.scan();
-        if(!cursor_result.ok()) return cursor_result.status();
-
-        auto cursor = std::move(cursor_result.value());
-        std::size_t actual_count = 0;
-
-        while(true) {
-
-            auto entry_result = cursor.next();
-            if(!entry_result.ok()) return entry_result.status();
-            if(!entry_result.value().has_value()) break;
-
-            actual_count++;
-
-        }
-
-        if(actual_count != expected_count) {
-            return Status::InternalError("BTree insert benchmark stored an unexpected number of entries");
-        }
-
-        return Status::Ok();
-
-    }
 
     void benchmark_btree_insert(benchmark::State& state, const std::vector<BTreeKey>& keys) {
 
@@ -100,7 +35,7 @@ namespace {
 
             {
                 const TempDir temp_dir;
-                auto pager_result = Pager::create(temp_dir.database_path(), BUFFER_POOL_CAPACITY);
+                auto pager_result = Pager::create(temp_dir.database_path(), BTREE_BUFFER_POOL_CAPACITY);
                 if(!pager_result.ok()) {
                     state.SkipWithError(pager_result.status().message());
                     return;
@@ -113,7 +48,7 @@ namespace {
                     return;
                 }
 
-                auto tree_result = BTree::create_new(pager, KEY_SIZE, VALUE_SIZE);
+                auto tree_result = BTree::create_new(pager, BTREE_KEY_SIZE, BTREE_VALUE_SIZE);
                 if(!tree_result.ok()) {
                     state.SkipWithError(tree_result.status().message());
                     return;
@@ -164,7 +99,7 @@ namespace {
         }
 
         const auto entries_per_iteration = static_cast<std::int64_t>(keys.size());
-        const auto bytes_per_entry = static_cast<std::int64_t>(KEY_SIZE+VALUE_SIZE);
+        const auto bytes_per_entry = static_cast<std::int64_t>(BTREE_KEY_SIZE+BTREE_VALUE_SIZE);
 
         state.SetItemsProcessed(state.iterations()*entries_per_iteration);
         state.SetBytesProcessed(state.iterations()*entries_per_iteration*bytes_per_entry);
