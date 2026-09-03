@@ -209,6 +209,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/SqlRangeScanSecondaryIndex.cpp
         benchmarks/SqlRangeScanUniqueSecondaryIndex.cpp
         benchmarks/SqlInsertPrimaryOnly.cpp
+        benchmarks/SqlInsertSecondaryIndex.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/SqlHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
