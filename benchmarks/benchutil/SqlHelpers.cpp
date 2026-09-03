@@ -5,6 +5,13 @@
 
 namespace dandb::benchutil {
 
+    std::string make_insert_statement(std::size_t entry_index) {
+
+        const auto value = std::to_string(entry_index);
+        return "INSERT INTO benchmark_rows VALUES ("+value+", "+value+");";
+
+    }
+
     std::string make_insert_batch(std::size_t first_entry_index, std::size_t entry_count) {
 
         std::string statements = "BEGIN;";
@@ -12,8 +19,7 @@ namespace dandb::benchutil {
         for(std::size_t entry_offset = 0; entry_offset < entry_count; entry_offset++) {
 
             const auto entry_index = first_entry_index+entry_offset;
-            const auto value = std::to_string(entry_index);
-            statements += "INSERT INTO benchmark_rows VALUES ("+value+", "+value+");";
+            statements += make_insert_statement(entry_index);
 
         }
 
