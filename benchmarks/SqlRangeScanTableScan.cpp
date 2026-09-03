@@ -6,20 +6,23 @@
 #include <dandb/execution/Database.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <utility>
 
 using dandb::benchutil::TempDir;
+using dandb::benchutil::make_value_range_scan_statement;
 using dandb::benchutil::populate_benchmark_table;
+using dandb::benchutil::verify_range_scan_result;
 using dandb::execution::Database;
 
 namespace {
 
     constexpr std::size_t RANGE_ENTRY_COUNT = 100;
 
-    void benchmark_sql_primary_key_range_scan(benchmark::State& state) {
+    void benchmark_sql_range_scan_table_scan(benchmark::State& state) {
 
         const auto entry_count = static_cast<std::size_t>(state.range(0));
-        const auto first_entry_index = entry_count-RANGE_ENTRY_COUNT;
+        const auto first_value = entry_count-RANGE_ENTRY_COUNT;
         const TempDir temp_dir;
 
         auto database_result = Database::open_or_create(temp_dir.database_path());
@@ -35,12 +38,12 @@ namespace {
             return;
         }
 
-        const auto range_scan_statement = dandb::benchutil::make_primary_key_range_scan_statement(first_entry_index);
+        const auto range_scan_statement = make_value_range_scan_statement(first_value);
 
         for(auto _: state) {
 
             const auto range_scan_results = database.execute(range_scan_statement);
-            const auto scan_status = dandb::benchutil::verify_range_scan_result(range_scan_results, RANGE_ENTRY_COUNT);
+            const auto scan_status = verify_range_scan_result(range_scan_results, RANGE_ENTRY_COUNT);
             if(!scan_status.ok()) {
                 state.SkipWithError(scan_status.message());
                 return;
@@ -62,8 +65,8 @@ namespace {
 
 }
 
-BENCHMARK(benchmark_sql_primary_key_range_scan)
-    ->Name("SQL/PrimaryKeyRangeScan")
+BENCHMARK(benchmark_sql_range_scan_table_scan)
+    ->Name("SQL/RangeScan/TableScan")
     ->Arg(1'000)
     ->Arg(10'000)
     ->Arg(100'000)

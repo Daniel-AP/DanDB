@@ -28,9 +28,15 @@ namespace dandb::benchutil {
 
     }
 
-    std::string make_range_scan_statement(std::size_t first_entry_index) {
+    std::string make_primary_key_range_scan_statement(std::size_t first_entry_index) {
 
         return "SELECT value FROM benchmark_rows WHERE id >= "+std::to_string(first_entry_index)+";";
+
+    }
+
+    std::string make_value_range_scan_statement(std::size_t first_value) {
+
+        return "SELECT id FROM benchmark_rows WHERE value >= "+std::to_string(first_value)+";";
 
     }
 
