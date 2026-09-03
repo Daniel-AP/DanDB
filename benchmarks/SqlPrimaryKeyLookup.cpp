@@ -96,8 +96,7 @@ namespace {
 
             benchmark::DoNotOptimize(lookup_results.front().row_set->rows.front().value(0).as_integer());
 
-            statement_index++;
-            if(statement_index == lookup_statements.size()) statement_index = 0;
+            statement_index = (statement_index+1)%lookup_statements.size();
 
         }
 

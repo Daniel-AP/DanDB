@@ -117,8 +117,7 @@ namespace {
 
             benchmark::DoNotOptimize(lookup_result.value().front());
 
-            lookup_index++;
-            if(lookup_index == lookup_keys.size()) lookup_index = 0;
+            lookup_index = (lookup_index+1)%lookup_keys.size();
 
         }
 

@@ -46,6 +46,12 @@ namespace dandb::benchutil {
 
     }
 
+    std::string make_update_value_statement(std::size_t entry_id, std::size_t new_value) {
+
+        return "UPDATE benchmark_rows SET value = "+std::to_string(new_value)+" WHERE id = "+std::to_string(entry_id)+";";
+
+    }
+
     core::Status populate_benchmark_table(execution::Database& database, std::size_t entry_count) {
 
         constexpr std::size_t SQL_INSERT_BATCH_SIZE = 10;

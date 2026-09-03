@@ -1,8 +1,8 @@
 #include <benchmark/benchmark.h>
 
+#include "benchutil/Random.h"
 #include "benchutil/SqlHelpers.h"
 #include "benchutil/TempDir.h"
-#include "benchutil/Random.h"
 
 #include <dandb/execution/Database.h>
 
@@ -10,19 +10,18 @@
 #include <cstdint>
 #include <numeric>
 #include <random>
-#include <string>
 #include <utility>
 #include <vector>
 
 using dandb::benchutil::TempDir;
-using dandb::benchutil::make_point_lookup_statement;
+using dandb::benchutil::make_update_value_statement;
 using dandb::benchutil::populate_benchmark_table;
-using dandb::benchutil::verify_point_lookup_result;
+using dandb::benchutil::verify_successful_results;
 using dandb::execution::Database;
 
 namespace {
 
-    void benchmark_sql_point_lookup_table_scan(benchmark::State& state) {
+    void benchmark_sql_update_non_indexed_value(benchmark::State& state) {
 
         const auto entry_count = static_cast<std::size_t>(state.range(0));
         const TempDir temp_dir;
@@ -40,35 +39,33 @@ namespace {
             return;
         }
 
-        std::vector<std::size_t> lookup_values(entry_count);
-        std::iota(lookup_values.begin(), lookup_values.end(), std::size_t{ 0 });
+        std::vector<std::size_t> update_ids(entry_count);
+        std::iota(update_ids.begin(), update_ids.end(), std::size_t{0});
 
         std::mt19937_64 random_engine(dandb::benchutil::BENCHMARK_RANDOM_SEED);
-        std::shuffle(lookup_values.begin(), lookup_values.end(), random_engine);
+        std::shuffle(update_ids.begin(), update_ids.end(), random_engine);
 
-        std::vector<std::string> lookup_statements;
-        lookup_statements.reserve(entry_count);
-
-        for(const auto lookup_value: lookup_values) {
-            lookup_statements.push_back(make_point_lookup_statement(lookup_value));
-        }
-
-        std::size_t statement_index = 0;
+        std::size_t update_index = 0;
 
         for(auto _: state) {
 
-            const auto& statement = lookup_statements[statement_index];
-            const auto lookup_results = database.execute(statement);
-            const auto expected_entry_id = static_cast<std::int64_t>(lookup_values[statement_index]);
-            const auto lookup_status = verify_point_lookup_result(lookup_results, expected_entry_id);
-            if(!lookup_status.ok()) {
-                state.SkipWithError(lookup_status.message());
+            const auto update_id = update_ids[update_index%entry_count];
+            const auto update_round = update_index/entry_count;
+            const auto new_value = entry_count+update_round*entry_count+update_id;
+
+            state.PauseTiming();
+            const auto update_statement = make_update_value_statement(update_id, new_value);
+            update_index++;
+            state.ResumeTiming();
+
+            const auto update_results = database.execute(update_statement);
+            const auto update_status = verify_successful_results(update_results, 1);
+            if(!update_status.ok()) {
+                state.SkipWithError(update_status.message());
                 return;
             }
 
-            benchmark::DoNotOptimize(lookup_results.front().row_set->rows.front().value(0).as_integer());
-
-            statement_index = (statement_index+1)%lookup_statements.size();
+            benchmark::DoNotOptimize(update_results.size());
 
         }
 
@@ -84,8 +81,8 @@ namespace {
 
 }
 
-BENCHMARK(benchmark_sql_point_lookup_table_scan)
-    ->Name("SQL/PointLookup/TableScan")
+BENCHMARK(benchmark_sql_update_non_indexed_value)
+    ->Name("SQL/UpdateNonIndexedValue")
     ->Arg(1'000)
     ->Arg(10'000)
     ->Arg(100'000)
