@@ -200,6 +200,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/TransactionCheckpoint.cpp
         benchmarks/SqlPrimaryKeySelect.cpp
         benchmarks/SqlFullTableScan.cpp
+        benchmarks/SqlSecondaryIndexScan.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/SqlHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
