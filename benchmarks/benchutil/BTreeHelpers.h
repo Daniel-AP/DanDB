@@ -13,7 +13,6 @@ namespace dandb::benchutil {
 
     constexpr std::uint16_t BTREE_KEY_SIZE = static_cast<std::uint16_t>(sizeof(std::uint64_t));
     constexpr std::uint16_t BTREE_VALUE_SIZE = 32;
-    // A transaction keeps dirty pages resident until commit
     constexpr std::size_t BTREE_BUFFER_POOL_CAPACITY = 2'500;
 
     using BTreeKey = std::vector<std::byte>;

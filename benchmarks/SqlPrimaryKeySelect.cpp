@@ -16,14 +16,13 @@
 #include <vector>
 
 using dandb::benchutil::TempDir;
+using dandb::benchutil::populate_benchmark_table;
 using dandb::benchutil::verify_successful_results;
 using dandb::core::Status;
 using dandb::execution::Database;
 using dandb::execution::ExecutionResult;
 
 namespace {
-
-    constexpr std::size_t SQL_INSERT_BATCH_SIZE = 10;
 
     Status verify_select_result(const std::vector<ExecutionResult>& results, std::int64_t expected_value) {
 
@@ -41,23 +40,6 @@ namespace {
         }
 
         return Status::Ok();
-
-    }
-
-    std::string make_insert_batch(std::size_t first_entry_index, std::size_t entry_count) {
-
-        std::string statements = "BEGIN;";
-
-        for(std::size_t entry_offset = 0; entry_offset < entry_count; entry_offset++) {
-
-            const auto entry_index = first_entry_index+entry_offset;
-            const auto value = std::to_string(entry_index);
-            statements += "INSERT INTO benchmark_rows VALUES ("+value+", "+value+");";
-
-        }
-
-        statements += "COMMIT;";
-        return statements;
 
     }
 
@@ -79,39 +61,9 @@ namespace {
         }
 
         auto database = std::move(database_result.value());
-        const auto create_results = database.execute(
-            "CREATE TABLE benchmark_rows ("
-            "id INT64 PRIMARY KEY, "
-            "value INT64 NOT NULL"
-            ");"
-        );
-        const auto create_status = verify_successful_results(create_results, 1);
-        if(!create_status.ok()) {
-            state.SkipWithError(create_status.message());
-            return;
-        }
-
-        for(std::size_t first_entry_index = 0; first_entry_index < entry_count; first_entry_index += SQL_INSERT_BATCH_SIZE) {
-
-            const auto remaining_entry_count = entry_count-first_entry_index;
-            const auto batch_entry_count = std::min(SQL_INSERT_BATCH_SIZE, remaining_entry_count);
-            const auto insert_results = database.execute(make_insert_batch(first_entry_index, batch_entry_count));
-            const auto expected_result_count = batch_entry_count+2;
-            const auto insert_status = verify_successful_results(insert_results, expected_result_count);
-            if(!insert_status.ok()) {
-
-                const auto error_message = "SQL benchmark row load failed at entry "+std::to_string(first_entry_index)+": "+insert_status.message();
-                state.SkipWithError(error_message);
-                return;
-
-            }
-
-        }
-
-        const auto checkpoint_results = database.execute("CHECKPOINT;");
-        const auto checkpoint_status = verify_successful_results(checkpoint_results, 1);
-        if(!checkpoint_status.ok()) {
-            state.SkipWithError(checkpoint_status.message());
+        const auto table_status = populate_benchmark_table(database, entry_count);
+        if(!table_status.ok()) {
+            state.SkipWithError(table_status.message());
             return;
         }
 
