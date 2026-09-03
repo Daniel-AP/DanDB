@@ -199,6 +199,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/TransactionCommit.cpp
         benchmarks/TransactionCheckpoint.cpp
         benchmarks/SqlPrimaryKeyLookup.cpp
+        benchmarks/SqlPrimaryKeyRangeScan.cpp
         benchmarks/SqlFullTableScan.cpp
         benchmarks/SqlInsertAutocommit.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
