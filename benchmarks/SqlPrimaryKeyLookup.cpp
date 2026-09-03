@@ -24,7 +24,7 @@ using dandb::execution::ExecutionResult;
 
 namespace {
 
-    Status verify_select_result(const std::vector<ExecutionResult>& results, std::int64_t expected_value) {
+    Status verify_lookup_result(const std::vector<ExecutionResult>& results, std::int64_t expected_value) {
 
         const auto results_status = verify_successful_results(results, 1);
         if(!results_status.ok()) return results_status;
@@ -43,13 +43,13 @@ namespace {
 
     }
 
-    std::string make_select_statement(std::size_t entry_index) {
+    std::string make_lookup_statement(std::size_t entry_index) {
 
         return "SELECT value FROM benchmark_rows WHERE id = "+std::to_string(entry_index)+";";
 
     }
 
-    void benchmark_sql_primary_key_select(benchmark::State& state) {
+    void benchmark_sql_primary_key_lookup(benchmark::State& state) {
 
         const auto entry_count = static_cast<std::size_t>(state.range(0));
         const TempDir temp_dir;
@@ -73,30 +73,30 @@ namespace {
         std::mt19937_64 random_engine(0x6E3A9D17ULL);
         std::shuffle(lookup_ids.begin(), lookup_ids.end(), random_engine);
 
-        std::vector<std::string> select_statements;
-        select_statements.reserve(entry_count);
+        std::vector<std::string> lookup_statements;
+        lookup_statements.reserve(entry_count);
 
         for(const auto lookup_id: lookup_ids) {
-            select_statements.push_back(make_select_statement(lookup_id));
+            lookup_statements.push_back(make_lookup_statement(lookup_id));
         }
 
         std::size_t statement_index = 0;
 
         for(auto _: state) {
 
-            const auto& statement = select_statements[statement_index];
-            const auto select_results = database.execute(statement);
+            const auto& statement = lookup_statements[statement_index];
+            const auto lookup_results = database.execute(statement);
             const auto expected_value = static_cast<std::int64_t>(lookup_ids[statement_index]);
-            const auto select_status = verify_select_result(select_results, expected_value);
-            if(!select_status.ok()) {
-                state.SkipWithError(select_status.message());
+            const auto lookup_status = verify_lookup_result(lookup_results, expected_value);
+            if(!lookup_status.ok()) {
+                state.SkipWithError(lookup_status.message());
                 return;
             }
 
-            benchmark::DoNotOptimize(select_results.front().row_set->rows.front().value(0).as_integer());
+            benchmark::DoNotOptimize(lookup_results.front().row_set->rows.front().value(0).as_integer());
 
             statement_index++;
-            if(statement_index == select_statements.size()) statement_index = 0;
+            if(statement_index == lookup_statements.size()) statement_index = 0;
 
         }
 
@@ -112,8 +112,8 @@ namespace {
 
 }
 
-BENCHMARK(benchmark_sql_primary_key_select)
-    ->Name("SQL/PrimaryKeySelect")
+BENCHMARK(benchmark_sql_primary_key_lookup)
+    ->Name("SQL/PrimaryKeyLookup")
     ->Arg(1'000)
     ->Arg(10'000)
     ->Arg(100'000)
