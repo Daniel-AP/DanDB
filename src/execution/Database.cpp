@@ -24,7 +24,7 @@
 
 namespace {
 
-    constexpr std::size_t DEFAULT_BUFFER_POOL_CAPACITY = 10;
+    constexpr std::size_t DEFAULT_BUFFER_POOL_CAPACITY = 512;
 
     // Predicate state
 
