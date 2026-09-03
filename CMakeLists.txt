@@ -198,7 +198,9 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/BTreeMixedReadUpdate.cpp
         benchmarks/TransactionCommit.cpp
         benchmarks/TransactionCheckpoint.cpp
+        benchmarks/SqlPrimaryKeySelect.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
+        benchmarks/benchutil/SqlHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
     )
 
