@@ -206,6 +206,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/SqlPointLookupSecondaryIndex.cpp
         benchmarks/SqlPointLookupUniqueSecondaryIndex.cpp
         benchmarks/SqlRangeScanTableScan.cpp
+        benchmarks/SqlRangeScanSecondaryIndex.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/SqlHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
