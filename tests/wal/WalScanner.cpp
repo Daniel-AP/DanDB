@@ -41,6 +41,7 @@ namespace {
     constexpr std::uint64_t TRANSACTION_ID_2 = 42;
     constexpr PageId PAGE_ID_1{ 7 };
     constexpr PageId PAGE_ID_2{ 8 };
+    constexpr PageId PAGE_ID_3{ 9 };
 
     template<std::size_t Size>
     void write_file_bytes(
@@ -319,7 +320,8 @@ TEST_CASE("WalScanner ignores arbitrary incomplete bytes after the last commit",
     const std::array trailing_bytes{
         std::byte{ 0xA1 },
         std::byte{ 0xB2 },
-        std::byte{ 0xC3 }
+        std::byte{ 0xC3 },
+        std::byte{ 0xD4 }
     };
 
     write_valid_wal_header(path, DATABASE_ID);
@@ -353,6 +355,34 @@ TEST_CASE("WalScanner ignores a partial commit record and its uncommitted frames
     append_file_bytes(path, make_record_type_bytes(WAL_COMMIT_RECORD_TYPE));
 
     auto scan = WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan.ok());
+
+    const auto& result = scan.value();
+    REQUIRE(result.latest_committed_frame_offsets.size() == 1);
+    require_page_offset(result, PAGE_ID_1, COMMITTED_PAGE_OFFSET);
+    require_page_not_committed(result, PAGE_ID_2);
+    REQUIRE(result.valid_wal_end_offset == EXPECTED_END_OFFSET);
+    REQUIRE(result.ignored_trailing_bytes);
+}
+
+TEST_CASE("WalScanner ignores a corrupt trailing commit record and its uncommitted frames", "[wal][wal-scanner]") {
+    constexpr std::uint64_t COMMITTED_PAGE_OFFSET = WAL_HEADER_SIZE;
+    constexpr std::uint64_t COMMIT_OFFSET = COMMITTED_PAGE_OFFSET + WAL_PAGE_FRAME_RECORD_SIZE;
+    constexpr std::uint64_t EXPECTED_END_OFFSET = COMMIT_OFFSET + WAL_COMMIT_RECORD_SIZE;
+
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    auto corrupt_commit_bytes = make_commit_record_bytes(TRANSACTION_ID_2, 1);
+    corrupt_commit_bytes[24] = std::byte{ 0xFF };
+
+    write_valid_wal_header(path, DATABASE_ID);
+    append_page_frame(path, TRANSACTION_ID_1, PAGE_ID_1, 1);
+    append_commit(path, TRANSACTION_ID_1, 1);
+    append_page_frame(path, TRANSACTION_ID_2, PAGE_ID_2, 2);
+    append_file_bytes(path, corrupt_commit_bytes);
+
+    const auto scan = WalScanner::scan(path, DATABASE_ID);
 
     REQUIRE(scan.ok());
 
@@ -415,7 +445,7 @@ TEST_CASE("WalScanner rejects corrupt frame records", "[wal][wal-scanner]") {
     require_corruption(path);
 }
 
-TEST_CASE("WalScanner rejects a complete corrupt frame before a commit", "[wal][wal-scanner]") {
+TEST_CASE("WalScanner rejects a corrupt frame before any commit", "[wal][wal-scanner]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
     auto frame_bytes = make_page_frame_bytes(TRANSACTION_ID_1, PAGE_ID_1, 1);
@@ -423,6 +453,76 @@ TEST_CASE("WalScanner rejects a complete corrupt frame before a commit", "[wal][
 
     write_valid_wal_header(path, DATABASE_ID);
     append_file_bytes(path, frame_bytes);
+
+    require_corruption(path);
+}
+
+TEST_CASE("WalScanner ignores a corrupt frame after the last commit", "[wal][wal-scanner]") {
+    constexpr std::uint64_t COMMITTED_PAGE_OFFSET = WAL_HEADER_SIZE;
+    constexpr std::uint64_t COMMIT_OFFSET = COMMITTED_PAGE_OFFSET + WAL_PAGE_FRAME_RECORD_SIZE;
+    constexpr std::uint64_t EXPECTED_END_OFFSET = COMMIT_OFFSET + WAL_COMMIT_RECORD_SIZE;
+
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    auto frame_bytes = make_page_frame_bytes(TRANSACTION_ID_1, PAGE_ID_1, 1);
+    frame_bytes[32] = std::byte{ 0xFF };
+
+    write_valid_wal_header(path, DATABASE_ID);
+    append_page_frame(path, TRANSACTION_ID_1, PAGE_ID_1, 1);
+    append_commit(path, TRANSACTION_ID_1, 1);
+    append_file_bytes(path, frame_bytes);
+
+    const auto scan = WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan.ok());
+    const auto& result = scan.value();
+    REQUIRE(result.latest_committed_frame_offsets.size() == 1);
+    require_page_offset(result, PAGE_ID_1, COMMITTED_PAGE_OFFSET);
+    REQUIRE(result.valid_wal_end_offset == EXPECTED_END_OFFSET);
+    REQUIRE(result.ignored_trailing_bytes);
+}
+
+TEST_CASE("WalScanner ignores a damaged tail with later uncommitted frames", "[wal][wal-scanner]") {
+    constexpr std::uint64_t COMMITTED_PAGE_OFFSET = WAL_HEADER_SIZE;
+    constexpr std::uint64_t COMMIT_OFFSET = COMMITTED_PAGE_OFFSET + WAL_PAGE_FRAME_RECORD_SIZE;
+    constexpr std::uint64_t EXPECTED_END_OFFSET = COMMIT_OFFSET + WAL_COMMIT_RECORD_SIZE;
+
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    auto corrupt_frame_bytes = make_page_frame_bytes(TRANSACTION_ID_2, PAGE_ID_2, 2);
+    corrupt_frame_bytes[32] = std::byte{ 0xFF };
+
+    write_valid_wal_header(path, DATABASE_ID);
+    append_page_frame(path, TRANSACTION_ID_1, PAGE_ID_1, 1);
+    append_commit(path, TRANSACTION_ID_1, 1);
+    append_file_bytes(path, corrupt_frame_bytes);
+    append_page_frame(path, TRANSACTION_ID_2, PAGE_ID_3, 3);
+    append_page_frame(path, TRANSACTION_ID_2, PAGE_ID_2, 4);
+
+    const auto scan = WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan.ok());
+
+    const auto& result = scan.value();
+    REQUIRE(result.latest_committed_frame_offsets.size() == 1);
+    require_page_offset(result, PAGE_ID_1, COMMITTED_PAGE_OFFSET);
+    require_page_not_committed(result, PAGE_ID_2);
+    require_page_not_committed(result, PAGE_ID_3);
+    REQUIRE(result.valid_wal_end_offset == EXPECTED_END_OFFSET);
+    REQUIRE(result.ignored_trailing_bytes);
+}
+
+TEST_CASE("WalScanner rejects a valid commit after a damaged tail", "[wal][wal-scanner]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    auto corrupt_frame_bytes = make_page_frame_bytes(TRANSACTION_ID_2, PAGE_ID_2, 2);
+    corrupt_frame_bytes[32] = std::byte{ 0xFF };
+
+    write_valid_wal_header(path, DATABASE_ID);
+    append_page_frame(path, TRANSACTION_ID_1, PAGE_ID_1, 1);
+    append_commit(path, TRANSACTION_ID_1, 1);
+    append_file_bytes(path, corrupt_frame_bytes);
+    append_commit(path, TRANSACTION_ID_2, 1);
 
     require_corruption(path);
 }

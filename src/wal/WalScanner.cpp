@@ -68,6 +68,8 @@ namespace dandb::wal {
         wal_scan_result.valid_wal_end_offset = WAL_HEADER_SIZE;
         wal_scan_result.ignored_trailing_bytes = false;
 
+        // Records after a damaged record are no longer trustworthy until EOF
+        bool is_damaged_tail = false;
         std::uint64_t offset = WAL_HEADER_SIZE;
 
         while(offset < file_size) {
@@ -97,6 +99,11 @@ namespace dandb::wal {
 
                 if(remaining < WAL_PAGE_FRAME_RECORD_SIZE) break;
 
+                if(is_damaged_tail) {
+                    offset += WAL_PAGE_FRAME_RECORD_SIZE;
+                    continue;
+                }
+
                 std::array<std::byte, WAL_PAGE_FRAME_RECORD_SIZE> page_frame_bytes{};
 
                 auto read_page_frame_bytes_status = file_handle.read_at(offset, page_frame_bytes);
@@ -106,6 +113,15 @@ namespace dandb::wal {
 
                 auto decode_page_frame_result = WalPageFrame::decode(page_frame_bytes);
                 if(!decode_page_frame_result.ok()) {
+                    if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE) {
+                        is_damaged_tail = true;
+                        pending_frames.clear();
+                        pending_transaction_id = 0;
+                        has_pending_transaction = false;
+                        offset += WAL_PAGE_FRAME_RECORD_SIZE;
+                        continue;
+                    }
+
                     return decode_page_frame_result.status();
                 }
 
@@ -134,7 +150,25 @@ namespace dandb::wal {
                 }
 
                 auto decode_commit_result = WalCommitRecord::decode(commit_bytes);
+                if(is_damaged_tail) {
+                    if(decode_commit_result.ok()) {
+                        return core::Status::Corruption("Cannot scan WAL file: valid commit follows a damaged tail");
+                    }
+
+                    offset += WAL_COMMIT_RECORD_SIZE;
+                    continue;
+                }
+
                 if(!decode_commit_result.ok()) {
+                    if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE) {
+                        is_damaged_tail = true;
+                        pending_frames.clear();
+                        pending_transaction_id = 0;
+                        has_pending_transaction = false;
+                        offset += WAL_COMMIT_RECORD_SIZE;
+                        continue;
+                    }
+
                     return decode_commit_result.status();
                 }
 
@@ -146,11 +180,13 @@ namespace dandb::wal {
                     continue;
                 }
 
-                if(
+                bool is_invalid_commit_record = (
                     !has_pending_transaction ||
                     wal_commit.transaction_id() != pending_transaction_id ||
                     wal_commit.frame_count() != pending_frames.size()
-                ) {
+                );
+
+                if(is_invalid_commit_record) {
                     return core::Status::Corruption("Cannot scan WAL file: invalid frame count in commit record");
                 }
 
@@ -165,6 +201,8 @@ namespace dandb::wal {
                 offset += WAL_COMMIT_RECORD_SIZE;
                 wal_scan_result.valid_wal_end_offset = offset;
 
+            } else if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE && remaining < WAL_COMMIT_RECORD_SIZE) {
+                break;
             } else {
                 return core::Status::Corruption("Cannot scan WAL file: unsupported record type");
             }
