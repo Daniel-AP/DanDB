@@ -5,9 +5,7 @@
 #include "benchutil/Random.h"
 
 #include <dandb/execution/Database.h>
-#include <dandb/execution/ExecutionResult.h>
 
-#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <numeric>
@@ -17,40 +15,14 @@
 #include <vector>
 
 using dandb::benchutil::TempDir;
+using dandb::benchutil::make_point_lookup_statement;
 using dandb::benchutil::populate_benchmark_table;
-using dandb::benchutil::verify_successful_results;
-using dandb::core::Status;
+using dandb::benchutil::verify_point_lookup_result;
 using dandb::execution::Database;
-using dandb::execution::ExecutionResult;
 
 namespace {
 
-    Status verify_lookup_result(const std::vector<ExecutionResult>& results, std::int64_t expected_value) {
-
-        const auto results_status = verify_successful_results(results, 1);
-        if(!results_status.ok()) return results_status;
-
-        const auto& result = results.front();
-        if(!result.row_set.has_value() || result.row_set->rows.size() != 1) {
-            return Status::InternalError("SQL primary-key benchmark returned an unexpected row count");
-        }
-
-        const auto actual_value = result.row_set->rows.front().value(0).as_integer();
-        if(actual_value != expected_value) {
-            return Status::InternalError("SQL primary-key benchmark returned an unexpected value");
-        }
-
-        return Status::Ok();
-
-    }
-
-    std::string make_lookup_statement(std::size_t entry_index) {
-
-        return "SELECT value FROM benchmark_rows WHERE id = "+std::to_string(entry_index)+";";
-
-    }
-
-    void benchmark_sql_primary_key_lookup(benchmark::State& state) {
+    void benchmark_sql_point_lookup_table_scan(benchmark::State& state) {
 
         const auto entry_count = static_cast<std::size_t>(state.range(0));
         const TempDir temp_dir;
@@ -68,17 +40,17 @@ namespace {
             return;
         }
 
-        std::vector<std::size_t> lookup_ids(entry_count);
-        std::iota(lookup_ids.begin(), lookup_ids.end(), std::size_t{ 0 });
+        std::vector<std::size_t> lookup_values(entry_count);
+        std::iota(lookup_values.begin(), lookup_values.end(), std::size_t{ 0 });
 
         std::mt19937_64 random_engine(dandb::benchutil::BENCHMARK_RANDOM_SEED);
-        std::shuffle(lookup_ids.begin(), lookup_ids.end(), random_engine);
+        std::shuffle(lookup_values.begin(), lookup_values.end(), random_engine);
 
         std::vector<std::string> lookup_statements;
         lookup_statements.reserve(entry_count);
 
-        for(const auto lookup_id: lookup_ids) {
-            lookup_statements.push_back(make_lookup_statement(lookup_id));
+        for(const auto lookup_value: lookup_values) {
+            lookup_statements.push_back(make_point_lookup_statement(lookup_value));
         }
 
         std::size_t statement_index = 0;
@@ -87,8 +59,8 @@ namespace {
 
             const auto& statement = lookup_statements[statement_index];
             const auto lookup_results = database.execute(statement);
-            const auto expected_value = static_cast<std::int64_t>(lookup_ids[statement_index]);
-            const auto lookup_status = verify_lookup_result(lookup_results, expected_value);
+            const auto expected_entry_id = static_cast<std::int64_t>(lookup_values[statement_index]);
+            const auto lookup_status = verify_point_lookup_result(lookup_results, expected_entry_id);
             if(!lookup_status.ok()) {
                 state.SkipWithError(lookup_status.message());
                 return;
@@ -113,8 +85,8 @@ namespace {
 
 }
 
-BENCHMARK(benchmark_sql_primary_key_lookup)
-    ->Name("SQL/PrimaryKeyLookup")
+BENCHMARK(benchmark_sql_point_lookup_table_scan)
+    ->Name("SQL/PointLookup/TableScan")
     ->Arg(1'000)
     ->Arg(10'000)
     ->Arg(100'000)

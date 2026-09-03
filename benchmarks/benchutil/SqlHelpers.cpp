@@ -34,6 +34,12 @@ namespace dandb::benchutil {
 
     }
 
+    std::string make_point_lookup_statement(std::size_t lookup_value) {
+
+        return "SELECT id FROM benchmark_rows WHERE value = "+std::to_string(lookup_value)+";";
+
+    }
+
     core::Status populate_benchmark_table(execution::Database& database, std::size_t entry_count) {
 
         constexpr std::size_t SQL_INSERT_BATCH_SIZE = 10;
@@ -66,6 +72,25 @@ namespace dandb::benchutil {
 
         const auto checkpoint_results = database.execute("CHECKPOINT;");
         return verify_successful_results(checkpoint_results, 1);
+
+    }
+
+    core::Status verify_point_lookup_result(const std::vector<execution::ExecutionResult>& results, std::int64_t expected_entry_id) {
+
+        const auto results_status = verify_successful_results(results, 1);
+        if(!results_status.ok()) return results_status;
+
+        const auto& result = results.front();
+        if(!result.row_set.has_value() || result.row_set->rows.size() != 1) {
+            return core::Status::InternalError("SQL point lookup benchmark returned an unexpected row count");
+        }
+
+        const auto actual_entry_id = result.row_set->rows.front().value(0).as_integer();
+        if(actual_entry_id != expected_entry_id) {
+            return core::Status::InternalError("SQL point lookup benchmark returned an unexpected row");
+        }
+
+        return core::Status::Ok();
 
     }
 

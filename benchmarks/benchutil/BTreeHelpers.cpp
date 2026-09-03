@@ -1,4 +1,5 @@
 #include "BTreeHelpers.h"
+#include "Random.h"
 
 #include <dandb/btree/BTreeCursor.h>
 #include <dandb/record/KeyCodec.h>
@@ -33,7 +34,7 @@ namespace dandb::benchutil {
         if(!keys_result.ok()) return keys_result.status();
 
         auto keys = std::move(keys_result.value());
-        std::mt19937_64 random_engine(0xD14B7EEULL);
+        std::mt19937_64 random_engine(BENCHMARK_RANDOM_SEED);
         std::shuffle(keys.begin(), keys.end(), random_engine);
 
         return keys;

@@ -202,6 +202,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/SqlPrimaryKeyRangeScan.cpp
         benchmarks/SqlFullTableScan.cpp
         benchmarks/SqlInsertAutocommit.cpp
+        benchmarks/SqlPointLookupTableScan.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/SqlHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
