@@ -52,6 +52,12 @@ namespace dandb::benchutil {
 
     }
 
+    std::string make_delete_by_primary_key_statement(std::size_t entry_id) {
+
+        return "DELETE FROM benchmark_rows WHERE id = "+std::to_string(entry_id)+";";
+
+    }
+
     core::Status populate_benchmark_table(execution::Database& database, std::size_t entry_count) {
 
         constexpr std::size_t SQL_INSERT_BATCH_SIZE = 10;
@@ -117,6 +123,20 @@ namespace dandb::benchutil {
 
         for(const auto& result: results) {
             if(!result.status.ok()) return result.status;
+        }
+
+        return core::Status::Ok();
+
+    }
+
+    core::Status verify_rows_affected(const std::vector<execution::ExecutionResult>& results, std::size_t expected_rows_affected) {
+
+        const auto results_status = verify_successful_results(results, 1);
+        if(!results_status.ok()) return results_status;
+
+        const auto& result = results.front();
+        if(!result.rows_affected.has_value() || result.rows_affected.value() != expected_rows_affected) {
+            return core::Status::InternalError("SQL benchmark returned an unexpected affected-row count");
         }
 
         return core::Status::Ok();
