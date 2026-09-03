@@ -197,6 +197,7 @@ if(DANDB_BUILD_BENCHMARKS)
         benchmarks/BTreeUpdate.cpp
         benchmarks/BTreeMixedReadUpdate.cpp
         benchmarks/TransactionCommit.cpp
+        benchmarks/TransactionCheckpoint.cpp
         benchmarks/benchutil/BTreeHelpers.cpp
         benchmarks/benchutil/TempDir.cpp
     )
