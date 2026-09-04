@@ -445,7 +445,7 @@ TEST_CASE("WalScanner rejects corrupt frame records", "[wal][wal-scanner]") {
     require_corruption(path);
 }
 
-TEST_CASE("WalScanner rejects a corrupt frame before any commit", "[wal][wal-scanner]") {
+TEST_CASE("WalScanner ignores a corrupt frame before any commit", "[wal][wal-scanner]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
     auto frame_bytes = make_page_frame_bytes(TRANSACTION_ID_1, PAGE_ID_1, 1);
@@ -454,7 +454,31 @@ TEST_CASE("WalScanner rejects a corrupt frame before any commit", "[wal][wal-sca
     write_valid_wal_header(path, DATABASE_ID);
     append_file_bytes(path, frame_bytes);
 
-    require_corruption(path);
+    const auto scan = WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan.ok());
+    const auto& result = scan.value();
+    REQUIRE(result.latest_committed_frame_offsets.empty());
+    REQUIRE(result.valid_wal_end_offset == WAL_HEADER_SIZE);
+    REQUIRE(result.ignored_trailing_bytes);
+}
+
+TEST_CASE("WalScanner ignores a corrupt commit before any commit", "[wal][wal-scanner]") {
+    const dandb::testutil::TempDir temp_dir;
+    const auto path = temp_dir.wal_path();
+    auto commit_bytes = make_commit_record_bytes(TRANSACTION_ID_1, 0);
+    commit_bytes[24] = std::byte{ 0xFF };
+
+    write_valid_wal_header(path, DATABASE_ID);
+    append_file_bytes(path, commit_bytes);
+
+    const auto scan = WalScanner::scan(path, DATABASE_ID);
+
+    REQUIRE(scan.ok());
+    const auto& result = scan.value();
+    REQUIRE(result.latest_committed_frame_offsets.empty());
+    REQUIRE(result.valid_wal_end_offset == WAL_HEADER_SIZE);
+    REQUIRE(result.ignored_trailing_bytes);
 }
 
 TEST_CASE("WalScanner ignores a corrupt frame after the last commit", "[wal][wal-scanner]") {

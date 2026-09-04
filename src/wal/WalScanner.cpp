@@ -113,16 +113,12 @@ namespace dandb::wal {
 
                 auto decode_page_frame_result = WalPageFrame::decode(page_frame_bytes);
                 if(!decode_page_frame_result.ok()) {
-                    if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE) {
-                        is_damaged_tail = true;
-                        pending_frames.clear();
-                        pending_transaction_id = 0;
-                        has_pending_transaction = false;
-                        offset += WAL_PAGE_FRAME_RECORD_SIZE;
-                        continue;
-                    }
-
-                    return decode_page_frame_result.status();
+                    is_damaged_tail = true;
+                    pending_frames.clear();
+                    pending_transaction_id = 0;
+                    has_pending_transaction = false;
+                    offset += WAL_PAGE_FRAME_RECORD_SIZE;
+                    continue;
                 }
 
                 WalPageFrame wal_page_frame = std::move(decode_page_frame_result.value());
@@ -160,16 +156,12 @@ namespace dandb::wal {
                 }
 
                 if(!decode_commit_result.ok()) {
-                    if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE) {
-                        is_damaged_tail = true;
-                        pending_frames.clear();
-                        pending_transaction_id = 0;
-                        has_pending_transaction = false;
-                        offset += WAL_COMMIT_RECORD_SIZE;
-                        continue;
-                    }
-
-                    return decode_commit_result.status();
+                    is_damaged_tail = true;
+                    pending_frames.clear();
+                    pending_transaction_id = 0;
+                    has_pending_transaction = false;
+                    offset += WAL_COMMIT_RECORD_SIZE;
+                    continue;
                 }
 
                 WalCommitRecord wal_commit = std::move(decode_commit_result.value());
@@ -201,7 +193,7 @@ namespace dandb::wal {
                 offset += WAL_COMMIT_RECORD_SIZE;
                 wal_scan_result.valid_wal_end_offset = offset;
 
-            } else if(wal_scan_result.valid_wal_end_offset > WAL_HEADER_SIZE && remaining < WAL_COMMIT_RECORD_SIZE) {
+            } else if(remaining < WAL_COMMIT_RECORD_SIZE) {
                 break;
             } else {
                 return core::Status::Corruption("Cannot scan WAL file: unsupported record type");
