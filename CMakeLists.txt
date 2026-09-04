@@ -15,6 +15,7 @@ add_library(dandb_core STATIC
     src/core/Checksum.cpp
     src/platform/FileHandle.cpp
     src/platform/FileLock.cpp
+    src/platform/windows_error.cpp
     src/platform/DatabasePath.cpp
     src/storage/DatabaseHeader.cpp
     src/core/Bytes.cpp

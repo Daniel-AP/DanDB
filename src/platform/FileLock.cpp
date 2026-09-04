@@ -1,5 +1,7 @@
 #include <dandb/platform/FileLock.h>
 
+#include "windows_error.h"
+
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -9,30 +11,12 @@
 #include <utility>
 #include <cstdint>
 #include <string>
-#include <string_view>
-#include <system_error>
 
 namespace {
 
     constexpr std::uint64_t DATABASE_LOCK_OFFSET = (1ULL<<63)-(1ULL<<16);
     constexpr DWORD DATABASE_LOCK_LENGTH_LOW = 1;
     constexpr DWORD DATABASE_LOCK_LENGTH_HIGH = 0;
-
-    std::string windows_error_message(
-        std::string_view action,
-        const std::filesystem::path& path,
-        DWORD error
-    ) {
-        const std::error_code error_code(
-            static_cast<int>(error),
-            std::system_category()
-        );
-
-        return std::string(action) +
-            " '" + path.string() + "': " +
-            error_code.message() +
-            " (Windows error " + std::to_string(error) + ")";
-    }
 
     dandb::core::Status status_from_windows_error(
         std::string_view action,
@@ -43,7 +27,7 @@ namespace {
             case ERROR_FILE_NOT_FOUND:
             case ERROR_PATH_NOT_FOUND:
                 return dandb::core::Status::NotFound(
-                    windows_error_message(action, path, error)
+                    dandb::platform::windows_error_message(action, path, error)
                 );
 
             case ERROR_LOCK_VIOLATION:
@@ -55,7 +39,7 @@ namespace {
 
             default:
                 return dandb::core::Status::IoError(
-                    windows_error_message(action, path, error)
+                    dandb::platform::windows_error_message(action, path, error)
                 );
         }
     }

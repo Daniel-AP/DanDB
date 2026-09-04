@@ -2,6 +2,7 @@
 
 #include <dandb/core/Status.h>
 #include <dandb/platform/FileFaultInjector.h>
+#include "windows_error.h"
 
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -11,34 +12,16 @@
 
 #include <utility>
 #include <string>
-#include <string_view>
-#include <system_error>
 #include <limits>
 
 namespace {
-
-    std::string windows_error_message(
-        std::string_view action,
-        const std::filesystem::path& path,
-        DWORD error
-    ) {
-        const std::error_code error_code(
-            static_cast<int>(error),
-            std::system_category()
-        );
-
-        return std::string(action) +
-            " '" + path.string() + "': " +
-            error_code.message() +
-            " (Windows error " + std::to_string(error) + ")";
-    }
 
     dandb::core::Status status_from_windows_error(
         std::string_view action,
         const std::filesystem::path& path,
         DWORD error
     ) {
-        const auto message = windows_error_message(action, path, error);
+        const auto message = dandb::platform::windows_error_message(action, path, error);
 
         switch(error) {
             case ERROR_FILE_NOT_FOUND:
