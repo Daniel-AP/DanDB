@@ -48,7 +48,7 @@ namespace dandb::record {
         }
     }
 
-    core::Result<LogicalType> LogicalTypeCodec::decode(std::uint8_t kind_code,std::optional<std::size_t> capacity) {
+    core::Result<LogicalType> LogicalTypeCodec::decode(std::uint8_t kind_code, std::optional<std::size_t> capacity) {
 
         auto kind_result = decode_kind(kind_code);
         if(!kind_result.ok()) {
