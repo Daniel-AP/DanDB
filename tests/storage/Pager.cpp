@@ -690,8 +690,10 @@ TEST_CASE("Pager checkpoint persists committed pages to the main database and re
     REQUIRE(wal_scan_result.value().valid_wal_end_offset == WAL_HEADER_SIZE);
 }
 
-TEST_CASE("Pager checkpoint rejects active transactions", "[storage][pager]") {
+TEST_CASE("Pager checkpoint during an active transaction persists only committed pages", "[storage][pager]") {
     const dandb::testutil::TempDir temp_dir;
+    const Page committed_page = make_page(PAGE_ID, 18);
+    const Page uncommitted_page = make_page(NEXT_PAGE_ID, 19);
 
     auto created = Pager::create(temp_dir.database_path(), TEST_BPM_CAPACITY);
     REQUIRE(created.ok());
@@ -699,13 +701,48 @@ TEST_CASE("Pager checkpoint rejects active transactions", "[storage][pager]") {
     Pager& pager = created.value();
     REQUIRE(pager.begin_transaction().ok());
 
-    const auto checkpoint_status = pager.checkpoint();
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == PAGE_ID);
 
-    REQUIRE_FALSE(checkpoint_status.ok());
-    REQUIRE(checkpoint_status.code() == StatusCode::TransactionError);
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = committed_page.data();
+    }
+
+    REQUIRE(pager.commit_transaction().ok());
+    REQUIRE(pager.begin_transaction().ok());
+
+    {
+        auto allocated = pager.new_page();
+        REQUIRE(allocated.ok());
+        REQUIRE(allocated.value().page()->id() == NEXT_PAGE_ID);
+
+        auto mutable_page = allocated.value().mutable_page();
+        REQUIRE(mutable_page.ok());
+        mutable_page.value()->data() = uncommitted_page.data();
+    }
+
+    REQUIRE(pager.checkpoint().ok());
 
     REQUIRE(pager.rollback_transaction().ok());
     REQUIRE(pager.close().ok());
+
+    auto disk_manager_result = DiskManager::open_existing(temp_dir.database_path());
+    REQUIRE(disk_manager_result.ok());
+
+    auto header_result = disk_manager_result.value().read_header();
+    REQUIRE(header_result.ok());
+    REQUIRE(header_result.value().page_count() == NEXT_PAGE_ID.id);
+
+    auto committed_page_result = disk_manager_result.value().read_page(PAGE_ID);
+    REQUIRE(committed_page_result.ok());
+    REQUIRE(committed_page_result.value().data() == committed_page.data());
+
+    auto uncommitted_page_result = disk_manager_result.value().read_page(NEXT_PAGE_ID);
+    REQUIRE_FALSE(uncommitted_page_result.ok());
+    REQUIRE(uncommitted_page_result.status().code() == StatusCode::InvalidArgument);
 }
 
 TEST_CASE("Pager commit makes cached committed pages evictable before checkpoint", "[storage][pager]") {

@@ -1172,14 +1172,15 @@ TEST_CASE("Database rejects invalid transaction control", "[execution][database]
         REQUIRE(rollback_results[0].status.ok());
     }
 
-    SECTION("rejects checkpoint during an active transaction") {
+    SECTION("allows checkpoint during an active transaction") {
         const auto begin_results = database.execute("BEGIN;");
         REQUIRE(begin_results.size() == 1);
         REQUIRE(begin_results[0].status.ok());
 
         const auto checkpoint_results = database.execute("CHECKPOINT;");
         REQUIRE(checkpoint_results.size() == 1);
-        REQUIRE(checkpoint_results[0].status.code() == StatusCode::TransactionError);
+        REQUIRE(checkpoint_results[0].status.ok());
+        REQUIRE(checkpoint_results[0].success_message == "Checkpoint completed");
 
         const auto rollback_results = database.execute("ROLLBACK;");
         REQUIRE(rollback_results.size() == 1);

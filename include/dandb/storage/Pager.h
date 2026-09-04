@@ -80,6 +80,7 @@ namespace dandb::storage {
             buffer::BufferPoolManager bpm_;
             platform::DatabasePath path_;
             DatabaseHeader db_header_;
+            DatabaseHeader committed_header_;
             std::unordered_map<PageId, Page> recovered_pages_;
             transaction::TransactionState transaction_state_;
             std::uint64_t next_transaction_id_ = 1;

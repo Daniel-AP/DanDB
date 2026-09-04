@@ -49,6 +49,7 @@ namespace dandb::storage {
         bpm_(std::move(bpm)),
         path_(std::move(path)),
         db_header_(std::move(db_header)),
+        committed_header_(db_header_),
         recovered_pages_(std::move(recovered_pages))
     {}
 
@@ -414,7 +415,11 @@ namespace dandb::storage {
 
         for(const auto& dirty_page: dirty_pages) {
 
-            if(dirty_page.id() == HEADER_PAGE_ID) continue; 
+            if(dirty_page.id() == HEADER_PAGE_ID) {
+                committed_header_ = db_header_;
+                continue;
+            }
+
             recovered_pages_[dirty_page.id()] = dirty_page;
 
             auto clear_status = bpm_.clear_dirty(dirty_page.id());
@@ -547,11 +552,11 @@ namespace dandb::storage {
 
     core::Status Pager::checkpoint() {
         
-        if(transaction_state_.in_transaction()) {
-            return core::Status::TransactionError("Cannot checkpoint: a transaction is active");
+        if(transaction_state_.is_unresolved()) {
+            return core::Status::TransactionError("Cannot checkpoint: transaction outcome is unresolved");
         }
 
-        auto resize_status = disk_manager_.resize_to_page_count(db_header_.page_count());
+        auto resize_status = disk_manager_.resize_to_page_count(committed_header_.page_count());
         if(!resize_status.ok()) {
             return resize_status;
         }
@@ -563,7 +568,7 @@ namespace dandb::storage {
             } 
         }
 
-        auto write_header_status = disk_manager_.write_header(db_header_);
+        auto write_header_status = disk_manager_.write_header(committed_header_);
         if(!write_header_status.ok()) {
             return write_header_status;
         }
