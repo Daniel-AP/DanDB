@@ -64,7 +64,7 @@ namespace {
 
 namespace dandb::platform {
 
-    FileLock::FileLock(std::filesystem::path path, void* handle) : path_(std::move(path)), handle_(handle) {}
+    FileLock::FileLock(std::filesystem::path path, void* handle) : handle_(handle), path_(std::move(path)) {}
 
     FileLock::~FileLock() { static_cast<void>(close()); }
 

@@ -15,7 +15,7 @@ namespace dandb::core {
                 if(status.ok()) throw std::invalid_argument("Status must not be Ok");
             }
 
-            Result(T value) : value_(std::move(value)), status_(Status::Ok()) {}
+            Result(T value) : status_(Status::Ok()), value_(std::move(value)) {}
 
             bool ok() const {
                 return value_.has_value();
