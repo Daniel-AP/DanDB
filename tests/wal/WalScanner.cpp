@@ -426,8 +426,12 @@ TEST_CASE("WalScanner rejects a WAL for a different database", "[wal][wal-scanne
 TEST_CASE("WalScanner rejects unknown record types", "[wal][wal-scanner]") {
     const dandb::testutil::TempDir temp_dir;
     const auto path = temp_dir.wal_path();
+    std::array<std::byte, WAL_COMMIT_RECORD_SIZE> unknown_record_bytes{};
+
+    REQUIRE(write_u32_le(unknown_record_bytes, 0, 99).ok());
+
     write_valid_wal_header(path, DATABASE_ID);
-    append_file_bytes(path, make_record_type_bytes(99));
+    append_file_bytes(path, unknown_record_bytes);
 
     require_corruption(path);
 }
