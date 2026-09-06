@@ -381,7 +381,7 @@ namespace dandb::storage {
 
             if(dirty_page_id == HEADER_PAGE_ID) continue;
 
-            auto require_unpinned_result = bpm_.require_unpinned(dirty_page_id);
+            auto require_unpinned_result = bpm_.is_unpinned(dirty_page_id);
             if(!require_unpinned_result.ok()) {
                 return require_unpinned_result.status();
             }

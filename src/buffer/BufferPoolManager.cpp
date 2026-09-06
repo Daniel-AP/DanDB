@@ -246,7 +246,7 @@ namespace dandb::buffer {
 
     }
 
-    core::Result<bool> BufferPoolManager::require_unpinned(storage::PageId page_id) {
+    core::Result<bool> BufferPoolManager::is_unpinned(storage::PageId page_id) {
 
         if(page_id == storage::INVALID_PAGE_ID) {
             return core::Status::InvalidArgument("Cannot mark clean page: invalid page id");
