@@ -1,0 +1,153 @@
+{{- if and .Site.Params.cusdisAppId (ne .Params.comments false) }}
+<section class="comments" id="comments">
+  <h2 class="comments-title">{{ i18n "comments_title" }}</h2>
+
+  <div id="comments-list" class="comments-list" aria-live="polite">
+    <p class="comments-loading">{{ i18n "comments_loading" }}</p>
+  </div>
+
+  <div class="comments-form-wrap">
+    <h3 class="comments-form-title">{{ i18n "comments_form_title" }}</h3>
+    <form id="comment-form" class="comment-form" novalidate>
+
+      <div class="comment-form-row">
+        <div class="comment-form-field">
+          <label for="comment-nickname">{{ i18n "comments_nickname" }} <span class="comment-required" aria-hidden="true">*</span></label>
+          <input type="text" id="comment-nickname" name="nickname" required aria-required="true" autocomplete="nickname" placeholder="{{ i18n "comments_nickname_placeholder" }}">
+        </div>
+        <div class="comment-form-field">
+          <label for="comment-email">{{ i18n "comments_email" }} <span class="comment-required" aria-hidden="true">*</span></label>
+          <input type="email" id="comment-email" name="email" required aria-required="true" autocomplete="email" placeholder="you@example.com">
+          <span class="comment-field-hint">{{ i18n "comments_email_hint" }}</span>
+        </div>
+      </div>
+
+      <div class="comment-form-row">
+        <div class="comment-form-field">
+          <label for="comment-firstname">{{ i18n "comments_firstname" }}</label>
+          <input type="text" id="comment-firstname" name="firstname" autocomplete="given-name">
+        </div>
+        <div class="comment-form-field">
+          <label for="comment-lastname">{{ i18n "comments_lastname" }}</label>
+          <input type="text" id="comment-lastname" name="lastname" autocomplete="family-name">
+        </div>
+      </div>
+
+      <div class="comment-form-field">
+        <label for="comment-content">{{ i18n "comments_content" }} <span class="comment-required" aria-hidden="true">*</span></label>
+        <textarea id="comment-content" name="content" required aria-required="true" rows="5" placeholder="{{ i18n "comments_content_placeholder" }}"></textarea>
+      </div>
+
+      <div class="comment-form-footer">
+        <p class="comment-form-note">{{ i18n "comments_required_note" }}</p>
+        <button type="submit" class="comment-submit">{{ i18n "comments_submit" }}</button>
+      </div>
+
+      <div id="comment-feedback" class="comment-feedback" aria-live="polite" hidden></div>
+    </form>
+  </div>
+</section>
+
+<script>
+(function () {
+  var APP_ID  = {{ .Site.Params.cusdisAppId | jsonify }};
+  var PAGE_ID = {{ .RelPermalink | jsonify }};
+  var API_BASE = 'https://cusdis.com/api/open/comments';
+
+  function escapeHtml(str) {
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+  }
+
+  function formatDate(iso) {
+    try {
+      return new Date(iso).toLocaleDateString(document.documentElement.lang || 'en', {
+        year: 'numeric', month: 'long', day: 'numeric'
+      });
+    } catch (e) { return iso; }
+  }
+
+  function renderComments(rows) {
+    var list = document.getElementById('comments-list');
+    if (!rows || rows.length === 0) {
+      list.innerHTML = '<p class="comments-empty">{{ i18n "comments_empty" }}</p>';
+      return;
+    }
+    var html = '';
+    rows.forEach(function (c) {
+      html += '<article class="comment-item">'
+        + '<header class="comment-header">'
+        + '<span class="comment-author">' + escapeHtml(c.nickname) + '</span>'
+        + '<time class="comment-date" datetime="' + escapeHtml(c.createdAt) + '">' + formatDate(c.createdAt) + '</time>'
+        + '</header>'
+        + '<div class="comment-body">' + escapeHtml(c.content).replace(/\n/g, '<br>') + '</div>'
+        + '</article>';
+    });
+    list.innerHTML = html;
+  }
+
+  fetch(API_BASE + '?appId=' + encodeURIComponent(APP_ID) + '&pageId=' + encodeURIComponent(PAGE_ID))
+    .then(function (r) { return r.json(); })
+    .then(function (data) {
+      var rows = (data.data && data.data.rows)
+        ? data.data.rows.filter(function (c) { return c.approved; })
+        : [];
+      renderComments(rows);
+    })
+    .catch(function () {
+      document.getElementById('comments-list').innerHTML =
+        '<p class="comments-empty">{{ i18n "comments_load_error" }}</p>';
+    });
+
+  document.getElementById('comment-form').addEventListener('submit', function (e) {
+    e.preventDefault();
+    var form     = e.target;
+    var nickname  = form.nickname.value.trim();
+    var email     = form.email.value.trim();
+    var firstname = form.firstname.value.trim();
+    var lastname  = form.lastname.value.trim();
+    var content   = form.content.value.trim();
+
+    var nameParts = [firstname, lastname].filter(Boolean);
+    var displayName = nameParts.length > 0
+      ? nameParts.join(' ') + ' (' + nickname + ')'
+      : nickname;
+
+    var feedback = document.getElementById('comment-feedback');
+    var btn      = form.querySelector('.comment-submit');
+    btn.disabled = true;
+    feedback.hidden = true;
+
+    fetch(API_BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        appId:    APP_ID,
+        pageId:   PAGE_ID,
+        content:  content,
+        nickname: displayName,
+        email:    email
+      })
+    })
+    .then(function (r) {
+      if (!r.ok) throw new Error('server error');
+      feedback.textContent = '{{ i18n "comments_submitted" }}';
+      feedback.className   = 'comment-feedback comment-feedback--success';
+      feedback.hidden      = false;
+      form.reset();
+    })
+    .catch(function () {
+      feedback.textContent = '{{ i18n "comments_submit_error" }}';
+      feedback.className   = 'comment-feedback comment-feedback--error';
+      feedback.hidden      = false;
+    })
+    .finally(function () {
+      btn.disabled = false;
+    });
+  });
+})();
+</script>
+{{- end }}

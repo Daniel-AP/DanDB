@@ -1,0 +1,46 @@
+baseURL = "http://127.0.0.1:1313/"
+locale = "en"
+title = "DanDB"
+theme = "shizuka"
+
+[pagination]
+  pagerSize = 5
+
+[params]
+  authorName = "Daniel-AP"
+  description = "Engineering notes for a relational database built in C++."
+  dateFormat = "January 2, 2006"
+  rssLimit = 20
+  github = "https://github.com/Daniel-AP/DanDB"
+  website = "https://github.com/Daniel-AP"
+  enableCookieConsent = false
+
+[outputs]
+  home = ["HTML", "RSS"]
+  section = ["HTML", "RSS"]
+
+[taxonomies]
+  tag = "tags"
+  category = "categories"
+  series = "series"
+
+[menu]
+  [[menu.main]]
+    name = "Journal"
+    url = "/posts/"
+    weight = 1
+
+  [[menu.main]]
+    name = "Repository"
+    url = "https://github.com/Daniel-AP/DanDB"
+    weight = 2
+
+[markup]
+  [markup.goldmark]
+    [markup.goldmark.renderer]
+      unsafe = false
+  [markup.highlight]
+    codeFences = true
+    lineNos = false
+    noClasses = true
+    style = "monokailight"

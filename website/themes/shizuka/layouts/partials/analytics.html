@@ -1,0 +1,34 @@
+{{- if and .Site.Params.googleAnalyticsID .Site.Params.enableCookieConsent }}
+<!-- Google Analytics (conditional on cookie consent) -->
+<script>
+  // Set default: GA will not track until user accepts
+  window.cookieConsent = false;
+  // Check if user previously accepted (will be set by cookie-consent-script)
+  const consentCookie = document.cookie.split(';').find(c => c.trim().startsWith('shizuka-cookie-consent='));
+  if (consentCookie && consentCookie.includes('accepted')) {
+    window.cookieConsent = true;
+  }
+</script>
+<script async src="https://www.googletagmanager.com/gtag/js?id={{ . }}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  // Only configure GA if user has consented
+  if (window.cookieConsent) {
+    gtag('config', '{{ . }}');
+  } else {
+    // Still load gtag but don't send data
+    gtag('config', '{{ . }}', { 'anonymize_ip': true, 'allow_google_signals': false, 'allow_ad_personalization_signals': false });
+  }
+</script>
+{{- else if .Site.Params.googleAnalyticsID }}
+<!-- Google Analytics (no consent required) -->
+<script async src="https://www.googletagmanager.com/gtag/js?id={{ . }}"></script>
+<script>
+  window.dataLayer = window.dataLayer || [];
+  function gtag(){dataLayer.push(arguments);}
+  gtag('js', new Date());
+  gtag('config', '{{ . }}');
+</script>
+{{- end -}}

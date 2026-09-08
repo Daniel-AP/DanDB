@@ -1,0 +1,13 @@
+name = "Shizuka"
+license = "CC-BY-4.0"
+licenselink = "https://github.com/carmelolg/shizuka/blob/main/LICENSE"
+description = "A minimal, clean Hugo blog theme with dark mode, reading time, archive and i18n support."
+homepage = "https://github.com/carmelolg/shizuka"
+demosite = "https://carmelolg.github.io/shizuka/"
+tags = ["blog", "minimal", "dark-mode", "responsive", "personal"]
+features = ["blog", "dark-mode", "archive", "rss", "responsive", "i18n"]
+min_version = "0.100.0"
+
+[author]
+  name = "carmelolg"
+  homepage = "https://carmelolg.github.io"

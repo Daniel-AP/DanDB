@@ -1,0 +1,123 @@
+[skip_to_content]
+other = "Skip to content"
+
+[back_to_posts]
+other = "← All posts"
+
+[back_to_blog]
+other = "← Back to blog"
+
+[back_to_home]
+other = "← Back to home"
+
+[toc_title]
+other = "Table of Contents"
+
+[previous]
+other = "← Previous"
+
+[next]
+other = "Next →"
+
+[related_posts_aria]
+other = "Related posts"
+
+[all_articles]
+other = "All articles"
+
+[pagination_aria]
+other = "Pagination"
+
+[archive_description]
+other = "All articles, from first to last."
+
+[articles_written]
+one = "1 article written"
+other = "{{ . }} articles written"
+
+[latest_posts]
+other = "Latest posts"
+
+[view_all]
+other = "View all →"
+
+[reading_time]
+other = "min read"
+
+[footer_pages]
+other = "Pages"
+
+[footer_section_title]
+other = "About"
+
+[all_rights_reserved]
+other = "all rights reserved"
+
+[footer_nav_aria]
+other = "Footer navigation"
+
+[main_nav_aria]
+other = "Main navigation"
+
+[theme_toggle_dark]
+other = "Switch to dark theme"
+
+[theme_toggle_light]
+other = "Switch to light theme"
+
+[page_not_found]
+other = "This page does not exist."
+
+[page_not_found_message]
+other = "Maybe it was moved, maybe it never existed.<br>Like some thoughts — gone before they're written down."
+
+[comments_title]
+other = "Comments"
+
+[comments_loading]
+other = "Loading comments…"
+
+[comments_empty]
+other = "No comments yet. Be the first to share your thoughts."
+
+[comments_load_error]
+other = "Could not load comments."
+
+[comments_form_title]
+other = "Leave a comment"
+
+[comments_nickname]
+other = "Nickname"
+
+[comments_nickname_placeholder]
+other = "your_handle"
+
+[comments_email]
+other = "Email"
+
+[comments_email_hint]
+other = "Never displayed publicly."
+
+[comments_firstname]
+other = "First name"
+
+[comments_lastname]
+other = "Last name"
+
+[comments_content]
+other = "Comment"
+
+[comments_content_placeholder]
+other = "Write your comment here…"
+
+[comments_required_note]
+other = "* Required fields"
+
+[comments_submit]
+other = "Post comment"
+
+[comments_submitted]
+other = "Your comment has been submitted and is awaiting moderation. Thank you!"
+
+[comments_submit_error]
+other = "Could not submit your comment. Please try again."

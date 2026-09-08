@@ -1,0 +1,42 @@
+<header class="site-header">
+  <div class="site-wrapper">
+    <div class="site-header-inner">
+      {{- if not .IsHome }}
+      <a href="{{ .Site.Home.RelPermalink }}" class="site-title">
+        {{ .Site.Title }}
+      </a>
+      {{- else }}
+      <a href="{{ .Site.Home.RelPermalink }}" class="site-title">
+        {{ .Site.Title }}
+      </a>
+      {{- end }}
+      <div class="site-header-right">
+        <nav class="site-nav" aria-label="{{ i18n "main_nav_aria" }}">
+          {{- range .Site.Menus.main }}
+          <a href="{{ .URL }}"{{ if or (eq $.RelPermalink .URL) (hasPrefix $.RelPermalink .URL) }} aria-current="page"{{ end }}>{{ .Name }}</a>
+          {{- end }}
+        </nav>
+        <button id="theme-toggle" class="theme-toggle"
+          aria-label="{{ i18n "theme_toggle_dark" }}"
+          data-label-dark="{{ i18n "theme_toggle_dark" }}"
+          data-label-light="{{ i18n "theme_toggle_light" }}"
+          title="{{ i18n "theme_toggle_dark" }}">
+          <svg id="theme-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <!-- Sun icon -->
+            <circle cx="12" cy="12" r="5" class="theme-icon-sun"></circle>
+            <line x1="12" y1="1" x2="12" y2="3" class="theme-icon-sun"></line>
+            <line x1="12" y1="21" x2="12" y2="23" class="theme-icon-sun"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64" class="theme-icon-sun"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78" class="theme-icon-sun"></line>
+            <line x1="1" y1="12" x2="3" y2="12" class="theme-icon-sun"></line>
+            <line x1="21" y1="12" x2="23" y2="12" class="theme-icon-sun"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36" class="theme-icon-sun"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22" class="theme-icon-sun"></line>
+            <!-- Moon icon -->
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" class="theme-icon-moon"></path>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</header>

@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html lang="{{ .Site.Language.Locale }}">
+<head>
+  {{ partial "head.html" . }}
+</head>
+<body>
+  <a href="#main-content" class="skip-link">{{ i18n "skip_to_content" }}</a>
+  {{ partial "header.html" . }}
+  <main id="main-content">
+    <div class="site-wrapper">
+      {{- block "main" . }}{{- end }}
+    </div>
+  </main>
+  {{ partial "footer.html" . }}
+  <script>
+  (function() {
+    var toggle = document.getElementById('theme-toggle');
+    var icon   = document.getElementById('theme-icon');
+    if (!toggle) return;
+
+    function getEffectiveTheme() {
+      var saved = localStorage.getItem('theme');
+      if (saved === 'dark' || saved === 'light') return saved;
+      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    }
+
+    function applyTheme(theme) {
+      document.documentElement.setAttribute('data-theme', theme);
+      localStorage.setItem('theme', theme);
+      updateIcon(theme);
+    }
+
+    function updateIcon(theme) {
+      var labelDark = toggle.dataset.labelDark;
+      var labelLight = toggle.dataset.labelLight;
+      toggle.setAttribute('aria-label', theme === 'dark' ? labelLight : labelDark);
+      // The SVG icon visibility is handled by CSS with data-theme attribute
+    }
+
+    toggle.addEventListener('click', function() {
+      applyTheme(getEffectiveTheme() === 'dark' ? 'light' : 'dark');
+    });
+
+    // Sync icon with current effective theme on load
+    updateIcon(getEffectiveTheme());
+
+    // Update icon if system preference changes and user has no manual override
+    window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', function(e) {
+      if (!localStorage.getItem('theme')) {
+        updateIcon(e.matches ? 'dark' : 'light');
+      }
+    });
+  })();
+  </script>
+</body>
+</html>

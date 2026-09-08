@@ -1,0 +1,44 @@
+{{ define "main" }}
+<section class="home-intro">
+  <h1 class="sr-only">{{ .Site.Title }}</h1>
+  <div class="home-intro-text">
+    {{ with .Content }}
+      {{ . }}
+    {{ else }}
+      <p>{{ .Site.Params.description }}</p>
+    {{ end }}
+  </div>
+</section>
+
+{{- $posts := where .Site.RegularPages "Section" "posts" -}}
+{{- if gt (len $posts) 0 }}
+<div class="home-latest-section">
+  <div class="home-latest-header">
+    <p class="home-section-title">{{ i18n "latest_posts" }}</p>
+    {{- if gt (len $posts) 3 }}
+    <a href="{{ "posts/" | relURL }}" class="home-latest-link">{{ i18n "view_all" }}</a>
+    {{- end }}
+  </div>
+
+  <div class="home-post-list">
+    <ul class="post-list">
+      {{- range first 3 $posts -}}
+      <li class="post-list-item">
+        <a href="{{ .RelPermalink }}" class="post-list-link">
+          <div class="post-list-header">
+            <h2 class="post-list-title">{{ .Title }}</h2>
+            <div class="post-list-meta">
+              <span class="post-list-reading">{{ .ReadingTime }} min</span>
+            </div>
+          </div>
+          {{- with .Params.summary }}
+          <p class="post-list-summary">{{ . }}</p>
+          {{- end }}
+        </a>
+      </li>
+      {{- end }}
+    </ul>
+  </div>
+</div>
+{{- end }}
+{{ end }}

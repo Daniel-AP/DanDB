@@ -1,0 +1,60 @@
+{{ define "main" }}
+<article class="content-narrow" itemscope itemtype="https://schema.org/BlogPosting">
+  <header class="article-header">
+    {{- if eq .Section "posts" }}
+    <div class="article-breadcrumb">
+      <a href="{{ "posts/" | relURL }}">{{ i18n "back_to_posts" }}</a>
+    </div>
+    {{- end }}
+    <h1 class="article-title" itemprop="headline">{{ .Title }}</h1>
+    {{ partial "meta.html" . }}
+    {{- with .Params.summary }}
+    <p class="article-summary" itemprop="description">{{ . }}</p>
+    {{- end }}
+  </header>
+
+  {{- if .Params.toc }}
+  <div class="toc">
+    <p class="toc-title">{{ i18n "toc_title" }}</p>
+    {{ .TableOfContents }}
+  </div>
+  {{- end }}
+
+  <div class="article-body" itemprop="articleBody">
+    {{ .Content }}
+  </div>
+
+  <footer class="article-footer">
+    <div class="article-footer-back">
+      <a href="{{ "posts/" | relURL }}" class="article-back-link">{{ i18n "back_to_blog" }}</a>
+    </div>
+  </footer>
+
+  {{ partial "comments.html" . }}
+
+  {{- $prev := .PrevInSection -}}
+  {{- $next := .NextInSection -}}
+  {{- if or $prev $next }}
+  <nav class="post-nav" aria-label="{{ i18n "related_posts_aria" }}">
+    <div class="post-nav-item prev">
+      {{- if $prev }}
+      <a class="post-nav-card" href="{{ $prev.RelPermalink }}">
+        <span class="post-nav-label">{{ i18n "previous" }}</span>
+        <span class="post-nav-title">{{ $prev.Title }}</span>
+        <span class="post-nav-meta">{{ $prev.ReadingTime }} min</span>
+      </a>
+      {{- end }}
+    </div>
+    <div class="post-nav-item next">
+      {{- if $next }}
+      <a class="post-nav-card" href="{{ $next.RelPermalink }}">
+        <span class="post-nav-label">{{ i18n "next" }}</span>
+        <span class="post-nav-title">{{ $next.Title }}</span>
+        <span class="post-nav-meta">{{ $next.ReadingTime }} min</span>
+      </a>
+      {{- end }}
+    </div>
+  </nav>
+  {{- end }}
+</article>
+{{ end }}
