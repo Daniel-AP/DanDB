@@ -12,6 +12,13 @@
   --color-link:        #4F5D3A;
   --color-link-hover:  #4F5D3A;
   --color-code-bg:     #EDEAE5;
+  --color-code-keyword:#00A8C8;
+  --color-code-name:   #111111;
+  --color-code-type:   #75AF00;
+  --color-code-string: #D88200;
+  --color-code-number: #AE81FF;
+  --color-code-operator:#F92672;
+  --color-code-comment:#75715E;
   --color-selection:   #D4C5B2;
 
   --font-body: "Times New Roman", Times, serif;
@@ -565,6 +572,23 @@ pre code {
   font-size: 0.85rem;
   border-radius: 0;
 }
+
+.chroma {
+  color: var(--color-code-name);
+  background-color: var(--color-code-bg);
+  -webkit-text-size-adjust: none;
+}
+
+.chroma .line { display: flex; }
+.chroma :is(.k, .kc, .kd, .kp, .kr, .kt, .no) { color: var(--color-code-keyword); }
+.chroma :is(.na, .nc, .nd, .ne, .nx, .nf, .fm) { color: var(--color-code-type); }
+.chroma :is(.s, .sa, .sb, .sc, .dl, .sd, .s2, .sh, .si, .sx, .sr, .s1, .ss, .ld) { color: var(--color-code-string); }
+.chroma :is(.l, .m, .mb, .mf, .mh, .mi, .il, .mo) { color: var(--color-code-number); }
+.chroma :is(.kn, .nt, .o, .ow, .or, .gd) { color: var(--color-code-operator); }
+.chroma :is(.c, .ch, .cm, .c1, .cs, .cp, .cpf, .gu) { color: var(--color-code-comment); }
+.chroma .err { color: #960050; background-color: #1E0010; }
+.chroma .ge { font-style: italic; }
+.chroma .gs { font-weight: bold; }
 
 /* ==============================
    9. Blockquote & Figures
@@ -1395,6 +1419,13 @@ figcaption {
     --color-link:        #B8C68D;
     --color-link-hover:  #B8C68D;
     --color-code-bg:     #242420;
+    --color-code-keyword:#66D9EF;
+    --color-code-name:   #F8F8F2;
+    --color-code-type:   #A6E22E;
+    --color-code-string: #E6DB74;
+    --color-code-number: #AE81FF;
+    --color-code-operator:#F92672;
+    --color-code-comment:#8A8580;
     --color-selection:   #3D3530;
   }
 }
@@ -1411,6 +1442,13 @@ figcaption {
   --color-link:        #B8C68D;
   --color-link-hover:  #B8C68D;
   --color-code-bg:     #242420;
+  --color-code-keyword:#66D9EF;
+  --color-code-name:   #F8F8F2;
+  --color-code-type:   #A6E22E;
+  --color-code-string: #E6DB74;
+  --color-code-number: #AE81FF;
+  --color-code-operator:#F92672;
+  --color-code-comment:#8A8580;
   --color-selection:   #3D3530;
 }
 

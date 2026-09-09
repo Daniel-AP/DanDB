@@ -42,5 +42,5 @@ theme = "shizuka"
   [markup.highlight]
     codeFences = true
     lineNos = false
-    noClasses = true
+    noClasses = false
     style = "monokailight"
