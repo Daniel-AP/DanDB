@@ -32,8 +32,8 @@
 
   {{ partial "comments.html" . }}
 
-  {{- $prev := .PrevInSection -}}
-  {{- $next := .NextInSection -}}
+  {{- $prev := .NextInSection -}}
+  {{- $next := .PrevInSection -}}
   {{- if or $prev $next }}
   <nav class="post-nav" aria-label="{{ i18n "related_posts_aria" }}">
     <div class="post-nav-item prev">
