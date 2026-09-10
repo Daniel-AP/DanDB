@@ -53,7 +53,7 @@ The handle then marks its internal pin as dirty. While the handle remains alive,
 
 ## Eviction
 
-When the buffer pool caches a page, it first uses an unused frame. Once every frame has held a page, it asks `LRUReplacer` for a victim.
+When the buffer pool caches a page, it first uses an unused frame. Once every frame has held a page, it asks `LRUReplacer`, which follows a least recently used (LRU) policy, for a victim.
 
 DanDB's replacer tracks frame IDs that are currently eligible for replacement. Pinning a frame removes it from that set. Releasing the final pin adds the frame back only when it is clean. The newly eligible frame goes to the front of the LRU list, and replacement takes the frame at the back.
 

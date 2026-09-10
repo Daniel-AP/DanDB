@@ -11,7 +11,7 @@ DanDB takes SQL text and turns it into data stored on disk. The first parts figu
 
 *A SQL statement passes through four main parts. Each part does one kind of work and hands the result to the next.*
 
-The diagram reads top-down, although some parts are shared. The catalog helps both binding and execution. The pager brings together pages from memory, the write-ahead log, and the main database file.
+The diagram reads top-down, although some parts are shared. The catalog helps both binding and execution. The pager brings together pages from memory, the write-ahead log (WAL), and the main database file.
 
 ### SQL Processing
 

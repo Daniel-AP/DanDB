@@ -7,13 +7,13 @@ DanDB is a small relational database engine that I built from scratch in C++20. 
 
 Reading about database internals helped, but implementing them made the ideas much easier to understand.
 
-## What it can do
+## What It Can Do
 
 DanDB covers the basic workflow of a relational database. It can create tables and indexes, insert, query, update, and delete rows, enforce primary-key, unique, and non-null constraints, and group changes in explicit transactions. Committed data remains available after reopening the database, and checkpoints keep the main database file up to date.
 
-Its scope is intentionally focused. DanDB supports a limited part of SQL, runs on Windows, and is a learning project rather than a replacement for a production database.
+Its scope is intentionally focused. DanDB supports a limited part of SQL, runs on Windows.
 
-## In practice
+## In Practice
 
 DanDB runs locally as a command-line program. Pass it a path and it will either open the database at that location or create a new one:
 
@@ -31,7 +31,7 @@ SELECT * FROM users;
 
 Statements end with a semicolon. The `.help` command shows the available operations, and `.exit` closes the program. Opening `example.dandb` again brings back the committed rows stored in it.
 
-## Build and test
+## Build and Test
 
 The repository includes CMake presets for a C++20 build with g++ and Ninja. From the project root, the complete debug workflow is:
 
