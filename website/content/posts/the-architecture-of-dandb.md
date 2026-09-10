@@ -7,7 +7,7 @@ DanDB takes SQL text and turns it into data stored on disk. The first parts figu
 
 ## Overview
 
-![Top-down map of the DanDB architecture](/diagrams/dandb-architecture.svg)
+![Top-down map of the DanDB architecture](../../diagrams/dandb-architecture.svg)
 
 *A SQL statement passes through four main parts. Each part does one kind of work and hands the result to the next.*
 

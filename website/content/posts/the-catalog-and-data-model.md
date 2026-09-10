@@ -50,7 +50,7 @@ After validation, the loader assembles the in-memory lookup structures. The next
 
 A catalog change must update two representations of the same database structure. `CREATE TABLE`, for example, writes metadata rows and allocates a table B+ tree through the pager. It also adds the corresponding descriptors, schema, and lookup entries to the in-memory catalog. If only the pages changed, the current catalog would not know that the table exists. If only the in-memory state changed, reopening the database would not find the metadata or storage it describes. Both representations therefore follow the same transaction outcome.
 
-![Catalog state across a transaction](/diagrams/catalog-transaction-state.svg)
+![Catalog state across a transaction](../../diagrams/catalog-transaction-state.svg)
 
 *Catalog lookups prefer the staged state whenever a transaction has changed the catalog. Commit publishes that state, while rollback discards it together with the related page changes.*
 
