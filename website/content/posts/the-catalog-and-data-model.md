@@ -1,5 +1,6 @@
 ---
 title: "The Catalog and Data Model"
+weight: 4
 ---
 
 The [previous post](/posts/from-sql-text-to-execution/) ends when DanDB has a bound statement. Table and column names have become stable IDs and ordinals, but execution still needs to know what those objects mean, where their data begins, and how a row is represented. The catalog and data model provide that information.

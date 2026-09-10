@@ -1,5 +1,6 @@
 ---
 title: "What Is DanDB?"
+weight: 1
 ---
 
 DanDB is a small relational database engine that I built from scratch in C++20. It accepts a subset of SQL and stores the data in its own persistent, page-based format. I made it to understand how databases work internally by building one myself.

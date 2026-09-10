@@ -1,5 +1,6 @@
 ---
 title: "From SQL Text to Execution"
+weight: 3
 ---
 
 A SQL statement may look complete to the person writing it, but DanDB cannot act on the text directly. It first has to recognize the words and symbols, understand their structure, connect the names to the open database, and choose the code that will perform the operation. This is definitely the job for a compiler or interpreter.

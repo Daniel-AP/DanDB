@@ -1,5 +1,6 @@
 ---
 title: "The Architecture of DanDB"
+weight: 2
 ---
 
 DanDB takes SQL text and turns it into data stored on disk. The first parts figure out what the SQL means. The next parts read or change rows and indexes. The last parts manage pages, transactions, and files.
