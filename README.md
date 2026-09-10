@@ -4,6 +4,8 @@ DanDB is a small relational database engine that I built from scratch in C++20. 
 
 Reading about database internals helped, but implementing them made the ideas much easier to understand.
 
+[Read the DanDB documentation](https://daniel-ap.github.io/DanDB/)
+
 ## What It Can Do
 
 DanDB covers the basic workflow of a relational database. It can create tables and indexes, insert, query, update, and delete rows, enforce primary-key, unique, and non-null constraints, and group changes in explicit transactions. Committed data remains available after reopening the database, and checkpoints keep the main database file up to date.
@@ -49,12 +51,13 @@ Statements end with a semicolon. The `.help` command shows the available operati
 
 The design journal continues from the system overview into each major layer:
 
-1. [The Architecture of DanDB](website/content/posts/the-architecture-of-dandb.md)
-2. [From SQL Text to Execution](website/content/posts/from-sql-text-to-execution.md)
-3. [The Catalog and Data Model](website/content/posts/the-catalog-and-data-model.md)
-4. [Tables and Indexes as B+ Trees](website/content/posts/tables-and-indexes-as-b-trees.md)
-5. [The Pager and Buffer Pool](website/content/posts/the-pager-and-buffer-pool.md)
-6. [Transactions and the Write-Ahead Log](website/content/posts/transactions-and-the-write-ahead-log.md)
-7. [Recovery and Checkpoints](website/content/posts/recovery-and-checkpoints.md)
+1. [The Architecture of DanDB](https://daniel-ap.github.io/DanDB/posts/the-architecture-of-dandb/)
+2. [From SQL Text to Execution](https://daniel-ap.github.io/DanDB/posts/from-sql-text-to-execution/)
+3. [The Catalog and Data Model](https://daniel-ap.github.io/DanDB/posts/the-catalog-and-data-model/)
+4. [Tables and Indexes as B+ Trees](https://daniel-ap.github.io/DanDB/posts/tables-and-indexes-as-b-trees/)
+5. [The Pager and Buffer Pool](https://daniel-ap.github.io/DanDB/posts/the-pager-and-buffer-pool/)
+6. [Transactions and the Write-Ahead Log](https://daniel-ap.github.io/DanDB/posts/transactions-and-the-write-ahead-log/)
+7. [Recovery and Checkpoints](https://daniel-ap.github.io/DanDB/posts/recovery-and-checkpoints/)
+8. [Benchmarking](https://daniel-ap.github.io/DanDB/posts/benchmarking/)
 
 The repository also contains concise references for the [supported SQL grammar](docs/sql-grammar.txt), [database and WAL file formats](docs/file-format.txt), and [system tables](docs/system-tables.txt).
