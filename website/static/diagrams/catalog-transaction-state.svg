@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" role="img" aria-labelledby="title description">
+  <title id="title">Catalog state across a transaction</title>
+  <desc id="description">A catalog change creates a staged state and matching system-table page changes. Commit publishes the staged state. Rollback discards it and keeps the original committed state.</desc>
+  <defs>
+    <style>
+      @font-face {
+        font-family: Excalifont;
+        src: url("data:font/woff2;base64,d09GMgABAAAAABn4AA4AAAAALSQAABmiAAEAAAAAAAAAAAAAAAAAAAAAAAAAAAAAGhwbiyocegZgAHwRCArDaLIqC1IAATYCJAOBIAQgBYMYByAbHyOjorQy7iT7qwM7GD4+I7xWNSEMTXhpa1iL3mxMhJ1/ckkN2PdyZddKHHGcV6SGp1P/3V3uYlRx64Vr6oBlCmPoOrCD2kEsJnT63f/u/oiPASCixnT//iNcxkehUWGPFqhsdGWF82XLZjtsH8f3/67J7G6CIx5tkSh112r6H8C//5LOyv7vkpaOqXvmCgPf3lfVuJVaaWQI7a4htIeBA4KZ8f/pzKRW0/6ZERgCAttLubv1hrEzHVSh8oo+br2tRmCvvSRZhoQXA4CS5l1T3P+/n6u7iLW3RcwbIevprJWv53P/HyYPUWt/w9ISZiFyyDSVCRrFGn+NRujEwHKGkCiddanJVLV7G7oyJxe5EUmXb7yIByAAUAAgjFshaCAMvqDqpyFRMcItVvFpQHRtb6kDoseW8logeituawAiOAAA8Sh+vbcUkYAEBprh9hyWAAEJJOM6DsN9tEg8/AEz8zTNqtS7n3p/zPa9wNiPI/X6McNV9w9q9vzc3UcP+1FklR5bTOmqQDLpCOOqH2fzBo4kzvCH1x+s0j0dM1+3nJ+0scLVonuh5Iop/ehhzTQwB8u3O3h7ciZxqkVLad3PO8s7+KZrYH1vt3ZAROD/G/eGgIiMgoqGgYmNg0tAxIs3HzJyCkoZQngDjEoavAK8gYeK8CBETTOCA5dQJi4AgZtmKBELHQkb+MlMHGsFuIwMMCQLEAWA9G4C3GQaaQeglwLAYCpoZBmO8ySqxAWQbwJoEgBCcgFrADaQIYASCIlAqApsX8HZpRiOIUQ8gvIiGDHBU3BTZQGRTpXowLfnymKAKIyDfBXPn/KwsiLyB6ARCJe1ICUyyB6btNIFRcisZAEgLtggdKDxecYqta9160gEA0CsvY78A+ipVxnZA2BtK+XdTpb4dwSRA3JIgYjgVLXyMCBusDGQTbw0mQpVa9L+/wMAVWDydIcVq9XyRf6454rTjjnsoB577bE76Fb1+8eDpx+4ddp+5DVAHTcrhA/pFuJPnpBAWVBGVRSVBObMH9FkzzXz2LEW79aIMEmotjE5qVmt5Sj5+kiafzc1wyLyjFfEW4TeAXT9JDfOkZTrcpRCDzBPaeIHqzktQcuxbahMc4EbbdJltBe5uL9ZxaHQUj7O3sxnDDNjDEIJ3kow26uprX+B6OmGXiWBqqVGGuupBKRCjx8DfQYQBzPd+0FP+J3LD7RgkcysJg7lFi15sLEUC4wwZIxhtoH2EVAicNf3gK7gZrQZRbR52O9AFMM8BmKXoQ4pyfsjsmkVCE//UR3UgzQNckKPVaDVchyH5KIfuNQusuSNMQ2LjbhKNrae7V+Iq0aK6F10/Y7mOH+bVmGWEqzAvqSMYUgfB6vr9XPp3CO2dBbSI9fSnJNSrpc/qWJIq9KhhcIK47tqjyetSEOTxmBXTPSoD7AWDOybYMgSY+TMXvgN5hswBkPpdDwh0SY6nuHjxwvUAKJvt1PRH/CcHtNGw/nfXQlCXM+w/ZPt2Dx5A/CztzQFD7Qe//xztxR5RkXcNUiffuu4wjhKZEs2EskKau2cEKQlrXa7wjVf98RBXqKILiluRp+ovNusSvmTuoMv6lFA9FNwoHirVjOJAlULzmtdDlrHV+VIpw3pkUYaQ+jCJKz5fDFPC45KYh8IFrFOr1+HaY2chRTM1U3zl/nNmVKGXAuaDhnSNULFpEcxkNcFLmcIrfLGbshCzCFjghfq7Wti6yFb9ZxMtfjZdgRmg1GGrNtu7zMP5vuuxPpi7kGZgDxfHk2xbXtw45+CWxJdVK403a2lPlmlJvRtoAWgWKni/63GI45/qlqq5J/BWGDqhx/JNM0P+MR7kfzli2uEhiWLMJaVfwtbT/k2/I90zBwqmn2zmeielkwURX6Bxe3Qy3X3XElQoCtSyzG0KGM29gPk2olpWnrFsRZ3qJRvlvHd5tqa3Tef8UqCKneZLxjiBPcz4WOyUDfrJccNGUe0eUlLPhkT/LCC+BNGlji55bG31m8P6VoM3gRniVGv11E4OVRU1wO6ajgn18R4TNdFLl49jQmv3VbjlDhejUrx7uQgbiIZR48w/dPh5/rtC/Y9YW5CX9JBAGkMpuxF2wm2dDHTi2efvNNpzUmQ0mC1qWrixi2CK7PPUlorb6XIZkQxDC3kDeZvGuzbmGzIWzqsSRWAIySFmBKBk6xHBbJtu5aWGlps7h7Ug9xA1Dk/eWbI1Ae8s69EuM60KTNlKtESeoNrnAWvJ3gREu38zOX8VuOjjxqoBS7dLQgNVhTuTV6Q51UTpvjmHTkskKlJXmpMd+0KHGiNC2QHNRiJAf2u2kSjWs2id9aaN3CTVhl/gV0m5xI8lZQu2IfiNaNDUEvTknbaaFOTDvmzr4TeRljjkEE9w7xEudt4fjSd0x2OIo24bjSj9Xx3Pxcsitnbfr55Zjw1ufyAHbtcN+G7xXWpIMz2YtnQbO9jG88vk0x0d1AwXJaSl2YuwSWyMbEbTGsZP3RhrbVB3PFcY/jq6G1eLraHxciXQ4DAIQOiN2DxfVIt+Dg6nyVWl4eC2reoQUmTONX8MqBlojT3d/fLameRJlxMLN7G0c6WupaLvZ2/kZYTHAFJYN6q3ymb+wPuPUFIS6G+5M5GNvnJUpoFfmgKG/GpVIILx0JhIzm7vHi8OFso3o3ZI2Zq2EmGmIXz86h4piUXjsHWoLCj7RKWfgMX0sTl4rEh67QzaAwrs4OySdtLzMzHyvcgNPWI5LMQkFVcNYX6MjGeNnigkwQpWUmgezuEXqIoO7j+jPP+SB1YM4SYXwyPIi0ecJpw7YEFZ66luS1+8DrC4wqUBESfybduFgjIdqQGMoT8W6qcVbOpeqMfywa9u5NznS6DeS5VXTX9PDAw30cSTGsxaDddOuQrTt1Kdx/WrusyhixcwEIlO0opEBZvJjttWtn6mH+o/5HkPS15ZLDL9B0xH+YF+C8tTYlO02isJWVWVNdfxmrBEwYkvM4teeRGCHNuQc7mAF6E2f58zhJbBZ5Ux3OO9YgEt+Ot5Z6+UM/lpdMRpSd+OEh5UoziN5UkiUhoc+3X4V302iviFs9v8l0JwqJiuM3CKI5VlHT7CgPVFqpui36CcIh3hjvv52bqdSOb8mZcO28tixdrYbeL1RSQvNWQnrMixhINtG1Q+7pGAxvSPtGiX9FgQJe/rYm4ou4FJSMJ8h8ylkPzWz/hNFC1GIwxKpGgFgS5c4fKeExneyW8xRSr2qorREBB7dHv2u1cVzfp9cZ1hMlx2zegteBtAznP6XbbGRFnAaRAA7gik9cV+BbO/iLbcRziOEib5S9C6a+LxRP6td+iF59ZpEcqKhYMRfL4H5wpefr21JVqtP9qOfvn8sHbZx8vJoKCsQR9UlkUTsyBbsJIYd/2oIsET9XOwNxWSywJMTNB1brSoQ83vL4evkNoSYfkKVmRHdpkcPDPUjCcX2rX6Bfgtb0IAiAPX02KVqnqA3+5urwq6fs9zZWSXExSgDWinTbRi/Sr9dmmPytPFE7w0eJd9Mkny8z4WV4Cs7XHeZCa4tASjbS7jYkhTNk5gvng8zlauwz9PtFtZ5GyDRKbRs5TEq+0uSiir3fLmMo6utDDanNhNMUhQzhRyv6h/NwNCQvxJKOgdyPJ9gtUA4dMX067bHxioE10y5klTxRLOyN/iJnKM/eOO+7QJH95QgxGIiNn1lseGD2Q3dJq1SAYZejv8cqKuitoi2+lTtNd9P2G2POiLCMZ36HN5AFUnUXm48vibYWV47NXPCV/yFFxQzrJGBjQlvSKDZF5TvPloFwUrun2iNxL+jIhCBnDJzmBoagp3JKxG4HeEiYLP802jXUDwm02OGQ4AqXroL9mb6JbUjp4DPQd0v9ajXOif76R8PwdbUHpWj1urnJtiBBPZCqMatETQ6Jx546wtEjHdenDvs/kWIs8gWLoxShRtWhRXCdYJs98LmVxhI6htWt8t+pFbuBm//XyTUqSuP230jov7uxLWwcP+l7x396js8+axdki30QSReIrpFo/mjQd6aSSOMb1zRtS7ntRbiLD+/omzsKwPJkiIwymIHAFMod59yVzw8V3ij8chYofXmYZRnNUsUYSDgGhlrr/SZuLMuRJWpIOLbLO4C3nkCkPMM2RsrKtjG0ytvvvgsz3I9a/XRNss3zi5EGTocamHs5RgK+my7wxCIJLRMtpMKv7zHQFRIa2/6fSJjBdKCGNveLnzdg7rElsbr2yr0wVAjJDPkksN1XZTauBBZiN8VYMb0ONkhFN8b+cjOQR57Qjp2kDZGQusOMayny4F0kIi3C3+6wlGNXCt01xkFvTQm3PYTt83tWlYdYprjyTN0PJNLOOGNJWHmqymlE3lVEwaYHfc7mGy7BUcNpHORApcaWQscLgySlDOmI/TIIXpqjOpghjpnPtI3LDP8e0EclO+BpYDEVO8xs6ZE5fw63OXWDOMXlWtooxeCQDBz+Q2D42TPAddz4JPimqsjAZAPp7n60qbXb+EJOU9/TFe1vOskS3ztTguRAgKdgihE2zp7cLRydPjBMAl+QV4XBn2cU+uMfdnNLfj6HMEZ9zKkl2mMQnnHYQz0JAFs93+/aF3fIgb/xoEc9Q0mYkp9tT7DLj4cJrjrsXrhWdu2/yKWPOoctH2Z91rCVVRGtY9nQ8mqyOzSztzG3wxFuHH4NM0VAOzsx2NcQqianHwDoK50e624TNjcJnEywEfHZ6ofY+arQqiQcYjiHuo237Fp7e0ylapxi+ZOmyP9CY0MENakVvI87O32Th7ftWjq9sqvAPQgo8rfQeUs+A5czvlcOvp4zHXRnBT/JQpMgOTXLiLhY3G2EfN8YoG4GhiUga/eLD6DFbu+bRh4p+zt44sT4ZfGQQO2m95YRuJy7kmUslz9GP5saqAwuCCFgh9GhpMJm9kRq75WnWW/98TzYxu+GxXALlYJnrUmanjANMj4rxRKQ2BFSw84MhMykn1mNe/H9wqt/hdoNBL6LuT1+Vjq3C6tkl8vmB9gJufxzItH988LOgrNEsn6sVxEfwgZiKxcR1w6B3BquV+cD47sxI/jRABvbkyL1M+YJhG3Gme3rZXUARlcAkD/B0jueWEI3l1Ml/AIITvx1Kp/krtvYM0k3PQqqCMUlFFcEVWt1XpsjmCcMOpGmm+qXznB3a6iLylhKFKfUjwg5KPvuE9cY99NpZwWwuliO8Jb57h7Hs7xeU6Kt+tazZLxv0K4goePgzzRtgAZrObUbh9vTqzHJgzU0NBWMhwiX9zf+q0t2t8fbPbMm570slFwxc8V/fqesVO4aNC7gZpDOx2K/CsyjEBtxmGI3Ti8Vs7htkZzFpBGEv7DgKWaUcemu66QXOv1i7vyIOdcvc6CRZTnC6Q3/Nk76r/9PjGRrydTM6CcvqjHY7oqzLWRAkrpiIMvxt5UAIt8KJ0q07cmWMkHvKpWpox1ulEYolPu5ammpTp9f7dkTSr6zuaXaroA7k0N3ZEx2gZcFn86nFJZ1GMtrVCedBbnaVas9Y3f4ETxJ2amWcT2uXPiZxWsE7U2R9OegVWrTlUCLKxv0cQstTua2MJGh8s/ePySUuPdLrc4n/0lR+Ht6Ilk9D1jUx0CaSE7oXiwvE7BIfArSc0bS+ibKZwkaND4zoY3wm+ItAIq7YgAgmSI8yzoElZEX0bBfbK7QaV87Lr/YOfF9iteo+vafV6YVunV1ctMOlmKqypx7MnLu2W8Ca/esJGbMyXjWS9PJhjOPj/2flScuoMKSFMHD/G59LbdMT/LorBub5Cp0edoNTFhdKfPDXe0tmSbK1Y4ayOBE3XWWIjZ/7/NdfQXAtpZ3J/00LqVAlWXJ36I3xwiSaE0Xjyr03wqGMcEpSLMOfnI5Gwu9g11/V2JsE6nlUCU5jD0wC5dyaq0np3AAowHY4qEza7aQn4ZnVKwy/5eXO4yfypbmCubQk3BeABpZss5+R67bzTL6W5jRzPvMKNLbciYzG62Jx2oVZ/U24ahEgkcsc/rEhxDwodRyW5sF9TuXW3GQuJXm+ROnTPelzEPdE+UNv5wqfELfU0DRzabxOnZ3BGBxzfjCN6Xj7eE2QPIl40n47/VdmDsijDoiSX5cybnzG7A3zJ/MKfR8aByUVQzGKwQHkwruwC4sfdb/y0x2FzRGb3mi+JEB9tWiLDi8YnQ+2sNQ/X9/zCUuOwhOTpoxJpNyL9YtG8Eg7HlPxyhJZjAI48tDLFI+lOuBWUGrlPglyY/GwTE8PY6z3Ez2eU/9c2NBAd7jODOo2Ne2X8D9kBkUt5q6HHcS0ci3wzTgrr6iJTo4XvC4daE6OUeKSsxEeV1t3+2fa1pL4KexJgzcsLQop536nm5echDP7W2U5j0ehre9MJC849R/tvGYu51dN5XrQS+r+OH2y/xguyzJxzNZs7gSZD6MrvB+q5QmTZwl0/a0LW9xwx5YpOz6w0Dp1790XxWfl61KhkapwfQs1keC88JNrLPvD30ujA8EbroeFu07JF44koASD5wQy/mYC4Ixk20Nz6lcahYnFfNZR64IPUgRcn0xMKGDhkuF5w9UR08OdJH1W1YfEUAdAySoyOuqAzf3tda1dao2IcO2oOMK8IRebOYU+hJGrka2dcuBhWJXkU00bJS5beTPoIXjFJSgvBrbw6ZaHR/1rda4qKuUymT9DChAcdZhWBcexkFyYR/vqz0YN5u6iHgj8eIWKJuDexOCL7TlNKVoeT+Lk+GSt9cwKgEJZtmYw/9T9T15i0pbJxWymO2WxcYZmjKwdCmNmMqcLftsEqF4eeDc+Cy/yeqQ89ye3vvHvYIJ0GAQP868BWz2uldrmmFT/baEwsUoEs3883eY+MwU8HYwqynF5nd49NN5GM1+HR/oWl0kDDkEwAYPz1ZeDbIPTvyO1fixCO95Lj9RBdtI81QE5Cidh1YpcGbTBCSax+YO3oXECKp5EPi+CyX8EtfM8feAJKOIgUYOph/GLXRBiE+/dSB0zCMaATUXyNfCbcB6lO7dQv+rLgyz/Q+84oa3sqNR7V/cuih0gZEOZJ71WKimjTqf9aJjPCh4LlxLVqdbRzNVJq7XxzxbCN2Myya2wGgyP1xbOBv0wSciqqGSZ8pR7nHwpRpCYQvUp7JDE5vXWYz4u8mIvNAEhMiwvxWdqAmmhkKXvkiyjUXbdKNlY01Xb5+1IZyUjpyDRY3EVuIkLqD7h+oKrrgmo3mPyWxYTOyNmUGvfHVM/zvNdeZNKHOeXwXMZ7GTTukpImhYS5HPuCDOt20rwDSRDpPqXfbVgVUtT0/WM40xfB2krAVSIoJQ8onXCy5/ZNip+4QhvlfMbZfzzhmjp9RTdahwR7pTga8LLFiwfvuREpAfX5bSn7VG8J8fR146jjQHzZQtpVg7aK6XwtVIqtHEdf/Oc3MmFHJQomuvkULY5xs0ksRWzQAuPOicsYvO9oSga4kJ4sBWYbOxLCoPmidemXiPZ85eF+pHBaxLM6SKT3l5ywQOr/z9PnorCEuSVut860slNmYYmv9w34suVi9M+vOhPf5UVai64j2c2S8aPBxzDUK7iwgEFuUPJcWZYTl8levWW3LhrCWNnUQYMlYeqeJtCfJGmCoX6eq9paPNOMKn4g53Ry8+30w2kpL2i7+U61Rt3v2mqbVT1WAduBGfPwNCtZGNRR2iCu1k8HlynYPhw08yHE8oFKXB0R7uPeFNfp167rVsA2cjpVCzkPVuqnuRAxCGwXBE+LOXPEr8zRK9jsRWesX6G33fjEVzRRppkWKDSgIuiOl5/ZWWD23jmmcM/G/KF7r2j+F6TgBSSALn7HdAgFmHt9OmH1rx58FUqyFy3WnQ59+J/qdiyXjFuIJ6Ov2swjbam2fLnhN4ybWGWSSwqE4YHP9EQMflv872qpdMatRHQKhhTUpmBUmbmRPxIZlq+1zg7ujjAkhlnaqm4r0RcFkkcFsjyOhdSvkqd2hf2D7Q2/VWxsWuPo1kXKzVH2/+4xx3lkRJeBZxR65NW1OKq4yYnVZgNi7JflWfcXRjMG5VBwDUvZMzYGZlabETWtaWYwyyLl4zjXmIwU8Q21nAIgQOsmytyo4w2Ls9pYLaLSy5qPweJPg0kT140P9v8mEGCeedmWdIFN4aB263ixQoJpSBs3q6oBReu2sMkwtJLHrl1pmKSkz/Rj/lhogMLfIkU0YIcf41ZfvdK5tewpEqcNXJu6liBpzRhTHSz7jkcrmgS9ETv1oSGE6NlIhI4fks+MyXi/BlbVzkpnNe6rxuqE+b1zo2+14qXUwX56nP3TsZsoKvlpzI3lvrC8FcvO7nrbv9bEdAm6GBTzuich4X0yHcEMvJwIwDAvfaxNTjh/oYnHf9T39EetwXgt+JJ8P9kd1gNfvtq3hvzfv1qCVvpAuA+72wC4M/IGYFfKYCaMzTxQc0RpgqALHfFpgGxZoMqS2TWIMVImUD68jFx8vlHyKO88qnoGoEJpfcWI1zB7gFdlooMDYQliypCoWUVdXz4xR8UOXWogJr9gpOEHhZNWfL/nW2knysA4/1xvJps9FTGz4GAGrG8zoUkGsJxIhpG0xONCNAZjSNXEo2KJkcM7xsAm9FKFatTrUKjBm2CpShXaYQ6xVpkKNeiVXVTbzG1ECpDIziam9o1qVJsJWhRE6AfgWbxUP7WExGrrXW1SuWQqCwPUqPlRrQEtEl7A1Z3UqomQr8O6B9QDdUBdR+0RPuHaigt06LoKCFV1KTOTBYPV1ozWB5AOY7E9jIhEA+20e9QAAAA") format("woff2");
+      }
+
+      text {
+        font-family: Excalifont, Xiaolai, sans-serif, "Segoe UI Emoji";
+        fill: #1e1e1e;
+      }
+
+      .title { font-size: 28px; }
+      .zone-label { font-size: 20px; }
+      .box-label { font-size: 18px; text-anchor: middle; }
+      .box-detail { font-size: 16px; text-anchor: middle; }
+      .arrow-label { font-size: 15px; text-anchor: middle; }
+      .text-blue { fill: #4a9eed; }
+      .text-purple { fill: #8b5cf6; }
+      .text-green { fill: #22c55e; }
+      .zone-blue { fill: #2563eb; }
+      .zone-purple { fill: #6d28d9; }
+      .zone-green { fill: #15803d; }
+      .arrow {
+        fill: none;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+        stroke-width: 2;
+      }
+    </style>
+
+    <marker id="arrow-blue" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#4a9eed"/>
+    </marker>
+    <marker id="arrow-purple" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#8b5cf6"/>
+    </marker>
+    <marker id="arrow-green" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#22c55e"/>
+    </marker>
+  </defs>
+
+  <rect width="1000" height="620" fill="#ffffff"/>
+  <text class="title" x="500" y="48" text-anchor="middle">Catalog State Across a Transaction</text>
+
+  <rect x="30" y="88" width="220" height="462" rx="22" fill="#dbe4ff" fill-opacity="0.35" stroke="#4a9eed" stroke-opacity="0.35"/>
+  <text class="zone-label zone-blue" x="55" y="124">Before</text>
+
+  <rect x="65" y="220" width="150" height="88" rx="16" fill="#a5d8ff" stroke="#4a9eed" stroke-width="2"/>
+  <text class="box-label text-blue" x="140" y="275">Committed state</text>
+
+  <rect x="290" y="88" width="410" height="462" rx="22" fill="#e5dbff" fill-opacity="0.35" stroke="#8b5cf6" stroke-opacity="0.35"/>
+  <text class="zone-label zone-purple" x="315" y="124">Active transaction</text>
+
+  <rect x="390" y="150" width="210" height="66" rx="16" fill="#d0bfff" stroke="#8b5cf6" stroke-width="2"/>
+  <text class="box-label text-purple" x="495" y="190">Catalog change</text>
+
+  <rect x="380" y="270" width="230" height="94" rx="16" fill="#d0bfff" stroke="#8b5cf6" stroke-width="2"/>
+  <text class="box-label text-purple" x="495" y="310">Staged state</text>
+  <text class="box-detail text-purple" x="495" y="340">Visible in the transaction</text>
+
+  <rect x="380" y="424" width="230" height="76" rx="16" fill="#d0bfff" stroke="#8b5cf6" stroke-width="2"/>
+  <text class="box-label text-purple" x="495" y="457">System-table</text>
+  <text class="box-label text-purple" x="495" y="480">page changes</text>
+
+  <path class="arrow" d="M 215 264 H 336 V 183 H 390" stroke="#4a9eed" marker-end="url(#arrow-blue)"/>
+  <text class="arrow-label text-blue" x="275" y="248">copy</text>
+
+  <path class="arrow" d="M 495 216 V 270" stroke="#8b5cf6" marker-end="url(#arrow-purple)"/>
+  <text class="arrow-label text-purple" x="570" y="248">apply change</text>
+
+  <path class="arrow" d="M 495 364 V 424" stroke="#8b5cf6" marker-end="url(#arrow-purple)"/>
+  <text class="arrow-label text-purple" x="570" y="399">same transaction</text>
+
+  <rect x="740" y="88" width="230" height="462" rx="22" fill="#d3f9d8" fill-opacity="0.3" stroke="#22c55e" stroke-opacity="0.35"/>
+  <text class="zone-label zone-green" x="765" y="124">After</text>
+
+  <rect x="780" y="184" width="150" height="100" rx="16" fill="#b2f2bb" stroke="#22c55e" stroke-width="2"/>
+  <text class="box-label text-green" x="855" y="220">COMMIT</text>
+  <text class="box-detail text-green" x="855" y="246">Staged state</text>
+  <text class="box-detail text-green" x="855" y="267">becomes committed</text>
+
+  <rect x="780" y="388" width="150" height="100" rx="16" fill="#a5d8ff" stroke="#4a9eed" stroke-width="2"/>
+  <text class="box-label text-blue" x="855" y="424">ROLLBACK</text>
+  <text class="box-detail text-blue" x="855" y="450">Committed state</text>
+  <text class="box-detail text-blue" x="855" y="471">remains</text>
+
+  <path class="arrow" d="M 610 300 H 680 V 234 H 780" stroke="#22c55e" marker-end="url(#arrow-green)"/>
+  <text class="arrow-label text-green" x="730" y="217">publish</text>
+
+  <path class="arrow" d="M 610 338 H 680 V 438 H 780" stroke="#4a9eed" marker-end="url(#arrow-blue)"/>
+  <text class="arrow-label text-blue" x="730" y="421">discard</text>
+</svg>
